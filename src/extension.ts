@@ -359,17 +359,28 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // 3. Push user message
             this._chatHistory.push({
                 role: 'user',
-                content: prompt + contextBlock + workspaceCtx
+                content: prompt
             });
 
-            // 저장용: 유저 메시지 기록 (프롬프트만, 컨텍스트 제외)
+            // 저장용: 유저 메시지 기록 (프롬프트만)
             this._displayMessages.push({ text: prompt, role: 'user' });
 
             // 4. Call Ollama
             const { ollamaBase, defaultModel, timeout } = getConfig();
+
+            // 이번 요청에만 사용할 임시 메시지 배열 생성
+            const reqMessages = [...this._chatHistory];
+            // 시스템 프롬프트(0번 인덱스)에 현재 작업 환경 정보를 주입
+            if (reqMessages.length > 0 && reqMessages[0].role === 'system') {
+                reqMessages[0] = {
+                    role: 'system',
+                    content: `${SYSTEM_PROMPT}\n\n[BACKGROUND CONTEXT - DO NOT EXPLAIN THIS TO THE USER UNLESS ASKED]\n${contextBlock}\n${workspaceCtx}`
+                };
+            }
+
             const response = await axios.post(`${ollamaBase}/api/chat`, {
                 model: modelName || defaultModel,
-                messages: this._chatHistory,
+                messages: reqMessages,
                 stream: false,
             }, { timeout });
 
