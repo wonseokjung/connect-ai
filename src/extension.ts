@@ -290,11 +290,20 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     // --------------------------------------------------------
     private async _syncSecondBrain() {
         if (!this._view) { return; }
-        const { secondBrainRepo } = getConfig();
+        let { secondBrainRepo } = getConfig();
         
+        // UX 극대화: 안 채워져 있으면 에러 내뱉지 말고 입력창 띄우기!
         if (!secondBrainRepo) {
-            vscode.window.showErrorMessage('설정에서 Second Brain Github 주소를 먼저 입력해주세요!');
-            return;
+            const inputUrl = await vscode.window.showInputBox({
+                prompt: '🧠 뇌를 연결할 깃허브 저장소 주소를 입력하세요 (Second Brain URL)',
+                placeHolder: '예: https://github.com/사용자/레포지토리'
+            });
+            if (!inputUrl) { return; } // 사용자가 취소한 경우 종료
+            
+            // 설정창에 자동 입력 및 저장
+            await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', inputUrl, vscode.ConfigurationTarget.Global);
+            secondBrainRepo = inputUrl;
+            vscode.window.showInformationMessage('✅ 깃허브 주소가 자동 저장되었습니다. 즉시 동기화를 시작합니다!');
         }
 
         const brainDir = path.join(os.homedir(), '.connect-ai-brain');
