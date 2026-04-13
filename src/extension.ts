@@ -1016,7 +1016,7 @@ function fmt(t){
   if(t.lastIndexOf('<create_file') > t.lastIndexOf('</create_file>')) t += '</create_file>';
   if(t.lastIndexOf('<edit_file') > t.lastIndexOf('</edit_file>')) t += '</edit_file>';
   if(t.lastIndexOf('<run_command') > t.lastIndexOf('</run_command>')) t += '</run_command>';
-  if((t.match(/\x60\x60\x60/g)||[]).length % 2 !== 0) t += '\n\x60\x60\x60';
+  if((t.match(/\x60\x60\x60/g)||[]).length % 2 !== 0) t += '\\n\x60\x60\x60';
 
   const blocks = [];
   function pushB(h){ blocks.push(h); return '__B' + (blocks.length-1) + '__'; }
