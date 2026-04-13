@@ -133,6 +133,11 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private _isSyncingBrain: boolean = false;
     private _brainEnabled: boolean = true; // 🧠 ON/OFF 토글 상태
 
+    // 🏛️ AI 파라미터 튜닝
+    private _temperature: number = 0.8;
+    private _topP: number = 0.9;
+    private _topK: number = 40;
+
     constructor(private readonly _extensionUri: vscode.Uri, ctx: vscode.ExtensionContext) {
         this._ctx = ctx;
         this._restoreHistory();
@@ -244,17 +249,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     this._restoreDisplayMessages();
                     break;
                 case 'openSettings':
-                    const choice = await vscode.window.showQuickPick([
-                        { label: 'Ollama (로컬 기본)', description: '초보자 추천', target: 'http://127.0.0.1:11434' },
-                        { label: 'LM Studio (고급형)', description: '맥북/고급 유저 추천', target: 'http://127.0.0.1:1234' }
-                    ], { placeHolder: '사용할 AI 엔진을 선택하세요 (선택 시 즉시 적용됩니다)' });
-                    if (choice) {
-                        await vscode.workspace.getConfiguration('connectAiLab').update('ollamaUrl', choice.target, vscode.ConfigurationTarget.Global);
-                        vscode.window.showInformationMessage(`✅ AI 엔진이 [${choice.label}] 로 변경되었습니다!`);
-                        
-                        // 사용자가 엔진을 바꾸자마자 즉시 바뀐 엔진의 모델 명단을 긁어와 웹뷰 목록(Dropdown)을 갱신합니다!
-                        await this._sendModels();
-                    }
+                    await this._handleSettingsMenu();
                     break;
                 case 'syncBrain':
                     await this._handleBrainMenu();
@@ -264,6 +259,86 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 
         // 리스너를 붙인 후 HTML을 렌더링합니다.
         webviewView.webview.html = this._getHtml();
+    }
+
+    // --------------------------------------------------------
+    // Settings Menu (Engine + AI Tuning)
+    // --------------------------------------------------------
+    private async _handleSettingsMenu() {
+        if (!this._view) return;
+
+        const currentTemp = this._temperature;
+        const modeLabel = currentTemp <= 0.3 ? '📘 백과사전' : currentTemp <= 1.0 ? '💬 밸런스' : '🎨 크리에이티브';
+
+        const pick = await vscode.window.showQuickPick([
+            { label: '🔧 AI 엔진 변경', description: 'Ollama / LM Studio 전환', action: 'engine' },
+            { label: `🎛️ AI 모드: ${modeLabel} (Temp: ${currentTemp})`, description: '파라미터 프리셋 변경', action: 'tuning' },
+            { label: '⚙️ 커스텀 파라미터', description: `T:${this._temperature} P:${this._topP} K:${this._topK}`, action: 'custom' },
+        ], { placeHolder: '⚙️ Connect AI 설정' });
+
+        if (!pick) return;
+
+        switch (pick.action) {
+            case 'engine': {
+                const engine = await vscode.window.showQuickPick([
+                    { label: 'Ollama (로컬 기본)', description: '초보자 추천', target: 'http://127.0.0.1:11434' },
+                    { label: 'LM Studio (고급형)', description: '맥북/고급 유저 추천', target: 'http://127.0.0.1:1234' }
+                ], { placeHolder: 'AI 엔진을 선택하세요' });
+                if (engine) {
+                    await vscode.workspace.getConfiguration('connectAiLab').update('ollamaUrl', (engine as any).target, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`✅ AI 엔진이 [${engine.label}] 로 변경되었습니다!`);
+                    await this._sendModels();
+                }
+                break;
+            }
+            case 'tuning': {
+                const preset = await vscode.window.showQuickPick([
+                    { label: '📘 백과사전 모드', description: 'Temp 0.1 | 정확하고 일관된 답변', temp: 0.1, topP: 0.5, topK: 10 },
+                    { label: '💬 밸런스 모드 (기본)', description: 'Temp 0.8 | 자연스러운 대화', temp: 0.8, topP: 0.9, topK: 40 },
+                    { label: '🎨 크리에이티브 모드', description: 'Temp 1.2 | 창의적이고 다양한 표현', temp: 1.2, topP: 0.95, topK: 80 },
+                    { label: '🤪 엉뚱한 시인 모드', description: 'Temp 1.7 | 극도의 창의성 (환각 주의!)', temp: 1.7, topP: 0.99, topK: 100 },
+                ], { placeHolder: '🎛️ AI 성격을 선택하세요 — 온도가 높을수록 창의적, 낮을수록 정확합니다' });
+
+                if (preset) {
+                    this._temperature = (preset as any).temp;
+                    this._topP = (preset as any).topP;
+                    this._topK = (preset as any).topK;
+                    vscode.window.showInformationMessage(`🎛️ AI 모드 변경: ${preset.label}`);
+                    this._view!.webview.postMessage({ type: 'response', value: `🎛️ **AI 모드 변경: ${preset.label}**\n\n| 파라미터 | 값 |\n|---|---|\n| Temperature | ${this._temperature} |\n| Top-P | ${this._topP} |\n| Top-K | ${this._topK} |` });
+                }
+                break;
+            }
+            case 'custom': {
+                const tempInput = await vscode.window.showInputBox({
+                    prompt: '🌡️ Temperature (0.0 ~ 2.0)',
+                    value: String(this._temperature),
+                    placeHolder: '0.8'
+                });
+                if (!tempInput) return;
+
+                const topPInput = await vscode.window.showInputBox({
+                    prompt: '📊 Top-P (0.0 ~ 1.0)',
+                    value: String(this._topP),
+                    placeHolder: '0.9'
+                });
+                if (!topPInput) return;
+
+                const topKInput = await vscode.window.showInputBox({
+                    prompt: '🔢 Top-K (1 ~ 100)',
+                    value: String(this._topK),
+                    placeHolder: '40'
+                });
+                if (!topKInput) return;
+
+                this._temperature = Math.min(2.0, Math.max(0, parseFloat(tempInput) || 0.8));
+                this._topP = Math.min(1.0, Math.max(0, parseFloat(topPInput) || 0.9));
+                this._topK = Math.min(100, Math.max(1, parseInt(topKInput) || 40));
+
+                vscode.window.showInformationMessage(`⚙️ 커스텀 파라미터 적용: T:${this._temperature} P:${this._topP} K:${this._topK}`);
+                this._view!.webview.postMessage({ type: 'response', value: `⚙️ **커스텀 파라미터 적용 완료**\n\n| 파라미터 | 값 |\n|---|---|\n| Temperature | ${this._temperature} |\n| Top-P | ${this._topP} |\n| Top-K | ${this._topK} |` });
+                break;
+            }
+        }
     }
 
     // --------------------------------------------------------
@@ -622,7 +697,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 model: modelName || defaultModel,
                 messages: reqMessages,
                 stream: false,
-                ...(isLMStudio ? { max_tokens: 4096 } : { options: { num_predict: 4096 } }),
+                ...(isLMStudio 
+                    ? { max_tokens: 4096, temperature: this._temperature, top_p: this._topP } 
+                    : { options: { num_predict: 4096, temperature: this._temperature, top_p: this._topP, top_k: this._topK } }),
             }, { timeout });
 
             let aiMessage: string = isLMStudio 
@@ -651,7 +728,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     model: modelName || defaultModel,
                     messages: reqMessages,
                     stream: false,
-                    ...(isLMStudio ? { max_tokens: 4096 } : { options: { num_predict: 4096 } }),
+                    ...(isLMStudio 
+                        ? { max_tokens: 4096, temperature: this._temperature, top_p: this._topP } 
+                        : { options: { num_predict: 4096, temperature: this._temperature, top_p: this._topP, top_k: this._topK } }),
                 }, { timeout });
 
                 aiMessage = isLMStudio
