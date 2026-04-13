@@ -122,6 +122,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 
     // 대화 표시용 (system prompt 제외, 유저에게 보여줄 것만 저장)
     private _displayMessages: { text: string; role: string }[] = [];
+    private _isSyncingBrain: boolean = false;
 
     constructor(private readonly _extensionUri: vscode.Uri, ctx: vscode.ExtensionContext) {
         this._ctx = ctx;
@@ -290,6 +291,11 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     // --------------------------------------------------------
     private async _syncSecondBrain() {
         if (!this._view) { return; }
+        if (this._isSyncingBrain) {
+            vscode.window.showWarningMessage('동기화가 이미 진행 중입니다. 잠시만 기다려주세요!');
+            return;
+        }
+
         let { secondBrainRepo } = getConfig();
         
         // UX 극대화: 안 채워져 있으면 에러 내뱉지 말고 입력창 띄우기!
@@ -306,12 +312,13 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             vscode.window.showInformationMessage('✅ 깃허브 주소가 자동 저장되었습니다. 즉시 동기화를 시작합니다!');
         }
 
+        this._isSyncingBrain = true;
         const brainDir = path.join(os.homedir(), '.connect-ai-brain');
         try {
             this._view.webview.postMessage({ type: 'response', value: '🧠 **Second Brain 동기화 시작 중... 깃허브에서 지식을 복제합니다.**' });
             
             if (fs.existsSync(brainDir)) {
-                // 깔끔한 최신화를 위해 기존 폴더 삭제 후 다시 클론
+                // 깔끔한 최신화를 위해 기존 폴더 삭제 후 다시 클론 (다중 클릭 방지)
                 fs.rmSync(brainDir, { recursive: true, force: true });
             }
             
@@ -321,6 +328,8 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         } catch (error: any) {
             vscode.window.showErrorMessage(`Second Brain 동기화 실패: ${error.message}`);
             this._view.webview.postMessage({ type: 'error', value: `⚠️ 동기화 실패: ${error.message}` });
+        } finally {
+            this._isSyncingBrain = false;
         }
     }
 
