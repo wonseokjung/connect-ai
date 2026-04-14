@@ -799,10 +799,31 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._saveHistory();
 
         } catch (error: any) {
-            const errMsg = error.code === 'ECONNREFUSED'
-                ? '⚠️ AI 서버에 연결할 수 없습니다. 로컬 서버를 켜주세요.'
-                : `⚠️ 오류: ${error.message}`;
+            const { ollamaBase } = getConfig();
+            const isLM = ollamaBase.includes('1234') || ollamaBase.includes('v1');
+            const targetName = isLM ? "LM Studio" : "Ollama";
+            
+            let errMsg = error.code === 'ECONNREFUSED'
+                ? `⚠️ ${targetName} 서버에 연결할 수 없습니다.\n앱에서 로컬 서버가 켜져 있는지(Start Server) 확인해주세요.`
+                : (error.response?.status === 400 || error.response?.status === 413)
+                    ? `⚠️ 컨텍스트 용량 초과 또거나 지원하지 않는 형식입니다. (에러 400/413) 이미지가 지원되는 Vision 모델인지 확인해주세요.`
+                    : `⚠️ 오류: ${error.message}`;
+
             this._view.webview.postMessage({ type: 'error', value: errMsg });
+
+            // Axios의 타입이 stream일 때 에러 본문을 파싱해서 원인을 명확히 로그에 남김
+            if (error.response?.data?.on) {
+                let buf = '';
+                error.response.data.on('data', (c: any) => buf += c.toString());
+                error.response.data.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(buf);
+                        if (parsed.error?.message) {
+                            this._view!.webview.postMessage({ type: 'error', value: `⚠️ API 자세한 오류: ${parsed.error.message}` });
+                        }
+                    } catch { /* ignore parsing err */ }
+                });
+            }
         }
     }
 
