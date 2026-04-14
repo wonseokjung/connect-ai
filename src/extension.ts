@@ -1514,7 +1514,7 @@ window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
     if(streamBody)streamBody.classList.remove('stream-active');
     /* Add regenerate button */
     if(streamEl){
-      const rb=document.createElement('button');rb.className='regen-btn';rb.innerHTML='\ud83d\udd04 Regenerate';
+      const rb=document.createElement('button');rb.className='regen-btn';rb.innerHTML='🔄 재생성';
       rb.addEventListener('click',()=>{rb.remove();vscode.postMessage({type:'regenerate'});showLoader();setSending(true);});
       streamEl.appendChild(rb);
     }
