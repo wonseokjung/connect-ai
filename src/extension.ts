@@ -33,9 +33,9 @@ const EXCLUDED_DIRS = new Set([
 const MAX_CONTEXT_SIZE = 12_000; // chars
 
 const SYSTEM_PROMPT = `You are "Connect AI", a premium agentic AI coding assistant running 100% offline on the user's machine.
-You are DIRECTLY CONNECTED to the user's local file system and terminal. You MUST use the action tags below to create, edit, delete files and run commands. DO NOT just show code — ALWAYS wrap it in the appropriate action tag so it gets executed.
+You are DIRECTLY CONNECTED to the user's local file system and terminal. You MUST use the action tags below to create, edit, delete, read files and run commands. DO NOT just show code — ALWAYS wrap it in the appropriate action tag so it gets executed.
 
-You have FIVE powerful agent actions. Use them whenever the user asks to build, fix, or modify anything:
+You have SEVEN powerful agent actions:
 
 ━━━ ACTION 1: CREATE NEW FILES ━━━
 <create_file path="relative/path/file.ext">
@@ -57,28 +57,26 @@ Example — user says "index.html 만들어줘":
 </edit_file>
 You can have multiple <find>/<replace> pairs inside one <edit_file> block.
 
-Example — user says "h1 텍스트를 바꿔줘":
-<edit_file path="index.html">
-<find><h1>Hello World</h1></find>
-<replace><h1>Welcome!</h1></replace>
-</edit_file>
-
 ━━━ ACTION 3: DELETE FILES ━━━
 <delete_file path="relative/path/file.ext"/>
 
-Example:
-<delete_file path="old_backup.js"/>
+━━━ ACTION 4: READ FILES ━━━
+<read_file path="relative/path/file.ext"/>
+Use this to read any file in the workspace BEFORE editing it. You will receive the file contents automatically.
 
-━━━ ACTION 4: RUN TERMINAL COMMANDS ━━━
+━━━ ACTION 5: LIST DIRECTORY ━━━
+<list_files path="relative/path/to/dir"/>
+Use this to see what files exist in a specific subdirectory.
+
+━━━ ACTION 6: RUN TERMINAL COMMANDS ━━━
 <run_command>npm install express</run_command>
 
 Example — user says "서버 실행해줘":
 <run_command>node server.js</run_command>
 
-━━━ ACTION 5: READ USER'S SECOND BRAIN (KNOWLEDGE BASE) ━━━
+━━━ ACTION 7: READ USER'S SECOND BRAIN (KNOWLEDGE BASE) ━━━
 <read_brain>filename.md</read_brain>
 Use this to READ documents from the user's personal knowledge base.
-A [SECOND BRAIN INDEX] section lists available documents. Use <read_brain> to fetch relevant documents BEFORE answering.
 
 CRITICAL RULES:
 1. ALWAYS respond in the same language the user uses.
@@ -86,10 +84,11 @@ CRITICAL RULES:
 3. Outside of action blocks, briefly explain what you did.
 4. For code that is ONLY for explanation (not to be saved), use standard markdown code fences.
 5. Be concise, professional, and helpful.
-6. When editing files, the <find> text must EXACTLY match existing content in the file.
-7. When a SECOND BRAIN INDEX is available, ALWAYS check it first and use <read_brain> to fetch relevant documents.
-8. You can use MULTIPLE action tags in a single response. For example, create several files and then run a command.
-9. File paths are RELATIVE to the user's open workspace folder.`;
+6. When editing files, FIRST use <read_file> to read the file, then use <edit_file> with exact matching text.
+7. When a SECOND BRAIN INDEX is available, ALWAYS check it first.
+8. You can use MULTIPLE action tags in a single response.
+9. File paths are RELATIVE to the user's open workspace folder.
+10. The [WORKSPACE INFO] section tells you exactly which folder is open and what files exist. USE this information.`;
 
 // ============================================================
 // Extension Activation
@@ -650,7 +649,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 
         let result = '';
         if (lines.length > 0) {
-            result += `\n\n[프로젝트 파일 구조]\n${lines.join('\n')}`;
+            result += `\n\n[WORKSPACE INFO]\n📂 경로: ${root}\n\n[프로젝트 파일 구조]\n${lines.join('\n')}`;
         }
 
         // --- 2. Auto-read key project files ---
@@ -1076,7 +1075,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         }
 
         if (!rootPath) {
-            const hasActions = /<(?:create_file|edit_file|run_command|file)/i.test(aiMessage);
+            const hasActions = /<(?:create_file|edit_file|run_command|delete_file|read_file|list_files|file)/i.test(aiMessage);
             if (hasActions) {
                 report.push('❌ 폴더가 열려있지 않습니다. File → Open Folder로 폴더를 열거나 파일을 열어주세요.');
             }
@@ -1181,7 +1180,48 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        // ACTION 4: Run commands
+        // ACTION 4: Read files — inject content back into chat history
+        const readRegex = /<(?:read_file|read)\s+(?:path|file|name)=['"]?([^'"\/\>]+)['"]?\s*\/?>(?:<\/(?:read_file|read)>)?/gi;
+        while ((match = readRegex.exec(aiMessage)) !== null) {
+            const relPath = match[1].trim();
+            const absPath = path.join(rootPath, relPath);
+            try {
+                if (fs.existsSync(absPath)) {
+                    const content = fs.readFileSync(absPath, 'utf-8').slice(0, 10000);
+                    report.push(`📖 읽기: ${relPath} (${content.length}자)`);
+                    // Inject the file content into chat so AI can use it in next turn
+                    this._chatHistory.push({ role: 'user', content: `[시스템: read_file 결과]\n파일: ${relPath}\n\`\`\`\n${content}\n\`\`\`` });
+                } else {
+                    report.push(`⚠️ 읽기 실패: ${relPath} — 파일이 존재하지 않습니다.`);
+                }
+            } catch (err: any) {
+                report.push(`❌ 읽기 실패: ${relPath} — ${err.message}`);
+            }
+        }
+
+        // ACTION 5: List directory
+        const listRegex = /<(?:list_files|list_dir|ls)\s+(?:path|dir|name)=['"]?([^'"\/\>]*)['"]?\s*\/?>(?:<\/(?:list_files|list_dir|ls)>)?/gi;
+        while ((match = listRegex.exec(aiMessage)) !== null) {
+            const relDir = match[1].trim() || '.';
+            const absDir = path.join(rootPath, relDir);
+            try {
+                if (fs.existsSync(absDir) && fs.statSync(absDir).isDirectory()) {
+                    const entries = fs.readdirSync(absDir, { withFileTypes: true });
+                    const listing = entries
+                        .filter(e => !e.name.startsWith('.') && !EXCLUDED_DIRS.has(e.name))
+                        .map(e => e.isDirectory() ? `📁 ${e.name}/` : `📄 ${e.name}`)
+                        .join('\n');
+                    report.push(`📂 목록: ${relDir}/`);
+                    this._chatHistory.push({ role: 'user', content: `[시스템: list_files 결과]\n디렉토리: ${relDir}/\n${listing}` });
+                } else {
+                    report.push(`⚠️ 목록 실패: ${relDir} — 디렉토리가 존재하지 않습니다.`);
+                }
+            } catch (err: any) {
+                report.push(`❌ 목록 실패: ${relDir} — ${err.message}`);
+            }
+        }
+
+        // ACTION 6: Run commands
         const cmdRegex = /<(?:run_command|command|bash|terminal)>([\s\S]*?)<\/(?:run_command|command|bash|terminal)>/gi;
         while ((match = cmdRegex.exec(aiMessage)) !== null) {
             let cmd = match[1].trim();
