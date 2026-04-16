@@ -537,6 +537,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 case 'syncBrain':
                     await this._handleBrainMenu();
                     break;
+                case 'injectLocalBrain':
+                    await this._handleInjectLocalBrain(msg.files);
+                    break;
                 case 'stopGeneration':
                     if (this._abortController) {
                         this._abortController.abort();
@@ -634,6 +637,59 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 vscode.window.showInformationMessage('시스템 프롬프트가 변경되어 새 대화가 시작되었습니다.');
                 if (this._view) this._view.webview.postMessage({ type: 'clearChat' });
             }
+        }
+    }
+
+    private async _handleInjectLocalBrain(files: any[]) {
+        if (!this._view) return;
+        
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (!wsFolders) {
+            vscode.window.showErrorMessage("워크스페이스가 열려있지 않아 두뇌 연동이 불가능합니다.");
+            return;
+        }
+
+        const rootPath = wsFolders[0].uri.fsPath;
+        const tbPath = path.join(rootPath, '.secondbrain');
+        const today = new Date();
+        const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
+        const datePath = path.join(tbPath, '00_Raw', dateStr);
+        
+        if (!fs.existsSync(datePath)) {
+            fs.mkdirSync(datePath, { recursive: true });
+        }
+
+        let injectedTitles: string[] = [];
+
+        this._view.webview.postMessage({ type: 'response', value: `🧠 **[P-Reinforce 연동 준비]**\n첨부하신 ${files.length}개의 파일을 로컬 두뇌(\`00_Raw/${dateStr}\`)에 입수하고 자동 푸시를 진행합니다.` });
+
+        for (const file of files) {
+            try {
+                const fileContent = Buffer.from(file.data, 'base64').toString('utf-8');
+                const safeTitle = file.name.replace(/[^a-zA-Z0-9가-힣_.-]/gi, '_');
+                const filePath = path.join(datePath, safeTitle);
+                fs.writeFileSync(filePath, fileContent, 'utf-8');
+                injectedTitles.push(safeTitle);
+            } catch (err) {
+                console.error('Failed to write brain file:', err);
+            }
+        }
+        
+        const safeTitles = injectedTitles.join(', ');
+        
+        try {
+            const { execSync } = require('child_process');
+            execSync(`git add ".secondbrain"`, { cwd: rootPath });
+            execSync(`git commit -m "Auto-Inject Knowledge [Raw]: ${safeTitles}"`, { cwd: rootPath });
+            execSync(`git push`, { cwd: rootPath });
+            
+            setTimeout(() => {
+                this.sendPromptFromExtension(`[A.U 지식 주입 완료] 마스터가 '${safeTitles}' 스킬 칩을 내 로컬 두뇌의 \`00_Raw/${dateStr}\` 폴더에 다운로드하고 클라우드 동기화까지 100% 완료했습니다. "데이터가 완벽하게 입수되었습니다. P-Reinforce 구조화를 시작할까요?"라고 대답해라.`);
+            }, 3000);
+        } catch(err) {
+            setTimeout(() => {
+                this.sendPromptFromExtension(`[A.U 지식 주입 보류] 마스터가 '${safeTitles}' 스킬 칩을 로컬 \`00_Raw/${dateStr}\` 폴더에 저장했으나 깃허브 푸시는 보류되었습니다. "로컬 데이터가 입수되었습니다! P-Reinforce 구조화를 시작할까요?"라고 대답해라.`);
+            }, 3000);
         }
     }
 
@@ -1752,7 +1808,7 @@ body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;tr
 <div class="attach-preview" id="attachPreview"></div>
 <textarea id="input" rows="1" placeholder="\ubb34\uc5c7\uc744 \ub9cc\ub4e4\uc5b4 \ub4dc\ub9b4\uae4c\uc694?"></textarea>
 <div class="input-footer"><span class="input-hint">Enter \uc804\uc1a1 \u00b7 Shift+Enter \uc904\ubc14\uafc8</span>
-<div class="input-btns"><button class="attach-btn" id="attachBtn" title="\ud30c\uc77c \ucca8\ubd80">+</button><button class="stop-btn" id="stopBtn">\u25a0</button><button class="send-btn" id="sendBtn">\u2191</button></div></div></div>
+<div class="input-btns"><button class="attach-btn" id="attachBtn" title="\ud30c\uc77c \ucca8\ubd80">+</button><button class="attach-btn" id="injectLocalBtn" title="\ub0b4 \ub450\ub1cc\uc5d0 \ud30c\uc77c \uc5f0\ub3d9 (Second Brain)" style="font-size:14px;color:var(--accent);">\ud83e\udde0</button><button class="stop-btn" id="stopBtn">\u25a0</button><button class="send-btn" id="sendBtn">\u2191</button></div></div></div>
 <input type="file" id="fileInput" multiple accept="image/*,audio/*,.txt,.md,.csv,.json,.js,.ts,.html,.css,.py,.java,.rs,.go,.yaml,.yml,.xml,.toml" hidden></div>
 </div>
 <script>
@@ -1766,7 +1822,7 @@ try {
 const vscode=acquireVsCodeApi(),chat=document.getElementById('chat'),input=document.getElementById('input'),
 sendBtn=document.getElementById('sendBtn'),stopBtn=document.getElementById('stopBtn'),
 modelSel=document.getElementById('modelSel'),newChatBtn=document.getElementById('newChatBtn'),settingsBtn=document.getElementById('settingsBtn'),brainBtn=document.getElementById('brainBtn'),
-attachBtn=document.getElementById('attachBtn'),fileInput=document.getElementById('fileInput'),attachPreview=document.getElementById('attachPreview'),
+attachBtn=document.getElementById('attachBtn'),injectLocalBtn=document.getElementById('injectLocalBtn'),fileInput=document.getElementById('fileInput'),attachPreview=document.getElementById('attachPreview'),
 thinkingBar=document.getElementById('thinkingBar');
 let loader=null,sending=false,pendingFiles=[];
 
@@ -1861,6 +1917,15 @@ function send(){
 
 /* Attachment Logic */
 attachBtn.addEventListener('click',()=>fileInput.click());
+injectLocalBtn.addEventListener('click',()=>{
+  if(pendingFiles.length===0){
+    alert('\ucca8\ubd80\ub41c \ud30c\uc77c\uc774 \uc5c6\uc2b5\ub2c8\ub2e4. + \ubc84\ud2bc\uc744 \ub20c\ub7ec \uc5f0\ub3d9\ud560 \ubb38\uc11c\ub97c \uba3c\uc800 \ucd94\uac00\ud574\uc8fc\uc138\uc694.');
+    return;
+  }
+  vscode.postMessage({type:'injectLocalBrain', files:pendingFiles});
+  pendingFiles=[];
+  renderPreview();
+});
 fileInput.addEventListener('change',()=>{
   const files=Array.from(fileInput.files);
   files.forEach(file=>{
