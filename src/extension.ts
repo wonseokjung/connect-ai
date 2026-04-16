@@ -680,7 +680,15 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             execSync(`git push`, { cwd: brainDir });
             
             setTimeout(() => {
-                const hiddenPrompt = `[A.U 시스템 지시]\n새로운 비정형 데이터('${safeTitles}')가 로컬 두뇌 \`00_Raw/${dateStr}\` 폴더에 입수(클라우드 백업 완료)되었습니다.\n\n여기서부터 중요합니다! 마스터가 '응'이나 '진행해' 등으로 동의할 경우, 당신은 절대 질문으로 대답하지 말고 다음 작업을 Tool을 사용해 강제로 즉각 실행하십시오:\n1. \`<read_file path="...">\` 명령을 사용하여 방금 입수된 원본 파일의 내용을 읽어옵니다.\n2. 원본 내용을 모두 이해했다면, 즉시 당신의 지식 구조화 능력(P-Reinforce)을 발휘하여 그 내용을 여러 주제별로 나누어 \`.secondbrain/10_Wiki/\` 하위의 적절한 폴더 경로에 \`<create_file>\`을 사용해 새로 저장(재배치)하십시오.\n무언가를 묻지 말고 Tool 권한을 발동하는 데에만 집중하십시오.`;
+                let combinedContent = '';
+                for (const title of injectedTitles) {
+                    try {
+                        const content = fs.readFileSync(path.join(datePath, title), 'utf-8');
+                        combinedContent += `\n\n[원본 데이터: ${title}]\n\`\`\`\n${content.slice(0, 10000)}\n\`\`\``;
+                    } catch(e) {}
+                }
+
+                const hiddenPrompt = `[A.U 시스템 지시]\n새로운 비정형 데이터('${safeTitles}')가 글로벌 두뇌(Second Brain)에 입수 및 클라우드 백업 완료되었습니다.\n\n방금 입수된 데이터의 원본 내용은 아래와 같습니다:${combinedContent}\n\n여기서부터 중요합니다! 마스터가 '응'이나 '진행해' 등으로 동의할 경우, 당신은 절대 대화만으로 대답하지 말고 다음 작업을 Tool을 사용해 강제로 즉각 실행하십시오:\n위 원본 내용을 지식 구조화(P-Reinforce) 규칙에 따라 분석하고, 여러 주제별로 나누어 절대 경로인 \`${brainDir}/10_Wiki/\` 하위의 적절한 폴더 경로에 \`<create_file>\`을 사용해 여러 개의 마크다운 파일로 저장(재배치)하십시오.\n반드시 \`<create_file path="${brainDir}/10_Wiki/카테고리/파일명.md">\` 처럼 절대 경로를 사용하십시오. 무언가를 묻지 말고 즉시 Tool을 발동하십시오.`;
                 this._chatHistory.push({ role: 'system', content: hiddenPrompt });
                 
                 const uiMsg = "🧠 데이터가 완벽하게 입수되었습니다! 즉시 P-Reinforce 구조화를 시작할까요?";
@@ -688,7 +696,15 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }, 3000);
         } catch(err) {
             setTimeout(() => {
-                const hiddenPrompt = `[A.U 시스템 지시]\n새로운 비정형 데이터('${safeTitles}')가 로컬 두뇌 \`00_Raw/${dateStr}\` 폴더에 입수되었습니다.\n\n여기서부터 중요합니다! 마스터가 동의할 경우, 당신은 절대 질문으로 대답하지 말고 다음 작업을 Tool을 사용해 강제로 즉각 실행하십시오:\n1. \`<read_file path="...">\` 명령을 사용하여 방금 입수된 원본 파일의 내용을 읽어옵니다.\n2. 내용을 이해했다면, 지식 구조화 능력을 발휘하여 그 내용을 여러 주제별로 나누어 \`.secondbrain/10_Wiki/\` 하위의 적절한 폴더 경로에 \`<create_file>\`을 여러 번 사용하여 구조화된 마크다운으로 저장하십시오.\n다시 한번 강조하지만 질문하지 말고 곧바로 Tool을 발동하십시오.`;
+                let combinedContent = '';
+                for (const title of injectedTitles) {
+                    try {
+                        const content = fs.readFileSync(path.join(datePath, title), 'utf-8');
+                        combinedContent += `\n\n[원본 데이터: ${title}]\n\`\`\`\n${content.slice(0, 10000)}\n\`\`\``;
+                    } catch(e) {}
+                }
+
+                const hiddenPrompt = `[A.U 시스템 지시]\n새로운 비정형 데이터('${safeTitles}')가 글로벌 두뇌에 다운로드 되었습니다.(원격 푸시 보류됨)\n\n방금 입수된 데이터의 원본 내용은 아래와 같습니다:${combinedContent}\n\n여기서부터 중요합니다! 마스터가 동의할 경우, 당신은 절대 대화만으로 대답하지 말고 다음 작업을 Tool을 사용해 강제로 즉각 실행하십시오:\n위 원본 내용을 지식 구조화(P-Reinforce) 규칙에 따라 분석하고, 여러 주제별로 나누어 절대 경로인 \`${brainDir}/10_Wiki/\` 하위의 적절한 경로에 \`<create_file>\`을 사용해 구조화된 마크다운으로 여러 개 저장하십시오.\n반드시 \`<create_file path="${brainDir}/10_Wiki/카테고리/파일명.md">\` 처럼 절대 경로를 사용하십시오. 절대 질문하지 마십시오.`;
                 this._chatHistory.push({ role: 'system', content: hiddenPrompt });
                 
                 const uiMsg = "🧠 로컬 데이터가 입수되었습니다! 곧바로 P-Reinforce 구조화를 시작할까요?";
@@ -1409,7 +1425,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }
 
             try {
-                const absPath = path.join(rootPath, relPath);
+                const absPath = path.resolve(rootPath, relPath);
                 const dir = path.dirname(absPath);
                 if (!fs.existsSync(dir)) {
                     fs.mkdirSync(dir, { recursive: true });
@@ -1432,7 +1448,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         while ((match = editRegex.exec(aiMessage)) !== null) {
             const relPath = match[1].trim();
             const body = match[2];
-            const absPath = path.join(rootPath, relPath);
+            const absPath = path.resolve(rootPath, relPath);
 
             if (!fs.existsSync(absPath)) {
                 report.push(`❌ 편집 실패: ${relPath} — 파일이 존재하지 않습니다.`);
@@ -1471,7 +1487,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         const deleteRegex = /<(?:delete_file|delete)\s+(?:path|file|name)=['"]?([^'"\/\>]+)['"]?\s*\/?>(?:<\/(?:delete_file|delete)>)?/gi;
         while ((match = deleteRegex.exec(aiMessage)) !== null) {
             const relPath = match[1].trim();
-            const absPath = path.join(rootPath, relPath);
+            const absPath = path.resolve(rootPath, relPath);
             try {
                 if (fs.existsSync(absPath)) {
                     const stat = fs.statSync(absPath);
@@ -1490,10 +1506,10 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         }
 
         // ACTION 4: Read files — inject content back into chat history + show preview
-        const readRegex = /<(?:read_file|read)\s+(?:path|file|name)=['"]?([^'"\/\>]+)['"]?\s*\/?>(?:<\/(?:read_file|read)>)?/gi;
+        const readRegex = /<(?:read_file|read)\s+(?:path|file|name)=['"]?([^'">]+)['"]?\s*\/?>(?:<\/(?:read_file|read)>)?/gi;
         while ((match = readRegex.exec(aiMessage)) !== null) {
             const relPath = match[1].trim();
-            const absPath = path.join(rootPath, relPath);
+            const absPath = path.resolve(rootPath, relPath);
             try {
                 if (fs.existsSync(absPath)) {
                     const content = fs.readFileSync(absPath, 'utf-8');
@@ -1512,7 +1528,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         const listRegex = /<(?:list_files|list_dir|ls)\s+(?:path|dir|name)=['"]?([^'"\/\>]*)['"]?\s*\/?>(?:<\/(?:list_files|list_dir|ls)>)?/gi;
         while ((match = listRegex.exec(aiMessage)) !== null) {
             const relDir = match[1].trim() || '.';
-            const absDir = path.join(rootPath, relDir);
+            const absDir = path.resolve(rootPath, relDir);
             try {
                 if (fs.existsSync(absDir) && fs.statSync(absDir).isDirectory()) {
                     const entries = fs.readdirSync(absDir, { withFileTypes: true });
