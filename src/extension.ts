@@ -127,39 +127,40 @@ console.log('Connect AI extension activated.');
             else if (req.method === 'POST' && req.url === '/api/exam') {
                 let body = '';
                 req.on('data', chunk => body += chunk.toString());
-                req.on('end', () => {
+                req.on('end', async () => {
                     try {
                         const parsed = JSON.parse(body);
-                        // 웹사이트에서 전송된 문제를 Connect AI 채팅창으로 바로 전송
-                        provider.sendPromptFromExtension(parsed.prompt || "자동 접수된 문제");
+                        // 웹사이트에서 전송된 문제를 Connect AI 채팅창으로 실시간 보고
+                        provider.sendPromptFromExtension(`[A.U 입학시험 수신] ${parsed.prompt || '자동 접수된 문제'}`);
+                        
+                        // 실제 AI 엔진으로 문제를 전달하여 답안을 받아옴
+                        const config = getConfig();
+                        const isLMStudio = config.ollamaBase.includes('1234') || config.ollamaBase.includes('v1');
+                        let base = config.ollamaBase;
+                        if (base.endsWith('/')) base = base.slice(0, -1);
+                        if (isLMStudio && !base.endsWith('/v1')) base += '/v1';
+                        const targetUrl = isLMStudio ? base + '/chat/completions' : base + '/api/chat';
+                        
+                        const payload = {
+                            model: config.defaultModel,
+                            messages: [{ role: 'user', content: parsed.prompt || '자동 접수된 문제' }],
+                            stream: false
+                        };
+                        
+                        const ollamaRes = await axios.post(targetUrl, payload, { timeout: 120000 });
+                        const responseText = isLMStudio 
+                            ? ollamaRes.data.choices?.[0]?.message?.content || ''
+                            : ollamaRes.data.message?.content || '';
+                        
                         res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ 
-                            success: true, 
-                            message: '시험 문제가 접수되었습니다. VS Code의 Connect AI를 확인하세요!',
-                            logicScore: 95.5,
-                            formatScore: 100
-                        }));
+                        res.end(JSON.stringify({ success: true, rawOutput: responseText }));
                     } catch (e: any) {
-                        res.writeHead(500);
+                        res.writeHead(500, { 'Content-Type': 'application/json' });
                         res.end(JSON.stringify({ error: e.message }));
                     }
                 });
             }
-            else if (req.method === 'POST' && req.url === '/api/exam') {
-                let body = '';
-                req.on('data', chunk => body += chunk.toString());
-                req.on('end', () => {
-                    try {
-                        const parsed = JSON.parse(body);
-                        provider.sendPromptFromExtension(parsed.prompt);
-                        res.writeHead(200, { 'Content-Type': 'application/json' });
-                        res.end(JSON.stringify({ success: true }));
-                    } catch (e: any) {
-                        res.writeHead(500);
-                        res.end(JSON.stringify({ error: e.message }));
-                    }
-                });
-            }
+
             else if (req.method === 'POST' && req.url === '/api/evaluate') {
                 let body = '';
                 req.on('data', chunk => body += chunk.toString());
@@ -201,8 +202,8 @@ console.log('Connect AI extension activated.');
                                 ? ollamaRes.data.choices?.[0]?.message?.content || ""
                                 : ollamaRes.data.message?.content || "";
                         } catch (apiErr: any) {
-                            res.writeHead(200, { 'Content-Type': 'application/json' });
-                            res.end(JSON.stringify({ score: 85, reason: "네트워크 안정화 모드 (기본 85점 배점)" }));
+                            res.writeHead(500, { 'Content-Type': 'application/json' });
+                            res.end(JSON.stringify({ error: `오프라인: AI 엔진에 연결할 수 없습니다. (${apiErr.message})` }));
                             return;
                         }
 
