@@ -1,20 +1,16 @@
-const Module = require('module');
-const originalRequire = Module.prototype.require;
-Module.prototype.require = function(request) {
-  if (request === 'vscode') {
-    return {
-      window: { createWebviewPanel: () => {} },
-      workspace: {},
-      Uri: {},
-      EventEmitter: class {},
-      ExtensionContext: class {},
-      WebviewPanel: class {}
+const axios = require('axios');
+async function test() {
+    const targetUrl = 'http://127.0.0.1:11434/api/chat';
+    const payload = {
+        model: "gemma4:e2b",
+        messages: [{ role: "user", content: "hello" }],
+        stream: false
     };
-  }
-  return originalRequire.apply(this, arguments);
-};
-
-const ext = require('./out/extension');
-const html = ext.ConnectAIPanel.prototype._getHtml.call({_getHtml: ext.ConnectAIPanel.prototype._getHtml});
-require('fs').writeFileSync('test_eval.html', html);
-console.log('Evaluated length:', html.length);
+    try {
+        const res = await axios.post(targetUrl, payload);
+        console.log("SUCCESS:", res.data);
+    } catch(err) {
+        console.log("ERROR:", err.response ? err.response.data : err.message);
+    }
+}
+test();

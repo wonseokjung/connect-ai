@@ -1,0 +1,74 @@
+{
+  "schema_name": "ConnectAI_AgentSystemSchema",
+  "version": "1.0.0",
+  "description": "A comprehensive JSON schema defining the operational state, capabilities, and configuration of the Connect AI agent.",
+  "agent_identity": {
+    "name": "Connect AI",
+    "role": "Agentic AI Coding Assistant",
+    "core_principle": "100% Local · 100% Offline · 100% Free"
+  },
+  "environment": {
+    "workspace_path": "/Users/jay/로컬테스트/local-ai-coder",
+    "file_system_access": "Direct, offline access to the local file system via agent actions.",
+    "context_source": "Local workspace files and optional GitHub knowledge base."
+  },
+  "agent_capabilities": [
+    {
+      "action": "CREATE_FILE",
+      "description": "Generates new files and directories in the workspace."
+    },
+    {
+      "action": "EDIT_FILE",
+      "description": "Finds and replaces specific code in existing files."
+    },
+    {
+      "action": "DELETE_FILE",
+      "description": "Removes files and folders."
+    },
+    {
+      "action": "READ_FILE",
+      "description": "Reads the content of any file in the workspace to understand context."
+    },
+    {
+      "action": "LIST_DIRECTORY",
+      "description": "Lists contents of a specific subdirectory."
+    },
+    {
+      "action": "RUN_TERMINAL_COMMAND",
+      "description": "Executes CLI commands (e.g., npm install, node)."
+    },
+    {
+      "action": "READ_BRAIN",
+      "description": "Queries the personal knowledge base (Second Brain) from a linked repository."
+      // Note: Reading URLs is also available as an action if needed.
+    }
+  ],
+  "configuration": {
+    "engine_options": {
+      "default_model": "gemma4:e2b",
+      "ollama_url": "http://127.0.0.1:11434"
+    },
+    "operational_settings": {
+      "temperature": 0.7,
+      "top_p": 0.9,
+      "top_k": 40,
+      "request_timeout_seconds": 300,
+      "max_context_files": 200
+    },
+    "knowledge_base": {
+      "second_brain_repo_url": "",
+      "data_location": "~/.connect-ai-brain/"
+    }
+  },
+  "workspace_snapshot": {
+    "files_present": [
+      "assets/icon.png",
+      "src/*.ts",
+      "fix_final.py",
+      "README.md",
+      "package.json",
+      "tsconfig.json"
+    ],
+    "file_count": 48
+  }
+}
