@@ -276,16 +276,15 @@ console.log('Connect AI extension activated.');
                 req.on('end', async () => {
                     try {
                         const parsed = JSON.parse(body);
-                        const wsFolders = vscode.workspace.workspaceFolders;
-                        if (!wsFolders) throw new Error("VS Code 워크스페이스가 열려있지 않습니다.");
-                        
-                        const rootPath = wsFolders[0].uri.fsPath;
-                        const tbPath = path.join(rootPath, '.secondbrain');
+                        const brainDir = path.join(os.homedir(), '.connect-ai-brain');
+                        if (!fs.existsSync(brainDir)) {
+                            throw new Error("로컬 환경에 Second Brain 클론 폴더(~/.connect-ai-brain)가 존재하지 않습니다. 확장 프로그램에서 먼저 연동하세요.");
+                        }
                         
                         // P-Reinforce 아키텍처 호환: 00_Raw 폴더 내 날짜별 분류
                         const today = new Date();
                         const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-                        const datePath = path.join(tbPath, '00_Raw', dateStr);
+                        const datePath = path.join(brainDir, '00_Raw', dateStr);
                         
                         fs.mkdirSync(datePath, { recursive: true });
                         
@@ -300,10 +299,9 @@ console.log('Connect AI extension activated.');
                         // [자동 깃허브 푸시 로직 추가]
                         try {
                             const { execSync } = require('child_process');
-                            // 워크스페이스 전체를 올리면 꼬일 수 있으므로 .secondbrain 폴더만 구체적으로 add 합니다.
-                            execSync(`git add ".secondbrain"`, { cwd: rootPath });
-                            execSync(`git commit -m "Auto-Inject Knowledge [Raw]: ${safeTitle}"`, { cwd: rootPath });
-                            execSync(`git push`, { cwd: rootPath });
+                            execSync(`git add .`, { cwd: brainDir });
+                            execSync(`git commit -m "Auto-Inject Knowledge [Raw]: ${safeTitle}"`, { cwd: brainDir });
+                            execSync(`git push`, { cwd: brainDir });
                             
                             // 성공 시 두 번째 보고
                             setTimeout(() => {
@@ -312,7 +310,7 @@ console.log('Connect AI extension activated.');
                         } catch(err) {
                             console.error('Git Auto-Push Failed:', err);
                             setTimeout(() => {
-                                provider.sendPromptFromExtension(`[동기화 보류] 로컬 저장은 완료되었으나, 현재 작업 공간의 깃허브 권한 설정으로 인해 자동 원격 업로드(Push)는 스킵되었습니다. (수동 관리가 권장됩니다)`);
+                                provider.sendPromptFromExtension(`[동기화 보류] 로컬 저장은 완료되었으나, 자동 원격 업로드(Push)는 스킵되었습니다. (수동 관리가 권장됩니다)`);
                             }, 5000);
                         }
                         
@@ -644,17 +642,14 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private async _handleInjectLocalBrain(files: any[]) {
         if (!this._view) return;
         
-        const wsFolders = vscode.workspace.workspaceFolders;
-        if (!wsFolders) {
-            vscode.window.showErrorMessage("워크스페이스가 열려있지 않아 두뇌 연동이 불가능합니다.");
+        const brainDir = path.join(os.homedir(), '.connect-ai-brain');
+        if (!fs.existsSync(brainDir)) {
+            vscode.window.showErrorMessage("Second Brain이 연동되지 않았습니다. 채팅창 ⚙버튼이나 헤더에서 🧠버튼을 누른 후 깃허브 레포지토리를 먼저 연동해주세요.");
             return;
         }
-
-        const rootPath = wsFolders[0].uri.fsPath;
-        const tbPath = path.join(rootPath, '.secondbrain');
         const today = new Date();
         const dateStr = today.getFullYear() + '-' + String(today.getMonth() + 1).padStart(2, '0') + '-' + String(today.getDate()).padStart(2, '0');
-        const datePath = path.join(tbPath, '00_Raw', dateStr);
+        const datePath = path.join(brainDir, '00_Raw', dateStr);
         
         if (!fs.existsSync(datePath)) {
             fs.mkdirSync(datePath, { recursive: true });
@@ -680,9 +675,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         
         try {
             const { execSync } = require('child_process');
-            execSync(`git add ".secondbrain"`, { cwd: rootPath });
-            execSync(`git commit -m "Auto-Inject Knowledge [Raw]: ${safeTitles}"`, { cwd: rootPath });
-            execSync(`git push`, { cwd: rootPath });
+            execSync(`git add .`, { cwd: brainDir });
+            execSync(`git commit -m "Auto-Inject Knowledge [Raw]: ${safeTitles}"`, { cwd: brainDir });
+            execSync(`git push`, { cwd: brainDir });
             
             setTimeout(() => {
                 const hiddenPrompt = `[A.U 시스템 지시]\n새로운 비정형 데이터('${safeTitles}')가 로컬 두뇌 \`00_Raw/${dateStr}\` 폴더에 입수(클라우드 백업 완료)되었습니다.\n\n여기서부터 중요합니다! 마스터가 '응'이나 '진행해' 등으로 동의할 경우, 당신은 절대 질문으로 대답하지 말고 다음 작업을 Tool을 사용해 강제로 즉각 실행하십시오:\n1. \`<read_file path="...">\` 명령을 사용하여 방금 입수된 원본 파일의 내용을 읽어옵니다.\n2. 원본 내용을 모두 이해했다면, 즉시 당신의 지식 구조화 능력(P-Reinforce)을 발휘하여 그 내용을 여러 주제별로 나누어 \`.secondbrain/10_Wiki/\` 하위의 적절한 폴더 경로에 \`<create_file>\`을 사용해 새로 저장(재배치)하십시오.\n무언가를 묻지 말고 Tool 권한을 발동하는 데에만 집중하십시오.`;

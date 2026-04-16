@@ -2,7 +2,7 @@
   "name": "connect-ai-lab",
   "displayName": "Connect AI",
   "description": "100% 로컬 AI 코딩 에이전트 — 파일 생성, 코드 편집, 터미널 실행을 오프라인으로. Ollama + Gemma/Llama/DeepSeek 지원.",
-  "version": "2.1.26",
+  "version": "2.1.27",
   "publisher": "connectailab",
   "license": "MIT",
   "icon": "assets/icon.png",
