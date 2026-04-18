@@ -393,13 +393,35 @@ console.log('Connect AI extension activated.');
     );
 }
 
-function showBrainNetwork(context: vscode.ExtensionContext) {
+async function showBrainNetwork(context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
         'brainTopology',
         'Neural Construct (Brain)',
         vscode.ViewColumn.One,
         { enableScripts: true, retainContextWhenHidden: true }
     );
+
+    // Scan REAL workspace files
+    const uris = await vscode.workspace.findFiles('**/*.{md,ts,js,json,html,css,py,tsx,jsx}', '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.svelte-kit/**}', 400);
+    
+    const realClusters: Record<string, string[]> = {};
+    for (const uri of uris) {
+        const pathParts = uri.path.split('/');
+        const fileName = pathParts.pop() || 'Unknown';
+        const folderName = pathParts.pop() || 'Root';
+        // Prefix folder to group them
+        const groupName = folderName === 'local-ai-coder' || folderName === 'Root' ? 'Project Core' : folderName;
+        
+        if (!realClusters[groupName]) realClusters[groupName] = [];
+        realClusters[groupName].push(fileName);
+    }
+
+    // Fallback if empty
+    if (Object.keys(realClusters).length === 0) {
+        realClusters['Empty Node'] = ['No files found in workspace...'];
+    }
+
+    const clustersJsonString = JSON.stringify(realClusters);
 
     panel.webview.html = `<!DOCTYPE html>
 <html lang="ko">
@@ -420,24 +442,15 @@ function showBrainNetwork(context: vscode.ExtensionContext) {
 </head>
 <body>
   <div id="ui-layer">
-    <h1>\\u2726 <span>Neural Construct</span></h1>
+    <h1>\\u2726 <span id="titleSpan">Neural Construct</span></h1>
     <p id="mem-status">loading...</p>
   </div>
   <div id="graph"></div>
   <script>
-    const clusters = {
-      'AI/ML': ['Transformer Architecture','Attention Mechanism','Backpropagation','Gradient Descent','Neural Network Layers','Loss Function','Embedding Space','Tokenization','Fine-tuning','Transfer Learning','LoRA Adapter','RLHF','DPO Training','Prompt Engineering','Chain of Thought','RAG Pipeline','Vector Database'],
-      'Programming': ['TypeScript','React Components','Node.js Runtime','REST API Design','GraphQL Schema','WebSocket Protocol','Docker Container','Kubernetes','CI/CD Pipeline','Git Version Control','Database Schema','SQL Optimization','Redis Caching','Message Queue','Microservices','Load Balancing'],
-      'YouTube': ['YouTube Algorithm','CTR Optimization','Thumbnail Design','Title A/B Testing','Audience Retention','Content Calendar','Funnel Strategy','Email Marketing','SEO Fundamentals','Analytics Dashboard','Conversion Rate','Growth Hacking','Brand Positioning','Community Building','Monetization','Ad Revenue Model'],
-      'Tools': ['VS Code Extension API','Ollama Runtime','Gemma Model','LLaMA Architecture','Google Veo','Nanobanana Pro','NotebookLM','Google Stitch','MCP Protocol','Antigravity CLI','Agent University','Brain Pack Format','OPAL Framework','Gemini API','DeepSeek Model','Whisper STT'],
-      'Knowledge': ['Second Brain Method','Zettelkasten System','Spaced Repetition','Active Recall','Mind Mapping','Knowledge Graph','Semantic Search','Document Chunking','Metadata Extraction','Tag Taxonomy','Bidirectional Links','Atomic Notes'],
-      'Korean': ['#AI\\uc218\\uc775\\ud654','#\\ubc14\\uc774\\ube0c\\ucf54\\ub529','#1\\uc778\\uae30\\uc5c5','#AI\\ucc3d\\uc5c5','#\\ucf54\\ub529\\uae30\\ucd08','#\\uc2dc\\ub2c8\\uc5b4\\uc804\\uc131\\uc2dc\\ub300','#\\uc790\\uae30\\uac1c\\ubc1c','#AI\\uc1fc\\ud551\\ubab0','#GPT\\uc0ac\\uc6a9\\ubc95','#\\uc0ac\\uc774\\ud2b8\\ub9cc\\ub4e4\\uae30','#\\uc218\\uc775\\ud654\\ubaa8\\ub378','#\\ub178\\ucf54\\ub4dc','#AI\\uc790\\ub3d9\\uc218\\uc775','#VEO3.1','#\\uc655\\ucd08\\ubcf4\\uac00\\uc774\\ub4dc','#\\ub514\\uc9c0\\ud138\\uac74\\ubb3c\\uc8fc'],
-      'Math': ['Linear Algebra','Probability Theory','Calculus','Statistics','Information Theory','Game Theory','Optimization','Graph Theory'],
-      'MrBeast': ['MrBeast Viral Formula','Hook Strategy','Retention Graph','Challenge Format','Giveaway ROI','Production Scaling','Clickbait Psychology','First 30s Rule','Re-watch Value','Comment Engagement','Shorts Repurposing','Thumbnail Contrast','Emotional Arc','Pacing Rhythm','Sound Design']
-    };
+    const clusters = ${clustersJsonString};
     let nid = 0;
     const gData = { nodes: [], links: [] };
-    gData.nodes.push({ id: nid++, group: -1, name: 'Core Agent', val: 22, connections: 0 });
+    gData.nodes.push({ id: nid++, group: -1, name: 'Workspace Root', val: 22, connections: 0 });
     let gi = 0;
     Object.values(clusters).forEach(names => {
       names.forEach(name => { gData.nodes.push({ id: nid++, group: gi, name, val: 2, connections: 0 }); });
@@ -446,12 +459,25 @@ function showBrainNetwork(context: vscode.ExtensionContext) {
     const byGroup = {};
     gData.nodes.forEach(n => { if(n.group>=0){ if(!byGroup[n.group]) byGroup[n.group]=[]; byGroup[n.group].push(n); }});
     Object.values(byGroup).forEach(g => {
-      for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) if(Math.random()<0.22){
-        gData.links.push({source:g[i].id,target:g[j].id}); g[i].connections++; g[j].connections++;
+      // Connect files in the same folder to each other (dense subgraph)
+      for(let i=0;i<g.length;i++) {
+        for(let j=i+1;j<g.length;j++) {
+           // Much higher connection chance inside the same folder so they cluster well
+           if(Math.random()<0.6){
+             gData.links.push({source:g[i].id,target:g[j].id}); g[i].connections++; g[j].connections++;
+           }
+        }
       }
     });
-    gData.nodes.forEach(n => { if(n.group>=0 && Math.random()<0.05){ gData.links.push({source:n.id,target:0}); n.connections++; gData.nodes[0].connections++; }});
-    for(let i=0;i<35;i++){
+    // Connect all folder nodes up to the root to unify the graph
+    gData.nodes.forEach(n => { 
+        if(n.group>=0){ 
+            if (Math.random() < 0.15) { // 15% chance to link to root to maintain overall structure
+               gData.links.push({source:n.id,target:0}); n.connections++; gData.nodes[0].connections++; 
+            }
+        }
+    });
+    for(let i=0;i< (gData.nodes.length * 1.5);i++){
       const a=1+Math.floor(Math.random()*(gData.nodes.length-1)), b=1+Math.floor(Math.random()*(gData.nodes.length-1));
       if(a!==b && gData.nodes[a].group!==gData.nodes[b].group){ gData.links.push({source:a,target:b}); gData.nodes[a].connections++; gData.nodes[b].connections++; }
     }
@@ -477,16 +503,19 @@ function showBrainNetwork(context: vscode.ExtensionContext) {
       .nodePointerAreaPaint((node,color,ctx) => {
         const r=Math.sqrt(node.val)*1.8+4; ctx.beginPath(); ctx.arc(node.x,node.y,r,0,2*Math.PI); ctx.fillStyle=color; ctx.fill();
       })
-      .linkColor(() => 'rgba(255,255,255,0.04)')
-      .linkWidth(0.3)
-      .d3VelocityDecay(0.3)
-      .warmupTicks(150)
-      .cooldownTicks(300)
+      .linkColor(() => 'rgba(200,200,200,0.15)')
+      .linkWidth(0.6)
+      .d3VelocityDecay(0.08) // Lower friction so they drift and move organically!
+      .warmupTicks(50)
+      .cooldownTicks(500) // Keep them moving longer
       .graphData(gData);
-    Graph.d3Force('charge').strength(-100);
-    Graph.d3Force('link').distance(35);
+    Graph.d3Force('charge').strength(-60); // Softer repulsion for gentle drift
+    Graph.d3Force('link').distance(60);
     Graph.onNodeClick(node => { Graph.centerAt(node.x,node.y,800); Graph.zoom(4,1200); });
-    setTimeout(() => Graph.zoomToFit(1500, 40), 500);
+    setTimeout(() => {
+        Graph.zoomToFit(1500, 40);
+        document.getElementById('titleSpan').innerText = "Live Workspace Topology";
+    }, 500);
   </script>
 </body>
 </html>`;
