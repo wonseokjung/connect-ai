@@ -681,6 +681,8 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     await this._handleSettingsMenu();
                     break;
                 case 'syncBrain':
+                    await this._handleBrainMenu();
+                    break;
                 case 'showBrainNetwork':
                     vscode.commands.executeCommand('connect-ai-lab.showBrainNetwork');
                     break;
@@ -905,6 +907,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         
         const items: any[] = [];
 
+        // 항상 그래프 뷰를 볼 수 있도록 메뉴 최상단에 추가!
+        items.push({ label: '🌌 지식 구조(Topology) 시각화 보기', description: '현재 워크스페이스의 연결 지식 맵을 엽니다.', action: 'viewGraph' });
+
         if (!isSynced && !secondBrainRepo) {
             // 아직 한 번도 연동한 적 없음
             items.push({ label: '🔗 깃허브 연결하기', description: '지식 저장소 GitHub URL 입력', action: 'sync' });
@@ -920,6 +925,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         if (!pick) return;
 
         switch (pick.action) {
+            case 'viewGraph':
+                vscode.commands.executeCommand('connect-ai-lab.showBrainNetwork');
+                break;
             case 'sync':
                 await this._syncSecondBrain();
                 break;
