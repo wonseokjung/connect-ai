@@ -1686,8 +1686,8 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
   --bg:#000000;--bg2:#050505;--surface:rgba(0,18,5,.75);--surface2:rgba(0,35,10,.6);
-  --border:rgba(0,255,65,.15);--border2:rgba(0,255,65,.25);
-  --text:#888899;--text-bright:#00FF41;--text-dim:#008F11;
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text:#A1A1AA;--text-bright:#FFFFFF;--text-dim:#71717A;
   --accent:#00FF41;--accent2:#008F11;--accent3:#00FF41;
   --accent-glow:rgba(0,255,65,.25);--accent2-glow:rgba(0,143,17,.2);
   --input-bg:rgba(0,10,2,.9);--code-bg:#020502;
@@ -1767,7 +1767,7 @@ select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--a
 .welcome-logo::before{content:'';position:absolute;inset:-4px;border-radius:20px;background:conic-gradient(from 0deg,var(--accent),var(--accent2),var(--accent3),var(--accent));opacity:.2;filter:blur(8px);animation:spin 8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes welcomeFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.03)}}
-.welcome-title{font-size:22px;font-weight:900;letter-spacing:-1px;background:linear-gradient(135deg,#fff,var(--accent),var(--accent2));background-size:200% 200%;-webkit-background-clip:text;-webkit-text-fill-color:transparent;animation:gradText 5s ease infinite;margin-bottom:8px}
+.welcome-title{font-size:22px;font-weight:900;letter-spacing:-1px;color:var(--text-bright);margin-bottom:8px}
 @keyframes gradText{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
 .welcome-sub{color:var(--text-dim);font-size:12px;line-height:1.7;margin-bottom:18px;letter-spacing:-.2px}
 
@@ -1783,8 +1783,8 @@ select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--a
 /* INPUT */
 .input-wrap{padding:8px 14px 14px;flex-shrink:0;position:relative;z-index:1}
 .input-box{background:var(--input-bg);border:1px solid var(--border2);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:all .3s;position:relative;backdrop-filter:blur(12px)}
-.input-box:focus-within{border-color:rgba(124,106,255,.4);box-shadow:0 0 24px rgba(124,106,255,.12);animation:focusPulse 3s infinite}
-@keyframes focusPulse{0%,100%{box-shadow:0 0 20px rgba(124,106,255,.08)}50%{box-shadow:0 0 28px rgba(124,106,255,.18)}}
+.input-box:focus-within{border-color:var(--accent);box-shadow:0 0 24px rgba(0,255,65,.15);animation:focusPulse 3s infinite}
+@keyframes focusPulse{0%,100%{box-shadow:0 0 20px rgba(0,255,65,.08)}50%{box-shadow:0 0 28px rgba(0,255,65,.2)}}
 textarea{width:100%;background:transparent;border:none;color:var(--text-bright);font-family:inherit;font-size:13px;line-height:1.5;resize:none;outline:none;min-height:22px;max-height:150px}
 textarea::placeholder{color:var(--text-dim)}
 .input-footer{display:flex;align-items:center;justify-content:space-between}
