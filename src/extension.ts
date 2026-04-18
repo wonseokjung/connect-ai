@@ -401,24 +401,36 @@ async function showBrainNetwork(context: vscode.ExtensionContext) {
         { enableScripts: true, retainContextWhenHidden: true }
     );
 
-    // Scan REAL workspace files
-    const uris = await vscode.workspace.findFiles('**/*.{md,ts,js,json,html,css,py,tsx,jsx}', '{**/node_modules/**,**/.git/**,**/dist/**,**/out/**,**/.svelte-kit/**}', 400);
-    
+    // Scan real Second Brain files locally instead of current workspace
+    const brainDir = path.join(os.homedir(), '.connect-ai-brain');
     const realClusters: Record<string, string[]> = {};
-    for (const uri of uris) {
-        const pathParts = uri.path.split('/');
-        const fileName = pathParts.pop() || 'Unknown';
-        const folderName = pathParts.pop() || 'Root';
-        // Prefix folder to group them
-        const groupName = folderName === 'local-ai-coder' || folderName === 'Root' ? 'Project Core' : folderName;
-        
-        if (!realClusters[groupName]) realClusters[groupName] = [];
-        realClusters[groupName].push(fileName);
+    let filesFound = 0;
+
+    function walkDir(dir: string) {
+        if (filesFound >= 600 || !fs.existsSync(dir)) return;
+        try {
+            const entries = fs.readdirSync(dir, { withFileTypes: true });
+            for (const entry of entries) {
+                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+                const fullPath = path.join(dir, entry.name);
+                if (entry.isDirectory()) {
+                    walkDir(fullPath);
+                } else if (entry.isFile() && fullPath.endsWith('.md')) {
+                    const folderName = path.basename(dir);
+                    const groupName = folderName === '.connect-ai-brain' ? 'Brain Root' : folderName;
+                    if (!realClusters[groupName]) realClusters[groupName] = [];
+                    realClusters[groupName].push(entry.name.replace('.md', ''));
+                    filesFound++;
+                }
+            }
+        } catch (e) { /* ignore read errors */ }
     }
 
-    // Fallback if empty
+    walkDir(brainDir);
+
+    // Fallback if empty (e.g., they haven't synced their GitHub Brain yet)
     if (Object.keys(realClusters).length === 0) {
-        realClusters['Empty Node'] = ['No files found in workspace...'];
+        realClusters['Empty Brain'] = ['Second Brain 저장소가 아직 비어있거나, 활성화되지 않았습니다.'];
     }
 
     const clustersJsonString = JSON.stringify(realClusters);
