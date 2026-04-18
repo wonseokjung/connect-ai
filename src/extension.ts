@@ -501,22 +501,38 @@ async function showBrainNetwork(context: vscode.ExtensionContext) {
       .nodeCanvasObject((node, ctx, globalScale) => {
         const r = Math.sqrt(node.val)*1.8;
         ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2*Math.PI);
-        if(node.group===-1){ ctx.fillStyle='#333'; ctx.fill(); ctx.strokeStyle='#00cc44'; ctx.lineWidth=1.5; ctx.stroke(); }
-        else if(node.connections>4){ ctx.fillStyle=gc[node.group]||'#00cc44'; ctx.fill(); }
+        if(node.group===-1){ 
+            // Glowing Brain Root
+            ctx.shadowBlur = 15; ctx.shadowColor = '#00ff66';
+            ctx.fillStyle='#0f0f0f'; ctx.fill(); 
+            ctx.strokeStyle='#00ff66'; ctx.lineWidth=2; ctx.stroke(); 
+            ctx.shadowBlur = 0;
+        }
+        else if(node.connections>2){ 
+            ctx.shadowBlur = 8; ctx.shadowColor = gc[node.group]||'#00cc44';
+            ctx.fillStyle=gc[node.group]||'#00cc44'; ctx.fill(); 
+            ctx.shadowBlur = 0;
+        }
         else { ctx.fillStyle='#2a2a2a'; ctx.fill(); }
+        
         const showLabel = globalScale>1.2 || node.connections>3 || node.group===-1;
         if(showLabel){
           const fs=Math.max(2.5, Math.min(5, 11/globalScale));
           ctx.font=fs+'px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
-          ctx.fillStyle=node.connections>4?'#ccc':'#555';
-          ctx.fillText(node.name, node.x, node.y+r+1.5);
+          ctx.fillStyle=node.connections>2?'#e0e0e0':'#555';
+          if(node.group===-1) ctx.fillStyle='#00ff66';
+          ctx.fillText(node.name, node.x, node.y+r+2);
         }
       })
       .nodePointerAreaPaint((node,color,ctx) => {
         const r=Math.sqrt(node.val)*1.8+4; ctx.beginPath(); ctx.arc(node.x,node.y,r,0,2*Math.PI); ctx.fillStyle=color; ctx.fill();
       })
-      .linkColor(() => 'rgba(200,200,200,0.15)')
-      .linkWidth(0.6)
+      .linkColor(() => 'rgba(0, 255, 102, 0.1)')
+      .linkWidth(0.8)
+      .linkDirectionalParticles(2)
+      .linkDirectionalParticleWidth(1.5)
+      .linkDirectionalParticleSpeed(0.005)
+      .linkDirectionalParticleColor(() => '#00ff66')
       .d3VelocityDecay(0.08) // Lower friction so they drift and move organically!
       .warmupTicks(50)
       .cooldownTicks(500) // Keep them moving longer
