@@ -384,6 +384,124 @@ console.log('Connect AI extension activated.');
             }
         })
     );
+
+    // Show Brain Network Topology
+    context.subscriptions.push(
+        vscode.commands.registerCommand('connect-ai-lab.showBrainNetwork', () => {
+            showBrainNetwork(context);
+        })
+    );
+}
+
+function showBrainNetwork(context: vscode.ExtensionContext) {
+    const panel = vscode.window.createWebviewPanel(
+        'brainTopology',
+        'Neural Construct (Brain)',
+        vscode.ViewColumn.One,
+        { enableScripts: true, retainContextWhenHidden: true }
+    );
+
+    panel.webview.html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Connect AI - Neural Construct</title>
+  <style>
+    body { margin: 0; padding: 0; background-color: #030503; overflow: hidden; font-family: 'SF Pro Display', -apple-system, sans-serif; }
+    #ui-layer {
+      position: absolute; top: 20px; left: 24px; color: #00FF41; z-index: 10; pointer-events: none;
+    }
+    h1 { font-size: 28px; margin: 0 0 5px 0; text-shadow: 0 0 15px #00FF41; font-weight: 900; letter-spacing: -1px; display: flex; align-items: center; gap: 10px;}
+    p { margin: 0; font-size: 13px; color: #888899; letter-spacing: 0.5px; }
+    .status { color: #fff; font-family: monospace; background: rgba(0,255,65,0.2); padding: 2px 6px; border-radius: 4px; font-size: 11px; }
+    
+    .glitch { animation: glitch 3s infinite alternate; }
+    @keyframes glitch {
+      0% { opacity: 1; }
+      97% { opacity: 1; }
+      98% { opacity: 0.3; }
+      99% { opacity: 1; text-shadow: 0 0 30px #00FF41, 2px 0 red, -2px 0 blue;}
+      100% { opacity: 1; text-shadow: 0 0 15px #00FF41; }
+    }
+    
+    #overlay-scan {
+      position: absolute; inset: 0; pointer-events: none; z-index: 5;
+      background: linear-gradient(rgba(0,255,65,0) 50%, rgba(0,255,65,0.03) 50%); background-size: 100% 4px;
+    }
+  </style>
+  <script src="https://unpkg.com/3d-force-graph"></script>
+</head>
+<body>
+  <div id="overlay-scan"></div>
+  <div id="ui-layer">
+    <h1 class="glitch">✦ Neural Construct</h1>
+    <p>Synaptic Network & Pattern Recognition <span class="status">[SCANNING ONLINE]</span></p>
+  </div>
+  
+  <div id="3d-graph"></div>
+
+  <script>
+    const N_NODES = 400; 
+    
+    const gData = {
+      nodes: [...Array(N_NODES).keys()].map(i => {
+        let group, name, size;
+        if (i === 0) { group = 0; name = 'Core Agent [Gemma-4]'; size = 30; } 
+        else if (i < 80) { group = 1; name = 'Brain Pack: MrBeast Traffic'; size = Math.random() * 8 + 2; } 
+        else if (i < 180) { group = 2; name = 'System Architecture Repo'; size = Math.random() * 6 + 2; }
+        else { group = 3; name = 'Second Brain Raw Markdown Node'; size = Math.random() * 4 + 1; }
+        return { id: i, group, name, val: size };
+      }),
+      links: []
+    };
+
+    for (let i = 1; i < N_NODES; i++) {
+        if (Math.random() < 0.05) gData.links.push({ source: i, target: 0 });
+        const groupNodes = gData.nodes.filter(n => n.group === gData.nodes[i].group);
+        for(let j=0; j<2; j++) {
+            const target = groupNodes[Math.floor(Math.random() * groupNodes.length)].id;
+            if(target !== i) gData.links.push({ source: i, target: target });
+        }
+        if (Math.random() < 0.02) {
+            gData.links.push({ source: i, target: Math.floor(Math.random() * N_NODES) });
+        }
+    }
+
+    const Graph = ForceGraph3D()
+      (document.getElementById('3d-graph'))
+        .backgroundColor('#030503') 
+        .nodeLabel('name') 
+        .nodeColor(node => {
+            if(node.group === 0) return '#FFFFFF'; 
+            if(node.group === 1) return '#00FF41'; 
+            if(node.group === 2) return '#00e5ff'; 
+            return 'rgba(0, 143, 17, 0.6)'; 
+        })
+        .nodeRelSize(4)
+        .linkColor(() => 'rgba(0, 255, 65, 0.15)') 
+        .linkWidth(0.5)
+        .linkDirectionalParticles(2)
+        .linkDirectionalParticleWidth(1.5)
+        .linkDirectionalParticleColor(() => '#00FF41')
+        .linkDirectionalParticleResolution(8)
+        .graphData(gData);
+
+    let angle = 0;
+    setInterval(() => {
+      angle += Math.PI / 2000; 
+      Graph.cameraPosition({ x: 600 * Math.cos(angle), z: 600 * Math.sin(angle) });
+    }, 20);
+
+    Graph.onNodeClick(node => {
+      const distance = 60;
+      const distRatio = 1 + distance/Math.hypot(node.x, node.y, node.z);
+      Graph.cameraPosition(
+        { x: node.x * distRatio, y: node.y * distRatio, z: node.z * distRatio }, node, 2000
+      );
+    });
+  </script>
+</body>
+</html>`;
 }
 
 export function deactivate() {}
