@@ -1493,23 +1493,47 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // 스트리밍 완료 알림 (1차)
             this._view.webview.postMessage({ type: 'streamEnd' });
 
-            // 4.5 Second Brain 자율 열람: AI가 <read_brain>을 사용했는지 확인
+            // 4.5 자율 열람 (Second Brain 및 웹 검색): AI가 <read_brain> 또는 <read_url>을 사용했는지 확인
             const brainReads = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)];
-            if (brainReads.length > 0) {
-                let brainContent = '';
+            const urlReads = [...aiMessage.matchAll(/<read_url>([\s\S]*?)<\/read_url>/gi)];
+
+            if (brainReads.length > 0 || urlReads.length > 0) {
+                let fetchedContent = '';
+                
+                // Brain 읽기 처리
                 for (const match of brainReads) {
                     const requestedFile = match[1].trim();
                     const fileContent = this._readBrainFile(requestedFile);
-                    brainContent += `\n\n[BRAIN DOCUMENT: ${requestedFile}]\n${fileContent}\n`;
+                    fetchedContent += `\n\n[BRAIN DOCUMENT: ${requestedFile}]\n${fileContent}\n`;
                 }
-                const cleanedResponse = aiMessage.replace(/<read_brain>[\s\S]*?<\/read_brain>/g, '').trim();
-                
-                // 유저에게 피드백 제공 (UI 상단에 메시지 추가)
+
+                // URL 읽기 처리
                 this._view.webview.postMessage({ type: 'streamStart' });
-                this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🧠 **[Second Brain 열람 완료]** 스캔한 핵심 지식을 바탕으로 답변을 구성합니다...\n\n` });
+                for (const match of urlReads) {
+                    const url = match[1].trim();
+                    try {
+                        const { data } = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' }, timeout: 10000 });
+                        let cleaned = data.toString()
+                            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+                            .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+                            .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+                        fetchedContent += `\n\n[WEB CONTENT: ${url}]\n${cleaned.slice(0, 15000)}\n`;
+                        this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🌐 **[웹 검색 완료]** ${url} (${cleaned.length}자)\n\n` });
+                    } catch (err: any) {
+                        fetchedContent += `\n\n[WEB CONTENT: ${url}] (FAILED: ${err.message})\n`;
+                        this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🌐 **[웹 검색 실패]** ${url} - ${err.message}\n\n` });
+                    }
+                }
+
+                const cleanedResponse = aiMessage.replace(/<read_brain>[\s\S]*?<\/read_brain>/g, '')
+                                                 .replace(/<read_url>[\s\S]*?<\/read_url>/gi, '').trim();
                 
-                reqMessages.push({ role: 'assistant', content: cleanedResponse || '문서를 열람 중입니다...' });
-                reqMessages.push({ role: 'user', content: `[SYSTEM: The following documents were retrieved from the user's Second Brain. Use this information to provide a complete and accurate answer to the user's original question.]\n${brainContent}\n\nNow answer the user's question using the above knowledge. Do NOT use <read_brain> again. Answer directly and comprehensively.` });
+                if (brainReads.length > 0) {
+                    this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🧠 **[Second Brain 열람 완료]** 스캔한 핵심 지식을 바탕으로 답변을 구성합니다...\n\n` });
+                }
+                
+                reqMessages.push({ role: 'assistant', content: cleanedResponse || '탐색을 진행 중입니다...' });
+                reqMessages.push({ role: 'user', content: `[SYSTEM: The following documents and web contents were retrieved based on your actions. Use this information to provide a complete and accurate answer to the user's original question.]\n${fetchedContent}\n\nNow answer the user's question using the above knowledge. Do NOT output <read_brain> or <read_url> again. Answer directly and comprehensively.` });
 
                 // 2차 스트리밍 시작 (followUp)
                 const followUpResponse = await axios.post(apiUrl, {
