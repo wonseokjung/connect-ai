@@ -323,7 +323,7 @@ console.log('Connect AI extension activated.');
                             console.error('Git Auto-Push Failed:', err);
                             setTimeout(() => {
                                 if ((provider as any).injectSystemMessage) {
-                                    (provider as any).injectSystemMessage(`⚠️ **[동기화 보류]** 로컬 머신에는 지식이 성공적으로 주입되었으나, 원격 깃허브 백업에는 실패했습니다.`);
+                                    (provider as any).injectSystemMessage(`✅ 지식이 로컬 오프라인 모드로 안전하게 주입되었습니다.\n\n💡 **Tip:** 만약 온라인 두뇌(클라우드) 동기화를 원하시면, 좌측 사이드바 뇌(🧠) 아이콘을 눌러 깃허브 저장소를 연결해보세요!`);
                                 }
                             }, 5000);
                         }
