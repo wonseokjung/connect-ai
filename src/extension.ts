@@ -2090,10 +2090,10 @@ internetBtn.addEventListener('click', ()=>{
   internetEnabled=!internetEnabled;
   internetBtn.style.opacity=internetEnabled?'1':'0.4';
   internetBtn.style.filter=internetEnabled?'none':'grayscale(1)';
-  internetBtn.title=`Internet & Time Sync: ${internetEnabled?'ON':'OFF'} (Click to toggle)`;
+  internetBtn.title='Internet & Time Sync: ' + (internetEnabled?'ON':'OFF') + ' (Click to toggle)';
   const msg = document.createElement('div');
   msg.className='msg';
-  msg.innerHTML=`<div class="msg-body" style="color:#00bdff;font-size:12px;opacity:0.8;">🌐 인터넷 및 시간 동기화 모드가 ${internetEnabled?'ON':'OFF'} 되었습니다.</div>`;
+  msg.innerHTML='<div class="msg-body" style="color:#00bdff;font-size:12px;opacity:0.8;">🌐 인터넷 및 시간 동기화 모드가 ' + (internetEnabled?'ON':'OFF') + ' 되었습니다.</div>';
   chat.appendChild(msg);
   chat.scrollTop=chat.scrollHeight;
 });
