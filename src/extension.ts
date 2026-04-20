@@ -990,17 +990,13 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 await this._syncSecondBrain();
                 break;
             case 'disconnect':
-                const confirm = await vscode.window.showWarningMessage('정말로 Second Brain 연결을 끊고 다운로드된 지식을 모두 삭제하시겠습니까?', '연결 끊기', '취소');
-                if (confirm === '연결 끊기') {
-                    const dir = path.join(os.homedir(), '.connect-ai-brain');
-                    if (fs.existsSync(dir)) {
-                        fs.rmSync(dir, { recursive: true, force: true });
-                    }
+                const confirm = await vscode.window.showWarningMessage('깃허브 자동 연동만 해제합니다. (기존에 다운로드/주입된 지식은 로컬에 안전하게 보존됩니다.)', '연결 해제', '취소');
+                if (confirm === '연결 해제') {
                     await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', '', vscode.ConfigurationTarget.Global);
                     this._brainEnabled = false;
                     this._ctx.globalState.update('brainEnabled', false);
-                    vscode.window.showInformationMessage('✅ Second Brain 연결이 해제되고 로컬 지식이 삭제되었습니다.');
-                    this._view.webview.postMessage({ type: 'response', value: `❌ **지식 무장 해제** — Second Brain 연결이 제거되었습니다.` });
+                    vscode.window.showInformationMessage('✅ 깃허브 연동이 해제되었습니다. 로컬 오프라인 모드로 보호됩니다.');
+                    this._view.webview.postMessage({ type: 'response', value: `❌ **깃허브 연동 해제** — 기존의 오프라인 지식은 유지됩니다.` });
                 }
                 break;
         }
@@ -1037,13 +1033,29 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         try {
             this._view.webview.postMessage({ type: 'response', value: '🧠 **Second Brain 동기화 시작 중... 깃허브에서 지식을 복제합니다.**' });
             
-            if (fs.existsSync(brainDir)) {
-                // 깔끔한 최신화를 위해 기존 폴더 삭제 후 다시 클론 (다중 클릭 방지)
-                fs.rmSync(brainDir, { recursive: true, force: true });
+            if (!fs.existsSync(brainDir)) {
+                fs.mkdirSync(brainDir, { recursive: true });
             }
             
-            await execAsync(`git clone --depth 1 ${secondBrainRepo.replace(/[;&|$()]/g, '')} "${brainDir}"`);
-            vscode.window.showInformationMessage('🧠 Second Brain 지식 연동이 완료되었습니다!');
+            const gitDir = path.join(brainDir, '.git');
+            const cleanRepo = secondBrainRepo.replace(/[;&|$()]/g, '');
+            
+            // 기존 폴더(또는 Inject된 파일)가 있더라도 덮어쓰기 위해 git init 방식 사용
+            if (!fs.existsSync(gitDir)) {
+                await execAsync(`git init`, { cwd: brainDir });
+            }
+            
+            // 원격 저장소 추가(오류 무시) 후 fetch & 강제 reset (untracked 파일은 보존됨!)
+            await execAsync(`git remote remove origin`, { cwd: brainDir }).catch(() => {});
+            await execAsync(`git remote add origin ${cleanRepo}`, { cwd: brainDir });
+            await execAsync(`git fetch origin`, { cwd: brainDir });
+            try {
+                await execAsync(`git reset --hard origin/main`, { cwd: brainDir });
+            } catch {
+                await execAsync(`git reset --hard origin/master`, { cwd: brainDir });
+            }
+            
+            vscode.window.showInformationMessage('🧠 Second Brain 지식 연동 완료!');
             this._view.webview.postMessage({ type: 'response', value: '✅ **Second Brain 업데이트 완료! 이제 회원님의 뇌(문서)를 바탕으로 특화된 코딩을 진행합니다.**' });
         } catch (error: any) {
             vscode.window.showErrorMessage(`Second Brain 동기화 실패: ${error.message}`);
