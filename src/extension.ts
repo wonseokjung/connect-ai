@@ -1241,7 +1241,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 const workspaceCtx = this._getWorkspaceContext();
                 const brainCtx = this._brainEnabled ? this._getSecondBrainContext() : '';
                 const internetCtx = internetEnabled 
-                    ? `\n\n[INTERNET SYNC ON]\nCurrent Time: ${new Date().toLocaleString('ko-KR')}\nYou have internet access toggled ON. When the user asks for realtime info, search queries, or the latest data, you MUST use the <read_url>url</read_url> action to search the web or fetch information via a search engine query link.`
+                    ? `\n\n[INTERNET SYNC ON]\nCurrent Time: ${new Date().toLocaleString('ko-KR')}\nYou have internet access toggled ON. When the user asks for realtime info, search queries (like Google Trends, news, etc.), or the latest data, you MUST NEVER SAY you cannot search. Instead, you MUST search the web by using this exact action format:\n<read_url>https://html.duckduckgo.com/html/?q=YOUR+SEARCH+KEYWORD</read_url>`
                     : '';
                 reqMessages[0] = {
                     role: 'system',
@@ -1414,7 +1414,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // 시스템 프롬프트(0번 인덱스)에 현재 작업 환경 정보를 주입
             if (reqMessages.length > 0 && reqMessages[0].role === 'system') {
                 const internetCtx = internetEnabled 
-                    ? `\n\n[INTERNET SYNC ON]\nCurrent Time: ${new Date().toLocaleString('ko-KR')}\nYou have internet access toggled ON. When the user asks for realtime info, search queries, or the latest data, you MUST use the <read_url>url</read_url> action to search the web or fetch information.`
+                    ? `\n\n[INTERNET SYNC ON]\nCurrent Time: ${new Date().toLocaleString('ko-KR')}\nYou have internet access toggled ON. When the user asks for realtime info, search queries (like Google Trends, news, etc.), or the latest data, you MUST NEVER SAY you cannot search. Instead, you MUST search the web by using this exact action format:\n<read_url>https://html.duckduckgo.com/html/?q=YOUR+SEARCH+KEYWORD</read_url>`
                     : '';
                 reqMessages[0] = {
                     role: 'system',
@@ -2046,8 +2046,8 @@ body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;tr
 .attach-thumb{width:28px;height:28px;border-radius:5px;object-fit:cover;border:1px solid var(--border2)}
 
 /* REGENERATE BUTTON */
-.regen-btn{display:inline-flex;align-items:center;gap:4px;background:transparent;border:1px solid var(--border2);color:var(--text-dim);padding:4px 12px;border-radius:8px;font-size:10px;cursor:pointer;transition:all .3s;font-family:inherit;margin-top:6px;margin-left:29px}
-.regen-btn:hover{color:var(--accent);border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.regen-btn{display:inline-flex;align-items:center;gap:4px;background:transparent;border:none;color:var(--text-dim);padding:4px 6px;border-radius:4px;font-size:11px;cursor:pointer;transition:color 0.2s;font-family:inherit;margin-top:6px;margin-left:29px;opacity:0.7}
+.regen-btn:hover{color:var(--text);opacity:1}
 
 /* SYNTAX HIGHLIGHTING */
 .msg-body pre .kw{color:#c792ea}
@@ -2261,7 +2261,7 @@ window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
     if(streamBody)streamBody.classList.remove('stream-active');
     /* Add regenerate button */
     if(streamEl){
-      const rb=document.createElement('button');rb.className='regen-btn';rb.innerHTML='🔄 재생성';
+      const rb=document.createElement('button');rb.className='regen-btn';rb.innerHTML='<span style="font-size:13px;line-height:1">↻</span> 재생성';
       rb.addEventListener('click',()=>{rb.remove();vscode.postMessage({type:'regenerate'});showLoader();setSending(true);});
       streamEl.appendChild(rb);
     }
