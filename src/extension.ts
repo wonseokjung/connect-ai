@@ -1490,15 +1490,15 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 stream.on('error', (err: any) => reject(err));
             });
 
-            // 스트리밍 완료 알림 (1차)
-            this._view.webview.postMessage({ type: 'streamEnd' });
-
+            // 스트리밍 완료 알림 잠시 보류 (연속된 답변을 같은 상자에 이어서 출력하기 위함)
+            
             // 4.5 자율 열람 (Second Brain 및 웹 검색): AI가 <read_brain> 또는 <read_url>을 사용했는지 확인
             const brainReads = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)];
             const urlReads = [...aiMessage.matchAll(/<read_url>([\s\S]*?)<\/read_url>/gi)];
 
             if (brainReads.length > 0 || urlReads.length > 0) {
                 let fetchedContent = '';
+                let uiFeedbackStr = '';
                 
                 // Brain 읽기 처리
                 for (const match of brainReads) {
@@ -1508,7 +1508,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 }
 
                 // URL 읽기 처리
-                this._view.webview.postMessage({ type: 'streamStart' });
                 for (const match of urlReads) {
                     const url = match[1].trim();
                     try {
@@ -1518,10 +1517,14 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                             .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
                             .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
                         fetchedContent += `\n\n[WEB CONTENT: ${url}]\n${cleaned.slice(0, 15000)}\n`;
-                        this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🌐 **[웹 검색 완료]** ${url} (${cleaned.length}자)\n\n` });
+                        const msg = `\n\n> 🌐 **[웹 검색 완료]** ${url} (${cleaned.length}자)\n\n`;
+                        uiFeedbackStr += msg;
+                        this._view.webview.postMessage({ type: 'streamChunk', value: msg });
                     } catch (err: any) {
                         fetchedContent += `\n\n[WEB CONTENT: ${url}] (FAILED: ${err.message})\n`;
-                        this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🌐 **[웹 검색 실패]** ${url} - ${err.message}\n\n` });
+                        const msg = `\n\n> 🌐 **[웹 검색 실패]** ${url} - ${err.message}\n\n`;
+                        uiFeedbackStr += msg;
+                        this._view.webview.postMessage({ type: 'streamChunk', value: msg });
                     }
                 }
 
@@ -1529,7 +1532,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                                  .replace(/<read_url>[\s\S]*?<\/read_url>/gi, '').trim();
                 
                 if (brainReads.length > 0) {
-                    this._view.webview.postMessage({ type: 'streamChunk', value: `\n\n> 🧠 **[Second Brain 열람 완료]** 스캔한 핵심 지식을 바탕으로 답변을 구성합니다...\n\n` });
+                    const msg = `\n\n> 🧠 **[Second Brain 열람 완료]** 스캔한 핵심 지식을 바탕으로 답변을 구성합니다...\n\n`;
+                    uiFeedbackStr += msg;
+                    this._view.webview.postMessage({ type: 'streamChunk', value: msg });
                 }
                 
                 reqMessages.push({ role: 'assistant', content: cleanedResponse || '탐색을 진행 중입니다...' });
@@ -1539,13 +1544,13 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 const followUpResponse = await axios.post(apiUrl, {
                     model: modelName || defaultModel,
                     messages: reqMessages,
-                    stream: true, // 변경: 스트리밍 활성화!
+                    stream: true, // 스트리밍 활성화
                     ...(isLMStudio 
                         ? { max_tokens: 4096, temperature: this._temperature, top_p: this._topP } 
                         : { options: { num_ctx: 16384, num_predict: 4096, temperature: this._temperature, top_p: this._topP, top_k: this._topK } }),
                 }, { timeout, responseType: 'stream', signal: this._abortController?.signal });
 
-                aiMessage = cleanedResponse + `\n\n> 🧠 **[Second Brain 열람 완료]** 스캔한 핵심 지식을 바탕으로 답변을 구성합니다...\n\n`;
+                aiMessage = cleanedResponse + uiFeedbackStr;
                 
                 await new Promise<void>((resolve, reject) => {
                     const stream = followUpResponse.data;
@@ -1574,9 +1579,10 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     stream.on('end', () => resolve());
                     stream.on('error', (err: any) => reject(err));
                 });
-                
-                this._view.webview.postMessage({ type: 'streamEnd' });
             }
+
+            // 모든 스트리밍(1차 및 2차)이 끝난 후, 박스 포장 완료
+            this._view.webview.postMessage({ type: 'streamEnd' });
 
             this._chatHistory.push({ role: 'assistant', content: aiMessage });
 
