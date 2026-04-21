@@ -1008,40 +1008,29 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         if (!this._view) { return; }
         
         const brainDir = _getBrainDir();
-        const isSynced = fs.existsSync(brainDir);
-        const { secondBrainRepo } = getConfig();
-        const statusLabel = this._brainEnabled ? '🟢 ON' : '🔴 OFF';
+        const brainFiles = fs.existsSync(brainDir) ? this._findBrainFiles(brainDir) : [];
+        const fileCount = brainFiles.length;
         
-        const items: any[] = [];
+        const items: any[] = [
+            { label: `📂 내 지식 파일 보기 (${fileCount}개)`, description: fileCount > 0 ? '내가 넣어둔 지식 목록 확인' : '아직 지식이 없습니다', action: 'listFiles' },
+            { label: '📁 내 뇌 폴더 변경하기', description: `현재: ${brainDir}`, action: 'changeFolder' },
+            { label: '🔄 지식 새로고침', description: '폴더 내용을 다시 읽어옵니다', action: 'resync' },
+        ];
 
-        // 항상 그래프 뷰를 볼 수 있도록 메뉴 최상단에 추가!
-        items.push({ label: '🌌 지식 구조(Topology) 시각화 보기', description: '현재 워크스페이스의 연결 지식 맵을 엽니다.', action: 'viewGraph' });
-
-        if (!isSynced && !secondBrainRepo) {
-            // 아직 한 번도 연동한 적 없음
-            items.push({ label: '🔗 깃허브 연결하기', description: '지식 저장소 GitHub URL 입력', action: 'sync' });
-        } else {
-            const brainFiles = fs.existsSync(brainDir) ? this._findBrainFiles(brainDir) : [];
-            items.push(
-                { label: `🧠 지식 모드: ${statusLabel}`, description: '지식 기반 코딩 ON/OFF 전환', action: 'toggle' },
-                { label: `📂 내 두뇌 파일 목록 (${brainFiles.length}개)`, description: '주입된 지식 파일 확인', action: 'listFiles' },
-                { label: '🔄 지식 새로고침', description: `현재: ${secondBrainRepo?.split('/').pop() || '없음'}`, action: 'resync' },
-                { label: '🔗 다른 깃허브로 변경', description: '새로운 지식 저장소 URL 입력', action: 'change' },
-                { label: '🔌 브레인 팩 연결 해제', description: '내 컴퓨터에 임시 복사된 지식만 비웁니다 (원본 깃허브 안전)', action: 'disconnect' }
-            );
-        }
-
-        const pick = await vscode.window.showQuickPick(items, { placeHolder: '🧠 Second Brain 관리' });
+        const pick = await vscode.window.showQuickPick(items, { placeHolder: '🧠 내 지식 관리' });
         if (!pick) return;
 
         switch (pick.action) {
-            case 'viewGraph':
-                vscode.commands.executeCommand('connect-ai-lab.showBrainNetwork');
-                break;
             case 'listFiles': {
-                const brainFiles = fs.existsSync(brainDir) ? this._findBrainFiles(brainDir) : [];
-                if (brainFiles.length === 0) {
-                    vscode.window.showInformationMessage('📂 두뇌에 저장된 파일이 없습니다. 웹사이트에서 Brain Pack을 주입하세요!');
+                if (fileCount === 0) {
+                    const action = await vscode.window.showInformationMessage(
+                        '📂 아직 지식이 없습니다. 뇌 폴더에 .md 파일을 넣어주세요!',
+                        '📁 뇌 폴더 열기'
+                    );
+                    if (action === '📁 뇌 폴더 열기') {
+                        if (!fs.existsSync(brainDir)) fs.mkdirSync(brainDir, { recursive: true });
+                        vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(brainDir));
+                    }
                 } else {
                     const fileItems = brainFiles.slice(0, 50).map(f => {
                         const rel = path.relative(brainDir, f);
@@ -1050,7 +1039,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                         return { label: `📄 ${rel}`, description: title, filePath: f };
                     });
                     const selected = await vscode.window.showQuickPick(fileItems, { 
-                        placeHolder: `📂 내 두뇌 파일 (총 ${brainFiles.length}개)` 
+                        placeHolder: `📂 내 지식 파일 (총 ${fileCount}개) — 클릭하면 내용을 볼 수 있어요` 
                     });
                     if (selected) {
                         const doc = await vscode.workspace.openTextDocument(selected.filePath);
@@ -1059,41 +1048,33 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 }
                 break;
             }
-            case 'sync':
-                await this._syncSecondBrain();
-                break;
-            case 'toggle':
-                this._brainEnabled = !this._brainEnabled;
-                this._ctx.globalState.update('brainEnabled', this._brainEnabled);
-                const state = this._brainEnabled ? '🟢 ON — 지식 기반 코딩 활성화!' : '🔴 OFF — 일반 모드';
-                vscode.window.showInformationMessage(`🧠 Second Brain: ${state}`);
-                this._view.webview.postMessage({ type: 'response', value: `🧠 **지식 모드 ${this._brainEnabled ? 'ON' : 'OFF'}** — ${this._brainEnabled ? '이제부터 회원님의 지식을 바탕으로 모든 답변을 생성합니다.' : '일반 AI 모드로 전환되었습니다.'}` });
-                break;
-            case 'resync':
-                await this._syncSecondBrain();
-                break;
-            case 'change':
-                // 기존 URL을 지우고 새로 입력받기
-                const newUrl = await vscode.window.showInputBox({
-                    prompt: '🧠 새로운 지식 저장소 깃허브 URL을 입력하세요',
-                    placeHolder: '예: https://github.com/사용자/새저장소',
-                    value: secondBrainRepo
+            case 'changeFolder': {
+                const folders = await vscode.window.showOpenDialog({
+                    canSelectFiles: false,
+                    canSelectFolders: true,
+                    canSelectMany: false,
+                    openLabel: '이 폴더를 내 뇌로 사용하기',
+                    title: '📁 AI에게 읽혀줄 지식(.md 파일)이 들어있는 폴더를 선택하세요'
                 });
-                if (!newUrl) return;
-                await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', newUrl, vscode.ConfigurationTarget.Global);
-                vscode.window.showInformationMessage('✅ 새로운 깃허브 주소가 저장되었습니다. 동기화를 시작합니다!');
-                await this._syncSecondBrain();
-                break;
-            case 'disconnect':
-                const confirm = await vscode.window.showWarningMessage('깃허브 자동 연동만 해제합니다. (기존에 다운로드/주입된 지식은 로컬에 안전하게 보존됩니다.)', '연결 해제', '취소');
-                if (confirm === '연결 해제') {
-                    await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', '', vscode.ConfigurationTarget.Global);
-                    this._brainEnabled = false;
-                    this._ctx.globalState.update('brainEnabled', false);
-                    vscode.window.showInformationMessage('✅ 깃허브 연동이 해제되었습니다. 로컬 오프라인 모드로 보호됩니다.');
-                    this._view.webview.postMessage({ type: 'response', value: `❌ **깃허브 연동 해제** — 기존의 오프라인 지식은 유지됩니다.` });
+                if (folders && folders.length > 0) {
+                    const selectedPath = folders[0].fsPath;
+                    await vscode.workspace.getConfiguration('connectAiLab').update('localBrainPath', selectedPath, vscode.ConfigurationTarget.Global);
+                    this._brainEnabled = true;
+                    this._ctx.globalState.update('brainEnabled', true);
+                    const newFiles = this._findBrainFiles(selectedPath);
+                    vscode.window.showInformationMessage(`✅ 뇌 폴더가 변경되었습니다! (${newFiles.length}개 지식 파일 발견)`);
+                    this._view.webview.postMessage({ type: 'response', value: `🧠 **뇌 폴더 연결 완료!**\n📁 ${selectedPath}\n📄 ${newFiles.length}개의 지식 파일을 읽어들이고 있습니다.` });
                 }
                 break;
+            }
+            case 'resync': {
+                this._brainEnabled = true;
+                this._ctx.globalState.update('brainEnabled', true);
+                const refreshedFiles = this._findBrainFiles(brainDir);
+                vscode.window.showInformationMessage(`🔄 지식 새로고침 완료! (${refreshedFiles.length}개 파일)`);
+                this._view.webview.postMessage({ type: 'response', value: `🔄 **지식 새로고침 완료!** ${refreshedFiles.length}개 파일이 연결되어 있습니다.\n\n지식 모드가 ON 되었습니다.` });
+                break;
+            }
         }
     }
 
