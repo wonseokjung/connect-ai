@@ -20,9 +20,8 @@ function getConfig() {
     return {
         ollamaBase: cfg.get<string>('ollamaUrl', 'http://127.0.0.1:11434'),
         defaultModel: cfg.get<string>('defaultModel', 'gemma4:e2b'),
-        maxTreeFiles: cfg.get<number>('maxContextFiles', 200),
+        maxTreeFiles: 200,
         timeout: cfg.get<number>('requestTimeout', 300) * 1000,
-        secondBrainRepo: cfg.get<string>('secondBrainRepo', ''),
         localBrainPath: cfg.get<string>('localBrainPath', '')
     };
 }
@@ -1015,6 +1014,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             { label: `📂 내 지식 파일 보기 (${fileCount}개)`, description: fileCount > 0 ? '내가 넣어둔 지식 목록 확인' : '아직 지식이 없습니다', action: 'listFiles' },
             { label: '📁 내 뇌 폴더 변경하기', description: `현재: ${brainDir}`, action: 'changeFolder' },
             { label: '🔄 지식 새로고침', description: '폴더 내용을 다시 읽어옵니다', action: 'resync' },
+            { label: '🌐 내 지식 지도 보기', description: '지식들이 어떻게 연결되어 있는지 시각화', action: 'viewGraph' },
         ];
 
         const pick = await vscode.window.showQuickPick(items, { placeHolder: '🧠 내 지식 관리' });
@@ -1075,6 +1075,10 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 this._view.webview.postMessage({ type: 'response', value: `🔄 **지식 새로고침 완료!** ${refreshedFiles.length}개 파일이 연결되어 있습니다.\n\n지식 모드가 ON 되었습니다.` });
                 break;
             }
+            case 'viewGraph': {
+                vscode.commands.executeCommand('connect-ai-lab.showBrainNetwork');
+                break;
+            }
         }
     }
 
@@ -1088,20 +1092,18 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             return;
         }
 
-        let { secondBrainRepo } = getConfig();
+        let secondBrainRepo = vscode.workspace.getConfiguration('connectAiLab').get<string>('secondBrainRepo', '');
         
         // UX 극대화: 안 채워져 있으면 에러 내뱉지 말고 입력창 띄우기!
         if (!secondBrainRepo) {
             const inputUrl = await vscode.window.showInputBox({
-                prompt: '🧠 뇌를 연결할 깃허브 저장소 주소를 입력하세요 (Second Brain URL)',
+                prompt: '🧠 뇌를 연결할 깃허브 저장소 주소를 입력하세요',
                 placeHolder: '예: https://github.com/사용자/레포지토리'
             });
-            if (!inputUrl) { return; } // 사용자가 취소한 경우 종료
+            if (!inputUrl) { return; }
             
-            // 설정창에 자동 입력 및 저장
             await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', inputUrl, vscode.ConfigurationTarget.Global);
             secondBrainRepo = inputUrl;
-            vscode.window.showInformationMessage('✅ 깃허브 주소가 자동 저장되었습니다. 즉시 동기화를 시작합니다!');
         }
 
         this._isSyncingBrain = true;

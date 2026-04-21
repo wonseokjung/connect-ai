@@ -99,32 +99,22 @@
         "connectAiLab.ollamaUrl": {
           "type": "string",
           "default": "http://127.0.0.1:11434",
-          "description": "Ollama 서버 URL (기본값: http://127.0.0.1:11434)"
+          "description": "🤖 AI 서버 주소 (보통 자동으로 잡히니 건드리지 않아도 됩니다)"
         },
         "connectAiLab.defaultModel": {
           "type": "string",
           "default": "gemma4:e2b",
-          "description": "기본 AI 모델 이름 (예: gemma4:e2b, llama3.3, deepseek-r1)"
-        },
-        "connectAiLab.maxContextFiles": {
-          "type": "number",
-          "default": 200,
-          "description": "프로젝트 컨텍스트에 포함할 최대 파일 수"
+          "description": "🧠 사용할 AI 모델 이름 (예: gemma4:e2b, llama3.3, deepseek-r1)"
         },
         "connectAiLab.requestTimeout": {
           "type": "number",
           "default": 300,
-          "description": "AI 응답 대기 시간 (초, 기본값: 300초)"
-        },
-        "connectAiLab.secondBrainRepo": {
-          "type": "string",
-          "default": "",
-          "description": "🧠 Second Brain — 지식 저장소 GitHub URL (예: https://github.com/user/my-knowledge). 여기에 입력한 깃허브의 마크다운(.md) 파일들이 AI의 지식 기반이 됩니다."
+          "description": "⏱ AI 응답 대기 시간 (초, 기본 300초 = 5분)"
         },
         "connectAiLab.localBrainPath": {
           "type": "string",
           "default": "",
-          "description": "📁 로컬 동기화 폴더 경로 — (선택) 숨김 폴더 대신, 내 PC의 특정 폴더(예: /Users/jay/Desktop/MyBrain)를 지정하면 해당 폴더가 깃허브와 완벽히 양방향 동기화(Auto Pull & Push) 됩니다."
+          "description": "📁 내 지식 폴더 경로 — 내 PC의 특정 폴더(예: 바탕화면/MyBrain)를 지정하면, 그 안의 .md 파일들이 AI의 지식이 됩니다. 비워두면 기본 폴더를 자동 생성합니다."
         }
       }
     }
