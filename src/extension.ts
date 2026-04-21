@@ -1095,9 +1095,17 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         const files = this._findBrainFiles(brainDir);
         if (files.length === 0) return '';
 
-        // 파일 목록 + 첫 줄(제목) 요약을 목차로 생성
+        // 컨텍스트 폭발 크래시(OOM)를 방지하기 위해 최대 인덱스 개수 제한
+        const MAX_INDEX = 200;
         const index: string[] = [];
-        for (const file of files) {
+        let truncated = false;
+
+        for (let i = 0; i < files.length; i++) {
+            if (i >= MAX_INDEX) {
+                truncated = true;
+                break;
+            }
+            const file = files[i];
             const relativePath = path.relative(brainDir, file);
             try {
                 const firstLine = fs.readFileSync(file, 'utf-8').split('\n').find(l => l.trim().length > 0) || '';
@@ -1109,7 +1117,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        return `\n\n[CRITICAL: SECOND BRAIN INDEX — User's Personal Knowledge Base (${files.length} documents)]\nThe user has synced a personal knowledge repository. Below is the TABLE OF CONTENTS.\nIf the user's query is even slightly related to any topics in this index, YOU MUST FIRST READ the relevant document BEFORE answering.\nTo read the actual content of any document, use EXACTLY this syntax: <read_brain>filename_or_path</read_brain>\nYou can call <read_brain> multiple times. ALWAYS READ THE FULL DOCUMENT BEFORE ANSWERING.\n\n${index.join('\n')}\n\n`;
+        const msgLimit = truncated ? `\n(⚠️ 메모리 폭발 방지를 위해 상위 ${MAX_INDEX}개 파일의 목차만 표시됩니다.)` : '';
+
+        return `\n\n[CRITICAL: SECOND BRAIN INDEX — User's Personal Knowledge Base (${files.length} documents)]\nThe user has synced a personal knowledge repository. Below is the TABLE OF CONTENTS.${msgLimit}\nIf the user's query is even slightly related to any topics in this index, YOU MUST FIRST READ the relevant document BEFORE answering.\nTo read the actual content of any document, use EXACTLY this syntax: <read_brain>filename_or_path</read_brain>\nYou can call <read_brain> multiple times. ALWAYS READ THE FULL DOCUMENT BEFORE ANSWERING.\n\n${index.join('\n')}\n\n`;
     }
 
     // AI가 <read_brain>태그로 요청한 파일의 실제 내용을 읽어서 반환
