@@ -1048,18 +1048,57 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // 원격 저장소 추가(오류 무시) 후 fetch & 강제 reset (untracked 파일은 보존됨!)
             await execAsync(`git remote remove origin`, { cwd: brainDir }).catch(() => {});
             await execAsync(`git remote add origin ${cleanRepo}`, { cwd: brainDir });
-            await execAsync(`git fetch origin`, { cwd: brainDir });
+            
+            try {
+                await execAsync(`git fetch origin`, { cwd: brainDir });
+            } catch (fetchErr: any) {
+                // Private 레포 또는 인증 실패 시 사용자 친화적 안내
+                const msg = fetchErr.message || '';
+                if (msg.includes('Authentication') || msg.includes('403') || msg.includes('404') || msg.includes('could not read')) {
+                    throw new Error('깃허브 저장소에 접근할 수 없습니다. 저장소가 Public(공개)인지 확인하고, URL이 정확한지 다시 확인해주세요.');
+                }
+                throw fetchErr;
+            }
+            
+            // 빈 저장소(새로 만든 깃허브 레포)인 경우 graceful 처리
             try {
                 await execAsync(`git reset --hard origin/main`, { cwd: brainDir });
             } catch {
-                await execAsync(`git reset --hard origin/master`, { cwd: brainDir });
+                try {
+                    await execAsync(`git reset --hard origin/master`, { cwd: brainDir });
+                } catch {
+                    // 빈 레포지토리 — 브랜치가 아예 없는 경우 (새로 만든 깃허브)
+                    // 로컬에서 첫 커밋을 자동 생성하여 연결 완료
+                    const readmePath = path.join(brainDir, 'README.md');
+                    if (!fs.existsSync(readmePath)) {
+                        fs.writeFileSync(readmePath, '# 🧠 Second Brain\n\nConnect AI 지식 저장소입니다.\n', 'utf-8');
+                    }
+                    await execAsync(`git add .`, { cwd: brainDir });
+                    await execAsync(`git commit -m "Initial commit: Second Brain 초기화"`, { cwd: brainDir });
+                    try {
+                        await execAsync(`git branch -M main`, { cwd: brainDir });
+                        await execAsync(`git push -u origin main`, { cwd: brainDir });
+                    } catch { /* push 실패해도 로컬 연결은 완료 */ }
+                }
             }
             
+            // 연동 완료 후 자동으로 지식 모드 ON
+            this._brainEnabled = true;
+            this._ctx.globalState.update('brainEnabled', true);
+            
             vscode.window.showInformationMessage('🧠 Second Brain 지식 연동 완료!');
-            this._view.webview.postMessage({ type: 'response', value: '✅ **Second Brain 업데이트 완료! 이제 회원님의 뇌(문서)를 바탕으로 특화된 코딩을 진행합니다.**' });
+            this._view.webview.postMessage({ type: 'response', value: '✅ **Second Brain 업데이트 완료! 이제 회원님의 뇌(문서)를 바탕으로 특화된 코딩을 진행합니다. (지식 모드: 🟢 ON)**' });
         } catch (error: any) {
-            vscode.window.showErrorMessage(`Second Brain 동기화 실패: ${error.message}`);
-            this._view.webview.postMessage({ type: 'error', value: `⚠️ 동기화 실패: ${error.message}` });
+            // 사용자 친화적 에러 메시지 분기
+            const errMsg = error.message || '';
+            let userMsg = errMsg;
+            if (errMsg.includes('not found') || errMsg.includes('does not exist')) {
+                userMsg = '깃허브 저장소를 찾을 수 없습니다. URL을 다시 확인해주세요.';
+            } else if (errMsg.includes('Authentication') || errMsg.includes('permission')) {
+                userMsg = '깃허브 인증에 실패했습니다. 저장소가 Public(공개)인지 확인해주세요.';
+            }
+            vscode.window.showErrorMessage(`Second Brain 동기화 실패: ${userMsg}`);
+            this._view.webview.postMessage({ type: 'error', value: `⚠️ 동기화 실패: ${userMsg}\n\n💡 **해결 방법:**\n1. 깃허브 저장소가 **Public(공개)** 상태인지 확인\n2. URL 형식: \`https://github.com/사용자이름/저장소이름\`\n3. 새로 만든 빈 저장소도 연결 가능합니다!` });
         } finally {
             this._isSyncingBrain = false;
         }
@@ -1388,11 +1427,20 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             const isLM = ollamaBase.includes('1234') || ollamaBase.includes('v1');
             const targetName = isLM ? "LM Studio" : "Ollama";
             
-            let errMsg = error.code === 'ECONNREFUSED'
-                ? `⚠️ ${targetName} 서버에 연결할 수 없습니다.\n앱에서 로컬 서버가 켜져 있는지(Start Server) 확인해주세요.`
-                : (error.response?.status === 400 || error.response?.status === 413)
-                    ? `⚠️ 컨텍스트 용량 초과 또거나 지원하지 않는 형식입니다. (에러 400/413) 이미지가 지원되는 Vision 모델인지 확인해주세요.`
-                    : `⚠️ 오류: ${error.message}`;
+            let errMsg = '';
+            if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+                errMsg = `⚠️ ${targetName} 서버에 연결할 수 없습니다.\n\n**해결 방법:**\n1. ${targetName} 앱을 열고 서버가 켜져 있는지(Start Server) 확인\n2. Settings > 모델 기본 URL이 올바른지 확인 (기본: http://127.0.0.1:${isLM ? '1234' : '11434'})`;
+            } else if (error.response?.status === 400) {
+                errMsg = `⚠️ 모델 요청 오류 (400)\n\n**원인:** 모델 이름이 올바르지 않거나, 컨텍스트 길이 초과\n**해결:** 좌측 모델 선택 드롭다운에서 정확한 모델을 선택하세요.\n${isLM ? '• LM Studio의 경우 모델을 먼저 로드(Load)한 후 시도하세요.' : '• Ollama: ollama list 로 설치된 모델 확인'}`;
+            } else if (error.response?.status === 404) {
+                errMsg = `⚠️ 모델을 찾을 수 없습니다 (404)\n\n**원인:** 선택한 모델이 ${targetName}에 로드되지 않았습니다.\n**해결:** ${isLM ? 'LM Studio에서 해당 모델을 먼저 다운로드 후 Load 해주세요.' : 'ollama pull 모델이름 으로 먼저 다운로드하세요.'}`;
+            } else if (error.response?.status === 413) {
+                errMsg = `⚠️ 컨텍스트 용량 초과 (413)\n\n**해결:** 🧠 지식 모드를 일시적으로 OFF 하거나, + 버튼으로 새 대화를 시작하세요.`;
+            } else if (error.code === 'ETIMEDOUT' || error.message?.includes('timeout')) {
+                errMsg = `⚠️ AI 응답 시간 초과\n\n모델이 문제를 처리하는 데 시간이 너무 오래 걸렸습니다.\n**해결:** 더 작은 모델을 선택하거나, 질문을 짧게 줄여보세요.`;
+            } else {
+                errMsg = `⚠️ 오류: ${error.message}`;
+            }
 
             this._view.webview.postMessage({ type: 'error', value: errMsg });
 
@@ -1983,7 +2031,7 @@ body.vscode-light {
   --accent-glow:rgba(124,106,255,.1);--accent2-glow:rgba(224,64,251,.08);
   --input-bg:rgba(255,255,255,.9);--code-bg:#f5f5f7;
 }
-html,body{height:100%;font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;background:var(--bg);color:var(--text);display:flex;flex-direction:column;overflow:hidden}
+html,body{height:100%;font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;background:var(--bg);color:var(--text);display:flex;flex-direction:column;overflow:hidden;min-height:0}
 
 /* AURORA BACKGROUND */
 body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 20% 50%,rgba(124,106,255,.06) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(224,64,251,.04) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(0,229,255,.03) 0%,transparent 50%);animation:aurora 20s ease-in-out infinite;z-index:0;pointer-events:none}
@@ -2011,7 +2059,7 @@ select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--a
 .btn-icon:hover::before{opacity:1}
 
 /* CHAT */
-.chat{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:16px;position:relative;z-index:1}
+.chat{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:16px;position:relative;z-index:1;min-height:0}
 .chat::-webkit-scrollbar{width:2px}.chat::-webkit-scrollbar-track{background:transparent}.chat::-webkit-scrollbar-thumb{background:var(--accent);border-radius:2px;opacity:.5}
 
 /* MESSAGES */
@@ -2097,7 +2145,7 @@ textarea::placeholder{color:var(--text-dim)}
   0%, 100% { box-shadow: 0 0 15px var(--accent-glow); }
   50% { box-shadow: 0 0 35px var(--accent2-glow); border-color: var(--accent2); }
 }
-.main-view{flex:1;display:flex;flex-direction:column;overflow:hidden;transition:all .5s cubic-bezier(.16,1,.3,1)}
+.main-view{flex:1;display:flex;flex-direction:column;overflow:hidden;transition:all .5s cubic-bezier(.16,1,.3,1);min-height:0;max-height:100%}
 body.init .main-view{justify-content:center;margin-top:-6vh}
 body.init .chat{flex:0 0 auto;overflow:visible;padding-bottom:15px}
 body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;transition:all .5s cubic-bezier(.16,1,.3,1)}
