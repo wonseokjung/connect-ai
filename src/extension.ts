@@ -103,9 +103,63 @@ CRITICAL RULES:
 
 export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('🔥 Connect AI V2 활성화 완료!');
-console.log('Connect AI extension activated.');
+    console.log('Connect AI extension activated.');
 
     const provider = new SidebarChatProvider(context.extensionUri, context);
+
+    // ==========================================
+    // 초기 설정 마법사 (첫 실행 시에만)
+    // ==========================================
+    const isFirstRun = !context.globalState.get('setupComplete');
+    if (isFirstRun) {
+        (async () => {
+            try {
+                let engineName = '';
+                let modelName = '';
+                
+                // Step 1: AI 엔진 자동 감지
+                try {
+                    const lmRes = await axios.get('http://127.0.0.1:1234/v1/models', { timeout: 2000 });
+                    if (lmRes.data?.data?.length > 0) {
+                        engineName = 'LM Studio';
+                        modelName = lmRes.data.data[0].id;
+                        await vscode.workspace.getConfiguration('connectAiLab').update('ollamaBase', 'http://127.0.0.1:1234', vscode.ConfigurationTarget.Global);
+                        await vscode.workspace.getConfiguration('connectAiLab').update('defaultModel', modelName, vscode.ConfigurationTarget.Global);
+                    }
+                } catch {}
+
+                if (!engineName) {
+                    try {
+                        const ollamaRes = await axios.get('http://127.0.0.1:11434/api/tags', { timeout: 2000 });
+                        if (ollamaRes.data?.models?.length > 0) {
+                            engineName = 'Ollama';
+                            modelName = ollamaRes.data.models[0].name;
+                            await vscode.workspace.getConfiguration('connectAiLab').update('ollamaBase', 'http://127.0.0.1:11434', vscode.ConfigurationTarget.Global);
+                            await vscode.workspace.getConfiguration('connectAiLab').update('defaultModel', modelName, vscode.ConfigurationTarget.Global);
+                        }
+                    } catch {}
+                }
+
+                // Step 2: 두뇌 폴더 자동 생성
+                const brainDir = path.join(os.homedir(), '.connect-ai-brain');
+                if (!fs.existsSync(brainDir)) {
+                    fs.mkdirSync(brainDir, { recursive: true });
+                }
+
+                // Step 3: 완료 메시지
+                context.globalState.update('setupComplete', true);
+                
+                if (engineName) {
+                    vscode.window.showInformationMessage(`🧠 자동 설정 완료! ${engineName} 감지됨 → 모델: ${modelName}`);
+                } else {
+                    vscode.window.showInformationMessage('🧠 Connect AI 준비 완료! LM Studio 또는 Ollama를 실행하면 자동 연결됩니다.');
+                }
+            } catch (e) {
+                // 마법사 실패해도 무시 (익스텐션 정상 작동)
+                context.globalState.update('setupComplete', true);
+            }
+        })();
+    }
 
     // ==========================================
     // EZER AI <-> Connect AI Bridge Server (Port 4825)
