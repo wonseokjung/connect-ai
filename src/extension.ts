@@ -1016,6 +1016,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         const items: any[] = [
             { label: `📂 내 지식 목록 (${fileCount}개)`, description: '클릭하면 파일 내용 열기', action: 'listFiles' },
             { label: `🔄 깃허브 동기화`, description: `${repoLabel} — 로컬↔깃허브 양방향 최신화`, action: 'githubSync' },
+            { label: '🔗 깃허브 주소 변경', description: '연결할 지식 저장소 URL 바꾸기', action: 'changeGithub' },
             { label: '📁 폴더 위치 바꾸기', description: `현재: ${brainDir}`, action: 'changeFolder' },
             { label: '🌐 지식 지도', description: '내 지식의 연결 관계 시각화', action: 'viewGraph' },
         ];
@@ -1084,6 +1085,17 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }
             case 'githubSync': {
                 await this._syncSecondBrain();
+                break;
+            }
+            case 'changeGithub': {
+                const inputUrl = await vscode.window.showInputBox({
+                    prompt: '🧠 새로운 깃허브 저장소 주소를 입력하세요',
+                    placeHolder: '예: https://github.com/사용자/레포지토리'
+                });
+                if (inputUrl) {
+                    await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', inputUrl, vscode.ConfigurationTarget.Global);
+                    vscode.window.showInformationMessage(`✅ 깃허브 연결 주소가 변경되었습니다! 이제 '깃허브 동기화'를 눌러주세요.`);
+                }
                 break;
             }
         }
