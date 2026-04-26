@@ -131,22 +131,22 @@ function classifyGitError(stderr: string): { kind: GitErrorKind; message: string
     ) {
         return {
             kind: 'auth',
-            message: '깃허브 인증 실패. Personal Access Token이 필요합니다.\n👉 GitHub → Settings → Developer settings → Personal access tokens 에서 토큰 생성 후, 한 번만 터미널에서 `git push` 실행해 자격증명을 캐시하세요.'
+            message: 'GitHub 로그인이 필요해요.\n\n👉 GitHub 사이트에서 토큰을 만든 뒤(Settings → Developer settings → Personal access tokens), 터미널을 열고 한 번만 `git push`를 실행하면 끝나요!'
         };
     }
     if (s.includes('repository not found') || s.includes('does not appear to be a git repository') || s.includes('404')) {
-        return { kind: 'not_found', message: '저장소를 찾을 수 없습니다. URL을 확인하거나 Private 저장소라면 토큰 권한을 확인하세요.' };
+        return { kind: 'not_found', message: '그 GitHub 저장소를 못 찾았어요. 주소가 정확한지 확인해주세요. (Private 저장소면 토큰 권한도 필요해요)' };
     }
     if (s.includes('rejected') && (s.includes('non-fast-forward') || s.includes('fetch first'))) {
-        return { kind: 'rejected', message: 'GitHub에 다른 변경사항이 있어 push가 거부됐습니다. 메뉴 → 깃허브 동기화로 병합해주세요.' };
+        return { kind: 'rejected', message: 'GitHub에 새로운 내용이 있어요. 먼저 받아온 후 다시 시도해주세요.' };
     }
     if (s.includes('merge conflict') || s.includes('automatic merge failed') || s.includes('overwritten by merge')) {
-        return { kind: 'merge_conflict', message: '병합 충돌이 발생했습니다. 메뉴 → 깃허브 동기화에서 수동 해결하세요.' };
+        return { kind: 'merge_conflict', message: '같은 줄을 양쪽에서 다르게 고쳐서 자동으로 합칠 수 없어요. 동기화 메뉴에서 직접 골라주세요.' };
     }
     if (s.includes('could not resolve host') || s.includes('connection refused') || s.includes('network is unreachable') || s.includes('timed out')) {
-        return { kind: 'network', message: '네트워크 연결을 확인하세요.' };
+        return { kind: 'network', message: '인터넷 연결을 확인해주세요.' };
     }
-    return { kind: 'unknown', message: (stderr || 'unknown error').slice(0, 240) };
+    return { kind: 'unknown', message: (stderr || '알 수 없는 오류').slice(0, 240) };
 }
 
 /** Detect remote default branch ("main" / "master" / etc). Returns "main" as fallback. */
@@ -1624,14 +1624,14 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     if (diverged) {
                         // 사용자에게 충돌 해결 방법 선택권 제공 (silently 덮어쓰지 않음!)
                         const choice = await vscode.window.showWarningMessage(
-                            '⚠️ 로컬과 GitHub에 서로 다른 변경사항이 있습니다. 어떻게 병합할까요?',
+                            '🤔 내 PC와 GitHub이 서로 다르게 수정됐어요.\n어떤 걸 살릴까요?',
                             { modal: true },
-                            '🤝 자동 병합 시도 (안전)',
-                            '💪 로컬 우선 (GitHub 변경 무시)',
-                            '☁️ GitHub 우선 (로컬 변경 무시)'
+                            '🤝 둘 다 합치기 (추천)',
+                            '💻 내 PC 내용으로 덮어쓰기',
+                            '☁️ GitHub 내용으로 덮어쓰기'
                         );
                         if (!choice) {
-                            this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화가 취소되었습니다. 로컬 파일은 안전하게 보존되었습니다.' });
+                            this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화 취소했어요. 내 PC 파일은 그대로 안전합니다.' });
                             return;
                         }
                         // 선택 적용 — 자동 병합 실패 시 즉시 재선택 다이얼로그를 띄워 사용자를 메뉴로 돌려보내지 않음
@@ -1648,40 +1648,40 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                 gitExecSafe(['merge', '--abort'], brainDir);
                                 const conflicted = gitExecSafe(['diff', '--name-only', '--diff-filter=U'], brainDir)?.trim();
                                 const detailMsg = conflicted
-                                    ? `⚠️ 같은 파일의 같은 줄이 양쪽에서 다르게 수정됐어요:\n${conflicted}\n\n어떻게 처리할까요?`
-                                    : '⚠️ 자동 병합이 안 돼요. 어떻게 처리할까요?';
+                                    ? `🤝 자동으로 못 합쳤어요. 같은 줄이 양쪽에서 다르게 수정됐거든요.\n\n충돌 파일:\n${conflicted}\n\n어떻게 할까요?`
+                                    : '🤝 자동으로 못 합쳤어요. 어떻게 할까요?';
                                 const next = await vscode.window.showWarningMessage(
                                     detailMsg,
                                     { modal: true },
-                                    '💪 로컬 우선 (GitHub 변경 무시)',
-                                    '☁️ GitHub 우선 (로컬 변경 무시)',
-                                    '🛠️ 폴더 열기 (직접 해결)'
+                                    '💻 내 PC 내용으로 덮어쓰기',
+                                    '☁️ GitHub 내용으로 덮어쓰기',
+                                    '🛠️ 폴더 열어서 직접 고치기'
                                 );
                                 if (!next) {
-                                    this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화가 취소되었습니다. 로컬 파일은 안전합니다.' });
+                                    this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화 취소했어요. 내 PC 파일은 그대로 안전합니다.' });
                                     return;
                                 }
                                 if (next.startsWith('🛠️')) {
                                     await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(brainDir));
-                                    this._view.webview.postMessage({ type: 'response', value: '🛠️ 충돌 파일을 직접 수정한 뒤, 메뉴에서 다시 동기화를 눌러주세요.' });
+                                    this._view.webview.postMessage({ type: 'response', value: '🛠️ 폴더를 열었어요. 파일을 직접 수정한 뒤, 메뉴에서 다시 동기화를 눌러주세요.' });
                                     return;
                                 }
                                 activeChoice = next;
                                 continue;
                             }
-                            if (activeChoice.startsWith('💪')) {
+                            if (activeChoice.startsWith('💻') || activeChoice.startsWith('💪')) {
                                 gitExec(['pull', 'origin', remoteBranch, '--no-edit', '--allow-unrelated-histories', '-s', 'recursive', '-X', 'ours'], brainDir, 30000);
                                 resolved = true;
                                 break;
                             }
-                            // ☁️ GitHub 우선
+                            // ☁️ GitHub 내용으로 덮어쓰기
                             gitExec(['fetch', 'origin', remoteBranch], brainDir, 30000);
                             gitExec(['reset', '--hard', `origin/${remoteBranch}`], brainDir, 15000);
                             resolved = true;
                             break;
                         }
                         if (!resolved) {
-                            throw new Error('충돌 해결에 실패했습니다. 폴더를 직접 열어 수동으로 해결해주세요.');
+                            throw new Error('합치기를 끝내지 못했어요. 폴더를 직접 열어서 수정해주세요.');
                         }
                     }
                 }
@@ -1694,18 +1694,18 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 if (err.kind === 'rejected') {
                     // 충돌이 다시 발생한 경우 — force-push는 사용자 명시적 동의 후에만
                     const force = await vscode.window.showWarningMessage(
-                        '⚠️ Push가 거부되었습니다. GitHub에 더 새로운 변경사항이 있을 수 있습니다.\n\n강제로 덮어쓸까요? (GitHub의 새로운 변경사항이 영구 손실됩니다)',
+                        '☁️ GitHub에 더 새로운 내용이 있어요.\n\n그래도 내 PC 내용으로 덮어쓸까요?\n(주의: GitHub의 새 내용은 영구 삭제됩니다)',
                         { modal: true },
-                        '⛔ 취소 (안전)',
-                        '⚠️ 강제 덮어쓰기'
+                        '⛔ 그만두기 (안전)',
+                        '⚠️ 그래도 덮어쓰기'
                     );
-                    if (force === '⚠️ 강제 덮어쓰기') {
+                    if (force === '⚠️ 그래도 덮어쓰기') {
                         const forceRes = gitRun(['push', '-u', 'origin', remoteBranch, '--force-with-lease'], brainDir, 60000);
                         if (forceRes.status !== 0) {
                             throw new Error(classifyGitError(forceRes.stderr).message);
                         }
                     } else {
-                        throw new Error('동기화가 취소되었습니다. 로컬 파일은 안전합니다.');
+                        throw new Error('덮어쓰기를 그만두었어요. 내 PC 파일은 그대로 안전합니다.');
                     }
                 } else {
                     throw new Error(err.message);
@@ -1716,12 +1716,12 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._brainEnabled = true;
             this._ctx.globalState.update('brainEnabled', true);
 
-            vscode.window.showInformationMessage('✅ GitHub과 지식 폴더가 완벽히 동기화되었어요!');
-            this._view.webview.postMessage({ type: 'response', value: `✅ **지식 동기화 완료!** (브랜치: \`${remoteBranch}\`)\n\n이제 내 PC와 GitHub이 동일한 최신 상태입니다.\n\n앞으로 답변할 때 이 지식들을 참고합니다. (지식 모드: 🟢 ON)` });
+            vscode.window.showInformationMessage('✅ GitHub 동기화 완료!');
+            this._view.webview.postMessage({ type: 'response', value: `✅ **동기화가 끝났어요!** (브랜치: \`${remoteBranch}\`)\n\n내 PC와 GitHub이 이제 완전히 똑같은 상태예요.\n\n앞으로 AI가 답변할 때 이 지식들을 참고합니다. (지식 모드: 🟢 ON)` });
         } catch (error: any) {
-            const userMsg = error?.message || '알 수 없는 오류';
-            vscode.window.showErrorMessage(`Second Brain 동기화 실패: ${userMsg}`);
-            this._view.webview.postMessage({ type: 'error', value: `⚠️ 동기화 실패: ${userMsg}\n\n💡 **자주 발생하는 원인:**\n• Private 저장소인데 Personal Access Token이 설정 안 됨\n• 저장소 URL이 잘못됨 (\`https://github.com/사용자/저장소\` 형식 확인)\n• 네트워크 연결 끊김\n• git이 설치되지 않음\n\n👉 토큰 설정: GitHub Settings → Developer settings → Personal access tokens → Generate new token (repo 권한 부여)` });
+            const userMsg = error?.message || '알 수 없는 문제가 생겼어요';
+            vscode.window.showErrorMessage(`동기화 실패: ${userMsg}`);
+            this._view.webview.postMessage({ type: 'error', value: `⚠️ 동기화 실패: ${userMsg}\n\n💡 **이런 경우가 많아요:**\n• Private 저장소인데 GitHub 토큰을 안 만들었어요\n• 저장소 주소가 틀렸어요 (예: \`https://github.com/내이름/저장소\`)\n• 인터넷이 끊겼어요\n• 컴퓨터에 git이 안 깔려있어요\n\n👉 토큰 만들기: GitHub → 우측 상단 프로필 → Settings → Developer settings → Personal access tokens → 토큰 생성 (repo 권한 체크)` });
         } finally {
             this._isSyncingBrain = false;
             _autoSyncRunning = false;
