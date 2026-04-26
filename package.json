@@ -2,7 +2,7 @@
   "name": "connect-ai-lab",
   "displayName": "Connect AI for Antigravity",
   "description": "⚡ Built for Antigravity · 내 지식과 연결된 100% 로컬 AI 워크스페이스. 파일 생성, 코드 편집, 터미널 실행, Second Brain까지 오프라인으로.",
-  "version": "2.9.0",
+  "version": "2.9.1",
   "publisher": "connectailab",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -11,7 +11,7 @@
     "url": "https://github.com/wonseokjung/connect-ai"
   },
   "engines": {
-    "vscode": "^1.95.0"
+    "vscode": "^1.80.0"
   },
   "categories": [
     "Machine Learning",
@@ -132,7 +132,7 @@
   },
   "devDependencies": {
     "@types/node": "18.x",
-    "@types/vscode": "~1.95.0",
+    "@types/vscode": "^1.80.0",
     "@vercel/ncc": "^0.38.4",
     "esbuild": "^0.28.0",
     "typescript": "^5.1.3"

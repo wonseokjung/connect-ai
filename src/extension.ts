@@ -1686,94 +1686,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     }
 
     // ============================================================
-    // 🌐 Antigravity / VS Code Language Model API streaming
-    // ------------------------------------------------------------
-    // Used when the selected model id is encoded as `lm:vendor:family:id`
-    // (i.e. it came from vscode.lm.selectChatModels — Gemini/Claude/etc
-    // provided by the host IDE). Returns the full assistant message after
-    // streaming chunks to the webview as they arrive.
-    // ============================================================
-    private async _streamViaLanguageModelApi(modelName: string, reqMessages: { role: string; content: any }[]): Promise<string> {
-        const lm: any = (vscode as any).lm;
-        if (!lm || typeof lm.selectChatModels !== 'function') {
-            throw new Error('이 IDE에서는 Antigravity 모델 API를 쓸 수 없어요. 로컬 모델로 바꿔주세요.');
-        }
-
-        // modelName = "lm:vendor:family:id"
-        const parts = modelName.split(':');
-        const vendor = parts[1];
-        const family = parts[2];
-        const id = parts.slice(3).join(':') || undefined;
-
-        const matches = await lm.selectChatModels({ vendor, family, ...(id ? { id } : {}) });
-        const model = matches?.[0];
-        if (!model) {
-            throw new Error(`Antigravity에서 ${family} 모델을 찾을 수 없어요. 모델 셀렉트에서 다시 골라주세요.`);
-        }
-
-        // VS Code LanguageModelChatMessage roles: User / Assistant only.
-        // System messages get folded into the first user message as a prefix.
-        const lmMessages: any[] = [];
-        let systemPrefix = '';
-        for (const m of reqMessages) {
-            if (m.role === 'system') {
-                systemPrefix += (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)) + '\n\n';
-                continue;
-            }
-            const text = typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
-            if (m.role === 'assistant') {
-                lmMessages.push(vscode.LanguageModelChatMessage.Assistant(text));
-            } else {
-                // First user message after a system prompt absorbs the system text
-                const finalText = systemPrefix ? `[System Instructions]\n${systemPrefix}\n[User]\n${text}` : text;
-                lmMessages.push(vscode.LanguageModelChatMessage.User(finalText));
-                systemPrefix = '';
-            }
-        }
-        // If only system messages with no user — append a placeholder
-        if (lmMessages.length === 0 && systemPrefix) {
-            lmMessages.push(vscode.LanguageModelChatMessage.User(systemPrefix));
-        }
-
-        let aiMessage = '';
-        const seenBrainReads = new Set<string>();
-        const detectBrainReadsLive = () => {
-            if (!this._thinkingMode) return;
-            const matches = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)];
-            for (const m of matches) {
-                const note = m[1].trim();
-                if (note && !seenBrainReads.has(note)) {
-                    seenBrainReads.add(note);
-                    this._postThinking({ type: 'brain_read', note });
-                }
-            }
-        };
-
-        try {
-            const response = await model.sendRequest(lmMessages, {}, this._abortController?.signal);
-            for await (const chunk of response.text) {
-                aiMessage += chunk;
-                this._view?.webview.postMessage({ type: 'streamChunk', value: chunk });
-                detectBrainReadsLive();
-                if (this._thinkingMode) {
-                    this._postThinking({ type: 'answer_chunk', text: chunk });
-                }
-            }
-        } catch (e: any) {
-            // Common cases: user denied consent, quota exhausted, model unavailable
-            if (e?.code === 'NoPermissions') {
-                throw new Error('Antigravity 모델 사용 권한이 거부됐어요. 다시 시도하면 동의 창이 열려요.');
-            }
-            if (e?.code === 'Blocked') {
-                throw new Error('Antigravity가 이 요청을 차단했어요. (콘텐츠 정책 또는 할당량)');
-            }
-            throw e;
-        }
-
-        return aiMessage;
-    }
-
-    // ============================================================
     // 📊 Header status bar — folder + GitHub status, always visible
     // ============================================================
     private _sendStatusUpdate() {
@@ -2206,67 +2118,40 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private async _sendModels() {
         if (!this._view) { return; }
         const { ollamaBase, defaultModel } = getConfig();
-
-        // ----- 1. Local models (Ollama / LM Studio) -----
-        let localModels: string[] = [];
         try {
             const isLMStudio = ollamaBase.includes('1234') || ollamaBase.includes('v1');
+            let models: string[] = [];
+
             if (isLMStudio) {
+                // LM Studio 0.3+ 의 native API는 state 필드를 줘서 로드된 모델만 골라낼 수 있음
                 try {
                     const nativeRes = await axios.get(`${ollamaBase}/api/v0/models`, { timeout: 3000 });
                     const items: any[] = nativeRes.data?.data || [];
                     if (items.length > 0) {
-                        localModels = items
+                        models = items
                             .filter((m: any) => m.state === 'loaded' && (!m.type || m.type === 'llm' || m.type === 'vlm'))
                             .map((m: any) => m.id);
                     }
-                } catch { /* fallback below */ }
-                if (localModels.length === 0) {
+                } catch { /* 구버전 LM Studio는 native API 없음 → /v1/models 폴백 */ }
+
+                if (models.length === 0) {
                     const res = await axios.get(`${ollamaBase}/v1/models`, { timeout: 3000 });
-                    localModels = (res.data?.data || []).map((m: any) => m.id);
+                    models = (res.data?.data || []).map((m: any) => m.id);
                 }
             } else {
                 const res = await axios.get(`${ollamaBase}/api/tags`, { timeout: 3000 });
-                localModels = (res.data?.models || []).map((m: any) => m.name);
+                models = (res.data?.models || []).map((m: any) => m.name);
             }
-        } catch { /* engine offline — that's fine, still show the default */ }
 
-        if (localModels.length === 0) localModels = [defaultModel];
-        else if (!localModels.includes(defaultModel)) localModels.unshift(defaultModel);
-
-        // ----- 2. Antigravity-provided models via vscode.lm -----
-        const antigravityModels: { id: string; label: string }[] = [];
-        try {
-            // vscode.lm exists from VS Code 1.95+ as a stable API. Antigravity (being
-            // VS Code-based) registers its built-in models — Gemini, Claude, etc — as
-            // language-model providers. We just enumerate them; no API key needed.
-            const lm: any = (vscode as any).lm;
-            if (lm && typeof lm.selectChatModels === 'function') {
-                const models = await lm.selectChatModels();
-                for (const m of models) {
-                    // Encode vendor/family/id so the prompt handler can route to the
-                    // right backend. No PII in the id — only the routing tag.
-                    const encoded = `lm:${m.vendor}:${m.family}:${m.id}`;
-                    const display = m.name || `${m.vendor} · ${m.family}`;
-                    antigravityModels.push({ id: encoded, label: display });
-                }
+            if (models.length === 0) {
+                models = [defaultModel];
+            } else if (!models.includes(defaultModel)) {
+                models.unshift(defaultModel);
             }
-        } catch { /* lm API unavailable or user dismissed enumeration */ }
-
-        // ----- 3. Send grouped payload -----
-        const groups: { label: string; models: { id: string; label: string }[] }[] = [
-            {
-                label: '🖥️ 로컬 (내 PC)',
-                models: localModels.map(id => ({ id, label: id }))
-            }
-        ];
-        if (antigravityModels.length > 0) {
-            groups.push({
-                label: '⚡ Antigravity 연결됨',
-                models: antigravityModels
-            });
+            this._view.webview.postMessage({ type: 'modelsList', value: models });
+        } catch {
+            this._view.webview.postMessage({ type: 'modelsList', value: [defaultModel] });
         }
-        this._view.webview.postMessage({ type: 'modelsList', value: groups });
     }
 
     // --------------------------------------------------------
@@ -2895,30 +2780,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._view.webview.postMessage({ type: 'streamStart' });
             this._abortController = new AbortController();
 
-            // 🌐 Antigravity-provided model? Bypass HTTP path entirely.
-            if (modelName && modelName.startsWith('lm:')) {
-                let aiMessage = '';
-                try {
-                    aiMessage = await this._streamViaLanguageModelApi(modelName, reqMessages);
-                } catch (e: any) {
-                    this._view.webview.postMessage({ type: 'error', value: '⚠️ ' + (e?.message || '알 수 없는 오류') });
-                    return;
-                }
-                this._view.webview.postMessage({ type: 'streamEnd' });
-                this._chatHistory.push({ role: 'assistant', content: aiMessage });
-                const reportLM = await this._executeActions(aiMessage);
-                if (reportLM.length > 0) {
-                    const reportMsg = `\n\n---\n**에이전트 작업 결과**\n${reportLM.join('\n')}`;
-                    this._view.webview.postMessage({ type: 'streamChunk', value: reportMsg });
-                    this._view.webview.postMessage({ type: 'streamEnd' });
-                    aiMessage += reportMsg;
-                }
-                this._displayMessages.push({ text: this._stripActionTags(aiMessage), role: 'ai' });
-                this._pruneHistory();
-                this._saveHistory();
-                return;
-            }
-
             if (isLMStudio) {
                 // OpenAI-compatible format with image_url
                 const lastUserMsg = reqMessages[reqMessages.length - 1];
@@ -3123,37 +2984,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._lastPrompt = prompt;
             this._lastModel = modelName;
             this._abortController = new AbortController();
-
-            // 🌐 Antigravity-provided model? (encoded as `lm:vendor:family:id` in the dropdown)
-            // → use VS Code's stable Language Model API instead of HTTP-to-Ollama.
-            //   Auth & billing flow through Antigravity; no API key needed from the user.
-            if (modelName && modelName.startsWith('lm:')) {
-                aiMessage = await this._streamViaLanguageModelApi(modelName, reqMessages);
-                // After streaming completes, fall through to the same brain-read / answer-complete logic
-                // by short-circuiting the rest of the legacy HTTP path.
-                this._chatHistory.push({ role: 'assistant', content: aiMessage });
-                this._view.webview.postMessage({ type: 'streamEnd' });
-                const allBrainReadsLM = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)]
-                    .map(m => m[1].trim()).filter(s => s.length > 0);
-                const uniqueSourcesLM = [...new Set(allBrainReadsLM)];
-                if (uniqueSourcesLM.length > 0) {
-                    this._view.webview.postMessage({ type: 'attachCitations', sources: uniqueSourcesLM });
-                }
-                if (this._thinkingMode) {
-                    this._postThinking({ type: 'answer_complete', sources: uniqueSourcesLM });
-                }
-                const reportLM = await this._executeActions(aiMessage);
-                if (reportLM.length > 0) {
-                    const reportMsg = `\n\n---\n**에이전트 작업 결과**\n${reportLM.join('\n')}`;
-                    this._view.webview.postMessage({ type: 'streamChunk', value: reportMsg });
-                    this._view.webview.postMessage({ type: 'streamEnd' });
-                    aiMessage += reportMsg;
-                }
-                this._displayMessages.push({ text: this._stripActionTags(aiMessage), role: 'ai' });
-                this._pruneHistory();
-                this._saveHistory();
-                return;
-            }
 
             const streamBody = {
                 model: modelName || defaultModel,
@@ -4162,25 +3992,7 @@ window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
     }
     setSending(false);streamEl=null;streamBody=null;
     break;}
-  case 'modelsList':{
-    modelSel.innerHTML='';
-    // Backward compat: if value is a flat string array, wrap it
-    const groups = Array.isArray(msg.value) && msg.value[0] && typeof msg.value[0] === 'object' && 'models' in msg.value[0]
-      ? msg.value
-      : [{ label: '모델', models: (msg.value || []).map(s => ({ id: s, label: s })) }];
-    groups.forEach(g => {
-      const og = document.createElement('optgroup');
-      og.label = g.label;
-      g.models.forEach(m => {
-        const o = document.createElement('option');
-        o.value = m.id;
-        o.textContent = m.label;
-        og.appendChild(o);
-      });
-      modelSel.appendChild(og);
-    });
-    break;
-  }
+  case 'modelsList':modelSel.innerHTML='';msg.value.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;modelSel.appendChild(o)});break;
   case 'thinkingModeState':
     thinkingModeOn = !!msg.value;
     thinkingBtn.style.opacity = thinkingModeOn ? '1' : '0.5';
