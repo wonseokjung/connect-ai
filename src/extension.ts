@@ -1077,11 +1077,22 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
         links: graph.links
     });
 
-    panel.webview.html = _RENDER_GRAPH_HTML(graphJson, isEmpty);
+    panel.webview.html = _RENDER_GRAPH_HTML(graphJson, isEmpty, _context.extensionPath);
 }
 
 /** Returns the full graph webview HTML. Reused by showBrainNetwork + ThinkingPanel. */
-function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
+function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, extensionPath?: string): string {
+    // force-graph 라이브러리를 로컬 번들에서 인라인으로 로드 (CDN 차단 문제 해결)
+    let forceGraphScript = '';
+    try {
+        const bundlePath = extensionPath
+            ? path.join(extensionPath, 'assets', 'force-graph.min.js')
+            : path.join(__dirname, '..', 'assets', 'force-graph.min.js');
+        forceGraphScript = fs.readFileSync(bundlePath, 'utf-8');
+    } catch (e) {
+        console.error('force-graph.min.js 로드 실패:', e);
+    }
+
     return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1122,7 +1133,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
     body.thinking::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(93,224,230,.05), transparent 65%); pointer-events: none; z-index: 1; animation: thinkingPulse 3s ease-in-out infinite; }
     @keyframes thinkingPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
   </style>
-  <script src="https://unpkg.com/force-graph"></script>
+  <script>${forceGraphScript}</script>
 </head>
 <body>
   <div id="ui-layer">
@@ -1843,7 +1854,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             links: graph.links
         });
         const isEmpty = graph.nodes.length === 0;
-        return _RENDER_GRAPH_HTML(graphJson, isEmpty);
+        return _RENDER_GRAPH_HTML(graphJson, isEmpty, this._ctx.extensionPath);
     }
 
     /** 메모리 누수 방지: 대화 이력 길이 제한 (최근 50건만 유지, 시스템 프롬프트는 보존) */

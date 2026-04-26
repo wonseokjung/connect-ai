@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --yes @vscode/vsce@latest package --no-dependencies --allow-star-activation)",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "Bash(curl -sI -L https://unpkg.com/force-graph)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder status)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder diff --stat)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder log --oneline -5)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder branch --show-current)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder remote -v)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder ls-files)",
+      "Bash(npx --yes @vscode/vsce package --no-dependencies --no-git-tag-version)"
+    ],
+    "additionalDirectories": [
+      "/Users/jay/로컬테스트/local-ai-coder"
+    ]
+  }
+}
