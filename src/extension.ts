@@ -832,7 +832,167 @@ export function activate(context: vscode.ExtensionContext) {
     );
 }
 
-async function showBrainNetwork(context: vscode.ExtensionContext) {
+// ============================================================
+// Knowledge Graph Builder — REAL connections (not random!)
+// Parses [[wikilinks]], markdown links, and #tags from .md files
+// to build a true semantic graph of the user's brain.
+// ============================================================
+interface BrainNode {
+    id: string;            // relative path inside brainDir
+    name: string;          // display name (basename without .md)
+    folder: string;        // top-level folder (for color clustering)
+    tags: string[];
+    incoming: number;      // backlink count (for size)
+    outgoing: number;
+}
+interface BrainLink {
+    source: string;
+    target: string;
+    type: 'wikilink' | 'mdlink' | 'tag';
+}
+interface BrainGraph {
+    nodes: BrainNode[];
+    links: BrainLink[];
+    tags: string[];        // all unique tags found
+}
+
+function buildKnowledgeGraph(brainDir: string): BrainGraph {
+    const nodes: BrainNode[] = [];
+    const nodeByPath = new Map<string, BrainNode>();
+    const nodeByBasename = new Map<string, BrainNode[]>();
+    const links: BrainLink[] = [];
+    const tagSet = new Set<string>();
+    let scanned = 0;
+
+    if (!fs.existsSync(brainDir)) return { nodes, links, tags: [] };
+
+    // --- Pass 1: collect all .md files as nodes ---
+    function walk(dir: string) {
+        if (scanned >= 1000) return;
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
+        catch { return; }
+        for (const e of entries) {
+            if (e.name.startsWith('.') || e.name === 'node_modules') continue;
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) { walk(full); continue; }
+            if (!e.isFile() || !full.endsWith('.md')) continue;
+            const rel = path.relative(brainDir, full);
+            const base = e.name.replace(/\.md$/i, '');
+            const parts = rel.split(path.sep);
+            const folder = parts.length > 1 ? parts[0] : '_root';
+            const node: BrainNode = { id: rel, name: base, folder, tags: [], incoming: 0, outgoing: 0 };
+            nodes.push(node);
+            nodeByPath.set(rel, node);
+            const list = nodeByBasename.get(base.toLowerCase()) || [];
+            list.push(node);
+            nodeByBasename.set(base.toLowerCase(), list);
+            scanned++;
+        }
+    }
+    walk(brainDir);
+
+    // --- Pass 2: parse each file for links + tags ---
+    const wikilinkRe = /\[\[([^\]\n|#]+)(?:[#|][^\]\n]*)?\]\]/g;
+    const mdlinkRe = /\[[^\]]+\]\(([^)]+\.md)\)/gi;
+    const tagRe = /(?:^|[\s>(])#([A-Za-z가-힣0-9_-]{2,40})/g;
+
+    function resolveLink(target: string, fromNode: BrainNode): BrainNode | null {
+        const cleaned = target.trim().replace(/^\.\//, '').replace(/\\/g, '/');
+        // Try exact relative path match (with or without .md)
+        const exact = cleaned.endsWith('.md') ? cleaned : cleaned + '.md';
+        if (nodeByPath.has(exact)) return nodeByPath.get(exact)!;
+        // Try resolved relative to source file's folder
+        const fromDir = path.dirname(fromNode.id);
+        const joined = path.normalize(path.join(fromDir, exact));
+        if (nodeByPath.has(joined)) return nodeByPath.get(joined)!;
+        // Fall back to basename match (Obsidian style)
+        const base = path.basename(cleaned, '.md').toLowerCase();
+        const matches = nodeByBasename.get(base) || [];
+        if (matches.length === 0) return null;
+        // Prefer same-folder match if multiple
+        if (matches.length > 1) {
+            const sameFolder = matches.find(m => path.dirname(m.id) === fromDir);
+            if (sameFolder) return sameFolder;
+        }
+        return matches[0];
+    }
+
+    for (const node of nodes) {
+        let content: string;
+        try { content = fs.readFileSync(path.join(brainDir, node.id), 'utf-8').slice(0, 200_000); }
+        catch { continue; }
+
+        // Wikilinks → real edges
+        let m: RegExpExecArray | null;
+        wikilinkRe.lastIndex = 0;
+        while ((m = wikilinkRe.exec(content)) !== null) {
+            const target = resolveLink(m[1], node);
+            if (target && target.id !== node.id) {
+                links.push({ source: node.id, target: target.id, type: 'wikilink' });
+                node.outgoing++;
+                target.incoming++;
+            }
+        }
+
+        // Markdown links → real edges
+        mdlinkRe.lastIndex = 0;
+        while ((m = mdlinkRe.exec(content)) !== null) {
+            // Skip external URLs
+            if (/^https?:\/\//i.test(m[1])) continue;
+            const target = resolveLink(m[1], node);
+            if (target && target.id !== node.id) {
+                links.push({ source: node.id, target: target.id, type: 'mdlink' });
+                node.outgoing++;
+                target.incoming++;
+            }
+        }
+
+        // Tags
+        tagRe.lastIndex = 0;
+        const localTags = new Set<string>();
+        while ((m = tagRe.exec(content)) !== null) {
+            localTags.add(m[1]);
+        }
+        node.tags = [...localTags];
+        localTags.forEach(t => tagSet.add(t));
+    }
+
+    // --- Pass 3: tag co-occurrence edges (cap to top 8 tags to avoid explosion) ---
+    const tagToNodes = new Map<string, BrainNode[]>();
+    for (const node of nodes) {
+        for (const t of node.tags) {
+            const list = tagToNodes.get(t) || [];
+            list.push(node);
+            tagToNodes.set(t, list);
+        }
+    }
+    const topTags = [...tagToNodes.entries()]
+        .sort((a, b) => b[1].length - a[1].length)
+        .slice(0, 8);
+    for (const [, nodesWithTag] of topTags) {
+        if (nodesWithTag.length < 2 || nodesWithTag.length > 25) continue;
+        for (let i = 0; i < nodesWithTag.length; i++) {
+            for (let j = i + 1; j < nodesWithTag.length; j++) {
+                links.push({ source: nodesWithTag[i].id, target: nodesWithTag[j].id, type: 'tag' });
+            }
+        }
+    }
+
+    // De-duplicate links (a→b and b→a counted once)
+    const seen = new Set<string>();
+    const dedup: BrainLink[] = [];
+    for (const l of links) {
+        const key = l.source < l.target ? `${l.source}|${l.target}|${l.type}` : `${l.target}|${l.source}|${l.type}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push(l);
+    }
+
+    return { nodes, links: dedup, tags: [...tagSet] };
+}
+
+async function showBrainNetwork(_context: vscode.ExtensionContext) {
     const panel = vscode.window.createWebviewPanel(
         'brainTopology',
         'Neural Construct (Brain)',
@@ -840,52 +1000,50 @@ async function showBrainNetwork(context: vscode.ExtensionContext) {
         { enableScripts: true, retainContextWhenHidden: true }
     );
 
-    // Scan real Second Brain files locally instead of current workspace
     const brainDir = _getBrainDir();
-    const realClusters: Record<string, string[]> = {};
-    let filesFound = 0;
+    const graph = buildKnowledgeGraph(brainDir);
+    const isEmpty = graph.nodes.length === 0;
 
-    function walkDir(dir: string) {
-        if (filesFound >= 600 || !fs.existsSync(dir)) return;
-        try {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-            for (const entry of entries) {
-                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
-                const fullPath = path.join(dir, entry.name);
-                if (entry.isDirectory()) {
-                    walkDir(fullPath);
-                } else if (entry.isFile() && fullPath.endsWith('.md')) {
-                    const folderName = path.basename(dir);
-                    const groupName = folderName === path.basename(_getBrainDir()) ? 'Brain Root' : folderName;
-                    if (!realClusters[groupName]) realClusters[groupName] = [];
-                    realClusters[groupName].push(entry.name.replace('.md', ''));
-                    filesFound++;
-                }
+    // Handle messages from webview (e.g., open file requests)
+    panel.webview.onDidReceiveMessage(async (msg) => {
+        if (msg.type === 'openFile' && typeof msg.id === 'string') {
+            const safe = safeResolveInside(brainDir, msg.id);
+            if (safe && fs.existsSync(safe)) {
+                const doc = await vscode.workspace.openTextDocument(safe);
+                vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
             }
-        } catch (e) { /* ignore read errors */ }
-    }
+        }
+    });
 
-    walkDir(brainDir);
-
-    // Fallback if empty (e.g., they haven't synced their GitHub Brain yet)
-    if (Object.keys(realClusters).length === 0) {
-        realClusters['Empty Brain'] = ['Second Brain 저장소가 아직 비어있거나, 활성화되지 않았습니다.'];
-    }
-
-    const clustersJsonString = JSON.stringify(realClusters);
+    const graphJson = JSON.stringify({
+        nodes: graph.nodes.map(n => ({
+            id: n.id, name: n.name, folder: n.folder, tags: n.tags,
+            connections: n.incoming + n.outgoing
+        })),
+        links: graph.links
+    });
 
     panel.webview.html = `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>Connect AI - Neural Construct</title>
+  <title>Connect AI — 지식 네트워크</title>
   <style>
-    body { margin: 0; padding: 0; background: #0a0a0a; overflow: hidden; width: 100vw; height: 100vh; font-family: 'SF Pro Display', -apple-system, sans-serif; }
-    #ui-layer { position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none; }
+    body { margin: 0; padding: 0; background: #0a0a0a; overflow: hidden; width: 100vw; height: 100vh; font-family: 'SF Pro Display', -apple-system, sans-serif; color: #e0e0e0; }
+    #ui-layer { position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none; max-width: 60%; }
     #ui-layer h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 800; letter-spacing: -0.5px; color: #e0e0e0; }
-    #ui-layer h1 span { color: #00cc44; }
-    #ui-layer p { margin: 0; font-size: 12px; color: #555; }
-    #mem-status { color: #888; font-family: 'SF Mono', monospace; font-size: 11px; }
+    #ui-layer h1 span { color: #00ff66; text-shadow: 0 0 12px rgba(0,255,102,.5); }
+    #stats { color: #888; font-family: 'SF Mono', monospace; font-size: 11px; margin-top: 2px; }
+    #legend { position: absolute; top: 20px; right: 24px; z-index: 10; background: rgba(15,15,15,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px; font-size: 11px; backdrop-filter: blur(12px); }
+    #legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: #aaa; }
+    #legend .swatch { width: 18px; height: 2px; border-radius: 1px; }
+    #empty { position: absolute; inset: 0; display: ${isEmpty ? 'flex' : 'none'}; flex-direction: column; align-items: center; justify-content: center; color: #555; font-size: 14px; gap: 10px; pointer-events: none; }
+    #empty .big { font-size: 22px; color: #888; }
+    #tooltip { position: absolute; pointer-events: none; background: rgba(15,15,15,.95); border: 1px solid rgba(0,255,102,.3); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #e0e0e0; box-shadow: 0 4px 24px rgba(0,255,102,.15); display: none; z-index: 20; max-width: 240px; }
+    #tooltip .t-name { font-weight: 700; color: #00ff66; margin-bottom: 4px; }
+    #tooltip .t-meta { color: #888; font-size: 10px; font-family: 'SF Mono', monospace; }
+    #tooltip .t-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
+    #tooltip .t-tag { background: rgba(0,255,102,.1); color: #00ff66; padding: 1px 6px; border-radius: 8px; font-size: 9px; }
     canvas { cursor: grab; }
     canvas:active { cursor: grabbing; }
   </style>
@@ -893,100 +1051,168 @@ async function showBrainNetwork(context: vscode.ExtensionContext) {
 </head>
 <body>
   <div id="ui-layer">
-    <h1>\\u2726 <span id="titleSpan">Neural Construct</span></h1>
-    <p id="mem-status">loading...</p>
+    <h1>✦ <span id="titleSpan">지식 네트워크</span></h1>
+    <p id="stats">로딩 중...</p>
+  </div>
+  <div id="legend">
+    <div class="row"><div class="swatch" style="background:#00ff66"></div><span>위키링크 [[...]]</span></div>
+    <div class="row"><div class="swatch" style="background:#00b7ff"></div><span>마크다운 링크</span></div>
+    <div class="row"><div class="swatch" style="background:#aa66ff"></div><span>같은 태그</span></div>
+    <div class="row" style="margin-top:8px;font-size:10px;color:#666"><span>💡 노드 더블클릭 → 파일 열기</span></div>
+  </div>
+  <div id="empty">
+    <div class="big">📂 아직 지식이 없어요</div>
+    <div>지식 폴더에 .md 파일을 넣고 다시 열어주세요</div>
+    <div style="font-size:10px;color:#444">팁: <code style="background:#1a1a1a;padding:2px 6px;border-radius:4px">[[다른노트]]</code> 형식으로 링크하면 자동 연결됩니다</div>
   </div>
   <div id="graph"></div>
+  <div id="tooltip"></div>
   <script>
-    const clusters = ${clustersJsonString};
-    let nid = 0;
-    const gData = { nodes: [], links: [] };
-    gData.nodes.push({ id: nid++, group: -1, name: 'Workspace Root', val: 22, connections: 0 });
-    let gi = 0;
-    Object.values(clusters).forEach(names => {
-      names.forEach(name => { gData.nodes.push({ id: nid++, group: gi, name, val: 2, connections: 0 }); });
-      gi++;
-    });
-    const byGroup = {};
-    gData.nodes.forEach(n => { if(n.group>=0){ if(!byGroup[n.group]) byGroup[n.group]=[]; byGroup[n.group].push(n); }});
-    Object.values(byGroup).forEach(g => {
-      // Connect files in the same folder to each other (dense subgraph)
-      for(let i=0;i<g.length;i++) {
-        for(let j=i+1;j<g.length;j++) {
-           // Much higher connection chance inside the same folder so they cluster well
-           if(Math.random()<0.6){
-             gData.links.push({source:g[i].id,target:g[j].id}); g[i].connections++; g[j].connections++;
-           }
+    const vscode = acquireVsCodeApi();
+    const data = ${graphJson};
+    const tooltip = document.getElementById('tooltip');
+
+    // Folder palette — assign each folder a stable color
+    const PALETTE = ['#00ff66','#00b7ff','#ff6b6b','#ffaa33','#aa66ff','#66cccc','#ff66aa','#ffd166','#06d6a0','#ef476f'];
+    const folders = [...new Set(data.nodes.map(n => n.folder))].sort();
+    const folderColor = {};
+    folders.forEach((f, i) => { folderColor[f] = PALETTE[i % PALETTE.length]; });
+
+    // Edge color by type
+    const EDGE_COLOR = {
+      wikilink: 'rgba(0,255,102,0.55)',
+      mdlink:   'rgba(0,183,255,0.45)',
+      tag:      'rgba(170,102,255,0.18)'
+    };
+    const EDGE_WIDTH = { wikilink: 1.4, mdlink: 1.0, tag: 0.5 };
+
+    document.getElementById('stats').textContent =
+      data.nodes.length + ' 지식 · ' + data.links.length + ' 연결 · ' + folders.length + ' 폴더';
+
+    let hoverNode = null;
+    let highlightNodes = new Set();
+    let highlightLinks = new Set();
+
+    function applyHighlight(node) {
+      highlightNodes = new Set();
+      highlightLinks = new Set();
+      if (!node) return;
+      highlightNodes.add(node.id);
+      data.links.forEach(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        if (sId === node.id || tId === node.id) {
+          highlightLinks.add(l);
+          highlightNodes.add(sId);
+          highlightNodes.add(tId);
         }
-      }
-    });
-    // Connect all folder nodes up to the root to unify the graph
-    gData.nodes.forEach(n => { 
-        if(n.group>=0){ 
-            if (Math.random() < 0.15) { // 15% chance to link to root to maintain overall structure
-               gData.links.push({source:n.id,target:0}); n.connections++; gData.nodes[0].connections++; 
-            }
-        }
-    });
-    for(let i=0;i< (gData.nodes.length * 1.5);i++){
-      const a=1+Math.floor(Math.random()*(gData.nodes.length-1)), b=1+Math.floor(Math.random()*(gData.nodes.length-1));
-      if(a!==b && gData.nodes[a].group!==gData.nodes[b].group){ gData.links.push({source:a,target:b}); gData.nodes[a].connections++; gData.nodes[b].connections++; }
+      });
     }
-    gData.nodes.forEach(n => { n.val = Math.max(2, n.connections*1.5); });
-    document.getElementById('mem-status').textContent = gData.nodes.length+' nodes \\u00b7 '+gData.links.length+' synapses';
-    const gc = ['#00cc44','#00b7ff','#ff6b6b','#ffaa33','#aa66ff','#00cc44','#66cccc','#00ff88','#ff66aa'];
+
     const Graph = ForceGraph()(document.getElementById('graph'))
       .backgroundColor('#0a0a0a')
+      .graphData(data)
+      .nodeId('id')
+      .nodeVal(n => Math.max(2, n.connections * 1.4 + 1))
       .nodeCanvasObject((node, ctx, globalScale) => {
-        const r = Math.sqrt(node.val)*1.8;
-        ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2*Math.PI);
-        if(node.group===-1){ 
-            // Glowing Brain Root
-            ctx.shadowBlur = 15; ctx.shadowColor = '#00ff66';
-            ctx.fillStyle='#0f0f0f'; ctx.fill(); 
-            ctx.strokeStyle='#00ff66'; ctx.lineWidth=2; ctx.stroke(); 
-            ctx.shadowBlur = 0;
-        }
-        else if(node.connections>2){ 
-            ctx.shadowBlur = 8; ctx.shadowColor = gc[node.group]||'#00cc44';
-            ctx.fillStyle=gc[node.group]||'#00cc44'; ctx.fill(); 
-            ctx.shadowBlur = 0;
-        }
-        else { ctx.fillStyle='#2a2a2a'; ctx.fill(); }
-        
-        const showLabel = globalScale>1.2 || node.connections>3 || node.group===-1;
-        if(showLabel){
-          const fs=Math.max(2.5, Math.min(5, 11/globalScale));
-          ctx.font=fs+'px -apple-system, sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top';
-          ctx.fillStyle=node.connections>2?'#e0e0e0':'#555';
-          if(node.group===-1) ctx.fillStyle='#00ff66';
-          ctx.fillText(node.name, node.x, node.y+r+2);
-        }
-      })
-      .nodePointerAreaPaint((node,color,ctx) => {
-        const r=Math.sqrt(node.val)*1.8+4; ctx.beginPath(); ctx.arc(node.x,node.y,r,0,2*Math.PI); ctx.fillStyle=color; ctx.fill();
-      })
-      .linkColor(() => 'rgba(0, 255, 102, 0.1)')
-      .linkWidth(0.8)
-      .linkDirectionalParticles(2)
-      .linkDirectionalParticleWidth(1.5)
-      .linkDirectionalParticleSpeed(0.005)
-      .linkDirectionalParticleColor(() => '#00ff66')
-      .d3VelocityDecay(0.08) // Lower friction so they drift and move organically!
-      .warmupTicks(50)
-      .cooldownTicks(500) // Keep them moving longer
-      .graphData(gData);
-    Graph.d3Force('charge').strength(-60); // Softer repulsion for gentle drift
-    Graph.d3Force('link').distance(60);
-    Graph.onNodeClick(node => { Graph.centerAt(node.x,node.y,800); Graph.zoom(4,1200); });
-    setTimeout(() => {
-        Graph.zoomToFit(1500, 40);
-        document.getElementById('titleSpan').innerText = "Live Workspace Topology";
-    }, 500);
+        const baseR = Math.sqrt(Math.max(2, node.connections * 1.4 + 1)) * 1.8;
+        const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
+        const color = folderColor[node.folder] || '#888';
+        const r = isHL ? baseR : baseR * 0.7;
 
-    // Make sure graph expands dynamically on window resize
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+        if (node.connections > 3 && isHL) {
+          ctx.shadowBlur = 12; ctx.shadowColor = color;
+        } else {
+          ctx.shadowBlur = 0;
+        }
+        ctx.fillStyle = isHL ? color : 'rgba(60,60,60,0.6)';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        const showLabel = (globalScale > 1.4 || node.connections > 2) && isHL;
+        if (showLabel) {
+          const fs = Math.max(2.5, Math.min(5, 11 / globalScale));
+          ctx.font = fs + 'px -apple-system, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          ctx.fillStyle = node.connections > 2 ? '#e0e0e0' : '#777';
+          ctx.fillText(node.name, node.x, node.y + r + 2);
+        }
+      })
+      .nodePointerAreaPaint((node, color, ctx) => {
+        const r = Math.sqrt(Math.max(2, node.connections * 1.4 + 1)) * 1.8 + 4;
+        ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+        ctx.fillStyle = color; ctx.fill();
+      })
+      .linkColor(l => {
+        if (highlightLinks.size > 0 && !highlightLinks.has(l)) return 'rgba(50,50,50,0.15)';
+        return EDGE_COLOR[l.type] || 'rgba(255,255,255,0.1)';
+      })
+      .linkWidth(l => (highlightLinks.has(l) ? (EDGE_WIDTH[l.type] || 1) * 2 : (EDGE_WIDTH[l.type] || 1)))
+      .linkDirectionalParticles(l => l.type === 'wikilink' ? 2 : 0)
+      .linkDirectionalParticleWidth(1.5)
+      .linkDirectionalParticleSpeed(0.006)
+      .linkDirectionalParticleColor(l => EDGE_COLOR[l.type] || '#00ff66')
+      .d3VelocityDecay(0.12)
+      .warmupTicks(80)
+      .cooldownTicks(800)
+      .onNodeHover(node => {
+        hoverNode = node || null;
+        applyHighlight(hoverNode);
+        document.body.style.cursor = node ? 'pointer' : 'grab';
+        if (node) {
+          tooltip.style.display = 'block';
+          const tagsHtml = (node.tags || []).slice(0, 5).map(t => '<span class="t-tag">#' + t + '</span>').join('');
+          tooltip.innerHTML =
+            '<div class="t-name">' + node.name + '</div>' +
+            '<div class="t-meta">' + node.folder + ' · ' + node.connections + '개 연결</div>' +
+            (tagsHtml ? '<div class="t-tags">' + tagsHtml + '</div>' : '');
+        } else {
+          tooltip.style.display = 'none';
+        }
+      })
+      .onNodeClick(node => {
+        Graph.centerAt(node.x, node.y, 600);
+        Graph.zoom(3, 800);
+      })
+      .onNodeRightClick(node => {
+        vscode.postMessage({ type: 'openFile', id: node.id });
+      });
+
+    // Open file on double-click (force-graph emits dblClick via interval check)
+    let lastClick = { id: null, t: 0 };
+    Graph.onNodeClick(node => {
+      const now = Date.now();
+      if (lastClick.id === node.id && now - lastClick.t < 400) {
+        vscode.postMessage({ type: 'openFile', id: node.id });
+        lastClick = { id: null, t: 0 };
+      } else {
+        lastClick = { id: node.id, t: now };
+        Graph.centerAt(node.x, node.y, 600);
+        Graph.zoom(3, 800);
+      }
+    });
+
+    Graph.d3Force('charge').strength(-90);
+    Graph.d3Force('link').distance(l => l.type === 'tag' ? 90 : 50);
+
+    // Tooltip follow mouse
+    document.addEventListener('mousemove', (e) => {
+      if (tooltip.style.display === 'block') {
+        tooltip.style.left = (e.clientX + 14) + 'px';
+        tooltip.style.top = (e.clientY + 14) + 'px';
+      }
+    });
+
+    setTimeout(() => {
+      Graph.zoomToFit(1200, 60);
+      document.getElementById('titleSpan').innerText = '지식 네트워크 · LIVE';
+    }, 600);
+
     window.addEventListener('resize', () => {
-        Graph.width(window.innerWidth).height(window.innerHeight);
+      Graph.width(window.innerWidth).height(window.innerHeight);
     });
   </script>
 </body>
