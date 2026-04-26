@@ -1224,6 +1224,20 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
       if (neighborsOf[tId]) neighborsOf[tId].add(sId);
     });
 
+    // ── Thinking-mode state — must be declared BEFORE Graph creation
+    // because force-graph invokes linkColor/linkDirectionalParticles
+    // synchronously during .graphData() and would otherwise hit TDZ.
+    const thinkingActive = new Set();        // node ids currently being read (electric cyan)
+    const thinkingAdjacent = new Set();      // 1-hop neighbors of active nodes (faint glow)
+    const thinkingDone = new Set();          // node ids already cited (warm amber trail)
+    let thinkPulseTime = 0;
+    function recomputeAdjacent() {
+      thinkingAdjacent.clear();
+      thinkingActive.forEach(id => {
+        (neighborsOf[id] || new Set()).forEach(n => { if (!thinkingActive.has(n)) thinkingAdjacent.add(n); });
+      });
+    }
+
     const Graph = ForceGraph()(document.getElementById('graph'))
       .width(window.innerWidth)
       .height(window.innerHeight)
@@ -1385,18 +1399,9 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
       return matches && matches.length > 0 ? matches[0] : null;
     }
 
-    // Currently-thinking nodes get this special render flag
-    const thinkingActive = new Set();        // node ids currently being read (electric cyan)
-    const thinkingAdjacent = new Set();      // 1-hop neighbors of active nodes (faint glow)
-    const thinkingDone = new Set();          // node ids already cited (warm amber trail)
-    let thinkPulseTime = 0;
-
-    function recomputeAdjacent() {
-      thinkingAdjacent.clear();
-      thinkingActive.forEach(id => {
-        (neighborsOf[id] || new Set()).forEach(n => { if (!thinkingActive.has(n)) thinkingAdjacent.add(n); });
-      });
-    }
+    // (thinkingActive / thinkingAdjacent / thinkingDone / recomputeAdjacent
+    //  were hoisted above the Graph constructor to avoid TDZ when force-graph
+    //  invokes link callbacks synchronously during .graphData().)
 
     // Single canonical renderer — Obsidian + brain look, thinking effects layered on top.
     function renderNode(node, ctx, globalScale) {
