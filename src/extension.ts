@@ -4,7 +4,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 
 // ============================================================
 // Security helpers
@@ -214,6 +214,53 @@ function gitRun(args: string[], cwd: string, timeout = 30000, token?: string | n
 let _autoSyncRunning = false;
 
 /**
+ * Run a shell command and capture stdout+stderr live so the AI can act on the result.
+ * - Streams output to onChunk for live display in the chat
+ * - Returns combined output (capped to 15KB) + exit code
+ * - Hard timeout to prevent hung processes (default 60s)
+ * - Uses default shell ($SHELL or sh) for natural command parsing (npm install, cd && ls, etc.)
+ */
+function runCommandCaptured(
+    cmd: string,
+    cwd: string,
+    onChunk: (text: string) => void,
+    timeoutMs = 60000
+): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
+    return new Promise((resolve) => {
+        const child = spawn(cmd, {
+            cwd,
+            shell: true,
+            env: process.env,
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        let buf = '';
+        let timedOut = false;
+        const append = (s: string) => {
+            buf += s;
+            // Hard cap so a runaway log never explodes memory
+            if (buf.length > 30000) buf = buf.slice(-30000);
+            onChunk(s);
+        };
+        child.stdout?.on('data', (d: Buffer) => append(d.toString()));
+        child.stderr?.on('data', (d: Buffer) => append(d.toString()));
+        const killTimer = setTimeout(() => {
+            timedOut = true;
+            try { child.kill('SIGTERM'); } catch { /* already dead */ }
+            // Force-kill if SIGTERM didn't take after 2s
+            setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 2000);
+        }, timeoutMs);
+        child.on('close', (code) => {
+            clearTimeout(killTimer);
+            resolve({ exitCode: code ?? -1, output: buf.slice(-15000), timedOut });
+        });
+        child.on('error', (e) => {
+            clearTimeout(killTimer);
+            resolve({ exitCode: -1, output: `[실행 오류] ${e.message}`, timedOut: false });
+        });
+    });
+}
+
+/**
  * Get a GitHub OAuth token via VS Code's built-in authentication provider.
  * No manual PAT creation needed — user just clicks "Authorize" in browser.
  * Returns null if user dismisses or auth provider is unavailable.
@@ -355,6 +402,11 @@ Use this to see what files exist in a specific subdirectory.
 
 Example — user says "서버 실행해줘":
 <run_command>node server.js</run_command>
+
+⚡ The command's stdout/stderr is captured and fed back to you in the next turn,
+so you CAN see the result and react (e.g., "npm install failed → try yarn instead").
+60-second timeout per command. Long-running servers should be started in the background
+(e.g., nohup node server.js > out.log 2>&1 &).
 
 ━━━ ACTION 7: READ USER'S SECOND BRAIN (KNOWLEDGE BASE) ━━━
 <read_brain>filename.md</read_brain>
@@ -1484,7 +1536,6 @@ export function deactivate() {}
 class SidebarChatProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
     private _chatHistory: { role: string; content: string }[] = [];
-    private _terminal?: vscode.Terminal;
     private _ctx: vscode.ExtensionContext;
 
     // 대화 표시용 (system prompt 제외, 유저에게 보여줄 것만 저장)
@@ -1499,7 +1550,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private _thinkingMode: boolean = false;
     private _thinkingPanel?: vscode.WebviewPanel;
     private _thinkingReady: boolean = false;
-    private _lastSources: string[] = [];
 
     // 🏛️ AI 파라미터 튜닝
     private _temperature: number;
@@ -3026,7 +3076,6 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 .map(m => m[1].trim()).filter(s => s.length > 0);
             const uniqueSources = [...new Set(allBrainReads)];
             if (uniqueSources.length > 0) {
-                this._lastSources = uniqueSources;
                 this._view.webview.postMessage({ type: 'attachCitations', sources: uniqueSources });
             }
             if (this._thinkingMode) {
@@ -3256,7 +3305,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        // ACTION 6: Run commands
+        // ACTION 6: Run commands — capture output so AI can see results
         const cmdRegex = /<(?:run_command|command|bash|terminal)>([\s\S]*?)<\/(?:run_command|command|bash|terminal)>/gi;
         while ((match = cmdRegex.exec(aiMessage)) !== null) {
             let cmd = match[1].trim();
@@ -3267,18 +3316,34 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 if (lines.length > 0 && lines[lines.length - 1].startsWith('```')) lines.pop();
                 cmd = lines.join('\n').trim();
             }
+            if (!cmd) continue;
+
+            // Live-stream the output to the chat so the user sees progress in real time
+            const headerMsg = `\n\n\`\`\`bash\n$ ${cmd}\n`;
+            this._view?.webview.postMessage({ type: 'streamChunk', value: headerMsg });
+
             try {
-                if (!this._terminal || this._terminal.exitStatus !== undefined) {
-                    this._terminal = vscode.window.createTerminal({
-                        name: '🚀 Connect AI',
-                        cwd: rootPath
-                    });
-                }
-                this._terminal.show();
-                this._terminal.sendText(cmd);
-                report.push(`🖥️ 실행: ${cmd}`);
+                const result = await runCommandCaptured(cmd, rootPath, (chunk) => {
+                    this._view?.webview.postMessage({ type: 'streamChunk', value: chunk });
+                });
+                this._view?.webview.postMessage({ type: 'streamChunk', value: '\n```\n' });
+
+                const status = result.timedOut
+                    ? '⏱️ 60초 시간 초과로 중단됨'
+                    : result.exitCode === 0
+                        ? '✅ 종료 코드 0'
+                        : `❌ 종료 코드 ${result.exitCode}`;
+                report.push(`🖥️ 실행: \`${cmd}\` — ${status}`);
+
+                // Inject the output back into chat history so the AI can continue with context
+                // (e.g., "I see npm install failed, let me try yarn instead")
+                this._chatHistory.push({
+                    role: 'user',
+                    content: `[시스템: run_command 결과]\n명령: ${cmd}\n종료 코드: ${result.exitCode}${result.timedOut ? ' (시간 초과)' : ''}\n출력:\n\`\`\`\n${result.output}\n\`\`\``
+                });
             } catch (err: any) {
-                report.push(`❌ 명령 실패: ${cmd} — ${err.message}`);
+                report.push(`❌ 명령 실패: \`${cmd}\` — ${err.message}`);
+                this._view?.webview.postMessage({ type: 'streamChunk', value: `\n[실행 오류] ${err.message}\n\`\`\`\n` });
             }
         }
 
