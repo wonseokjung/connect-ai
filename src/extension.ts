@@ -1088,33 +1088,38 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
   <meta charset="UTF-8">
   <title>Connect AI — 지식 네트워크</title>
   <style>
-    body { margin: 0; padding: 0; background: #0a0a0a; overflow: hidden; width: 100vw; height: 100vh; font-family: 'SF Pro Display', -apple-system, sans-serif; color: #e0e0e0; }
+    body { margin: 0; padding: 0; background: #131419; overflow: hidden; width: 100vw; height: 100vh; font-family: 'SF Pro Display', -apple-system, sans-serif; color: #d8d9de; }
+    /* Subtle vignette so the eye is drawn to the constellation center */
+    body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+      background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.55) 100%); }
     #ui-layer { position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none; max-width: 60%; }
-    #ui-layer h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 800; letter-spacing: -0.5px; color: #e0e0e0; }
-    #ui-layer h1 span { color: #00ff66; text-shadow: 0 0 12px rgba(0,255,102,.5); }
-    #stats { color: #888; font-family: 'SF Mono', monospace; font-size: 11px; margin-top: 2px; }
-    #legend { position: absolute; top: 20px; right: 24px; z-index: 10; background: rgba(15,15,15,.85); border: 1px solid rgba(255,255,255,.08); border-radius: 12px; padding: 12px 14px; font-size: 11px; backdrop-filter: blur(12px); }
-    #legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: #aaa; }
+    #ui-layer h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 700; letter-spacing: -0.4px; color: #e8e9ee; }
+    #ui-layer h1 span { color: #5DE0E6; text-shadow: 0 0 14px rgba(93,224,230,.45); }
+    #stats { color: #6c6e78; font-family: 'SF Mono', monospace; font-size: 11px; margin-top: 2px; letter-spacing: .2px; }
+    #legend { position: absolute; top: 20px; right: 24px; z-index: 10; background: rgba(20,21,28,.78); border: 1px solid rgba(255,255,255,.06); border-radius: 12px; padding: 12px 14px; font-size: 11px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+    #legend .row { display: flex; align-items: center; gap: 8px; margin: 4px 0; color: #9094a0; }
     #legend .swatch { width: 18px; height: 2px; border-radius: 1px; }
+    #legend .row.synapse .swatch { box-shadow: 0 0 6px #5DE0E6; }
     #empty { position: absolute; inset: 0; display: ${isEmpty ? 'flex' : 'none'}; flex-direction: column; align-items: center; justify-content: center; color: #555; font-size: 14px; gap: 10px; pointer-events: none; }
     #empty .big { font-size: 22px; color: #888; }
-    #tooltip { position: absolute; pointer-events: none; background: rgba(15,15,15,.95); border: 1px solid rgba(0,255,102,.3); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: #e0e0e0; box-shadow: 0 4px 24px rgba(0,255,102,.15); display: none; z-index: 20; max-width: 240px; }
-    #tooltip .t-name { font-weight: 700; color: #00ff66; margin-bottom: 4px; }
-    #tooltip .t-meta { color: #888; font-size: 10px; font-family: 'SF Mono', monospace; }
-    #tooltip .t-tags { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 4px; }
-    #tooltip .t-tag { background: rgba(0,255,102,.1); color: #00ff66; padding: 1px 6px; border-radius: 8px; font-size: 9px; }
+    #tooltip { position: absolute; pointer-events: none; background: rgba(20,21,28,.95); border: 1px solid rgba(93,224,230,.28); border-radius: 10px; padding: 10px 13px; font-size: 12px; color: #e0e2e8; box-shadow: 0 8px 32px rgba(93,224,230,.12), 0 4px 12px rgba(0,0,0,.5); display: none; z-index: 20; max-width: 260px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+    #tooltip .t-name { font-weight: 700; color: #5DE0E6; margin-bottom: 4px; letter-spacing: .1px; }
+    #tooltip .t-meta { color: #7c7f8a; font-size: 10px; font-family: 'SF Mono', monospace; }
+    #tooltip .t-tags { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+    #tooltip .t-tag { background: rgba(93,224,230,.08); color: #5DE0E6; padding: 2px 7px; border-radius: 8px; font-size: 9px; border: 1px solid rgba(93,224,230,.2); }
+    #graph { position: absolute; inset: 0; width: 100vw; height: 100vh; z-index: 0; }
     canvas { cursor: grab; }
     canvas:active { cursor: grabbing; }
     /* Thinking Mode */
-    #thinking-overlay { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 15; background: rgba(15,15,15,.92); border: 1px solid rgba(0,255,102,.4); border-radius: 14px; padding: 14px 22px; font-size: 13px; color: #e0e0e0; backdrop-filter: blur(16px); box-shadow: 0 8px 40px rgba(0,255,102,.18); display: none; min-width: 320px; max-width: 580px; }
+    #thinking-overlay { position: absolute; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 15; background: rgba(20,21,28,.92); border: 1px solid rgba(93,224,230,.38); border-radius: 14px; padding: 14px 22px; font-size: 13px; color: #e0e2e8; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); box-shadow: 0 12px 48px rgba(93,224,230,.18), 0 4px 16px rgba(0,0,0,.5); display: none; min-width: 340px; max-width: 600px; }
     #thinking-overlay.active { display: block; animation: slideUp .45s cubic-bezier(.16,1,.3,1); }
     @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 30px); } to { opacity: 1; transform: translate(-50%, 0); } }
     #thinking-overlay .phase { display: flex; align-items: center; gap: 10px; margin: 4px 0; opacity: .35; transition: opacity .4s; font-size: 12px; }
-    #thinking-overlay .phase.active { opacity: 1; color: #00ff66; }
-    #thinking-overlay .phase.done { opacity: .6; }
+    #thinking-overlay .phase.active { opacity: 1; color: #5DE0E6; }
+    #thinking-overlay .phase.done { opacity: .65; color: #FFB266; }
     #thinking-overlay .phase .icon { width: 18px; text-align: center; }
-    #thinking-overlay .answer-preview { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); font-size: 11px; color: #888; max-height: 60px; overflow: hidden; }
-    body.thinking::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(0,255,102,.04), transparent 70%); pointer-events: none; z-index: 1; animation: thinkingPulse 3s ease-in-out infinite; }
+    #thinking-overlay .answer-preview { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.06); font-size: 11px; color: #8a8d97; max-height: 60px; overflow: hidden; line-height: 1.5; }
+    body.thinking::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(93,224,230,.05), transparent 65%); pointer-events: none; z-index: 1; animation: thinkingPulse 3s ease-in-out infinite; }
     @keyframes thinkingPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
   </style>
   <script src="https://unpkg.com/force-graph"></script>
@@ -1131,10 +1136,12 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
     <div class="answer-preview" id="answer-preview" style="display:none"></div>
   </div>
   <div id="legend">
-    <div class="row"><div class="swatch" style="background:#00ff66"></div><span>위키링크 [[...]]</span></div>
-    <div class="row"><div class="swatch" style="background:#00b7ff"></div><span>마크다운 링크</span></div>
-    <div class="row"><div class="swatch" style="background:#aa66ff"></div><span>같은 태그</span></div>
-    <div class="row" style="margin-top:8px;font-size:10px;color:#666"><span>💡 노드 더블클릭 → 파일 열기</span></div>
+    <div class="row"><div class="swatch" style="background:#7DC8E8"></div><span>위키링크 [[...]]</span></div>
+    <div class="row"><div class="swatch" style="background:#A89BD9"></div><span>마크다운 링크</span></div>
+    <div class="row"><div class="swatch" style="background:#B4B4C8;opacity:.5"></div><span>같은 태그</span></div>
+    <div class="row synapse" style="margin-top:6px"><div class="swatch" style="background:#5DE0E6"></div><span>🧠 검색 중</span></div>
+    <div class="row"><div class="swatch" style="background:#FFB266"></div><span>이미 사용함</span></div>
+    <div class="row" style="margin-top:8px;font-size:10px;color:#5a5d68"><span>💡 노드 더블클릭 → 파일 열기</span></div>
   </div>
   <div id="empty">
     <div class="big">📂 아직 지식이 없어요</div>
@@ -1148,19 +1155,22 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
     const data = ${graphJson};
     const tooltip = document.getElementById('tooltip');
 
-    // Folder palette — assign each folder a stable color
-    const PALETTE = ['#00ff66','#00b7ff','#ff6b6b','#ffaa33','#aa66ff','#66cccc','#ff66aa','#ffd166','#06d6a0','#ef476f'];
+    // Folder palette — Obsidian-style desaturated tones, optimized for dark canvas.
+    const PALETTE = ['#7DA8E6','#8FD3A8','#E89B6E','#C28BE5','#E5C07B','#7FCBC0','#E68FB0','#A8B2D1','#9DC4A0','#D9A89B'];
     const folders = [...new Set(data.nodes.map(n => n.folder))].sort();
     const folderColor = {};
     folders.forEach((f, i) => { folderColor[f] = PALETTE[i % PALETTE.length]; });
 
-    // Edge color by type
+    // Edge color by type — softer, more "neural" (cyan synapse / lilac bridge / faint tag mist)
     const EDGE_COLOR = {
-      wikilink: 'rgba(0,255,102,0.55)',
-      mdlink:   'rgba(0,183,255,0.45)',
-      tag:      'rgba(170,102,255,0.18)'
+      wikilink: 'rgba(125,200,232,0.55)',
+      mdlink:   'rgba(168,155,217,0.40)',
+      tag:      'rgba(180,180,200,0.10)'
     };
-    const EDGE_WIDTH = { wikilink: 1.4, mdlink: 1.0, tag: 0.5 };
+    const EDGE_WIDTH = { wikilink: 1.2, mdlink: 0.9, tag: 0.4 };
+    // Active synapse color used during thinking
+    const SYNAPSE = '#5DE0E6';   // electric cyan — "fired" feeling
+    const TRAIL   = '#FFB266';   // warm amber — "this knowledge was used"
 
     document.getElementById('stats').textContent =
       data.nodes.length + ' 지식 · ' + data.links.length + ' 연결 · ' + folders.length + ' 폴더';
@@ -1185,62 +1195,37 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
       });
     }
 
-    // Compute node radius — give every node a comfortable minimum size so even
-    // unconnected ones are clearly visible (not 1px dots in space).
+    // Compute node radius — Obsidian-style hierarchy.
+    // Hubs (many connections) get noticeably larger so the eye finds them first;
+    // leaves stay small but readable. Isolated nodes are smallest dots.
     function nodeRadius(n) {
-      // Connected nodes scale with degree, isolated nodes still get min size 5
-      return Math.max(5, Math.min(18, 5 + Math.sqrt(n.connections + 1) * 2.2));
+      const c = n.connections;
+      if (c === 0) return 3.5;                                // orphan: small dot
+      if (c <= 2) return 5.5;                                  // leaf
+      if (c <= 5) return 8 + Math.log2(c) * 0.8;               // mid
+      return Math.min(22, 11 + Math.log2(c) * 2.2);            // hub
     }
+    function isHub(n) { return n.connections > 5; }
+    // Precompute neighbor map — used for synapse highlights when a node is "fired"
+    const neighborsOf = {};
+    data.nodes.forEach(n => { neighborsOf[n.id] = new Set(); });
+    data.links.forEach(l => {
+      const sId = (l.source && l.source.id) || l.source;
+      const tId = (l.target && l.target.id) || l.target;
+      if (neighborsOf[sId]) neighborsOf[sId].add(tId);
+      if (neighborsOf[tId]) neighborsOf[tId].add(sId);
+    });
 
     const Graph = ForceGraph()(document.getElementById('graph'))
+      .width(window.innerWidth)
+      .height(window.innerHeight)
       .backgroundColor('#0a0a0a')
       .graphData(data)
       .nodeId('id')
       .nodeVal(n => nodeRadius(n) * 0.6)
       .nodeCanvasObject((node, ctx, globalScale) => {
-        const baseR = nodeRadius(node);
-        const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
-        const color = folderColor[node.folder] || '#888';
-        const isIsolated = node.connections === 0;
-        const r = isHL ? baseR : baseR * 0.65;
-
-        // Soft outer glow for every node — makes the constellation feel alive
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r + 3, 0, 2 * Math.PI);
-        const glow = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, r + 3);
-        glow.addColorStop(0, color + (isHL ? 'aa' : '55'));
-        glow.addColorStop(1, color + '00');
-        ctx.fillStyle = glow;
-        ctx.fill();
-
-        // Solid core
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-        if (node.connections > 2 && isHL) {
-          ctx.shadowBlur = 14; ctx.shadowColor = color;
-        }
-        if (isIsolated) {
-          // Outlined ring instead of solid — distinguishes orphan notes
-          ctx.fillStyle = '#0a0a0a';
-          ctx.fill();
-          ctx.lineWidth = 1.5;
-          ctx.strokeStyle = isHL ? color : color + '80';
-          ctx.stroke();
-        } else {
-          ctx.fillStyle = isHL ? color : color + '99';
-          ctx.fill();
-        }
-        ctx.shadowBlur = 0;
-
-        // Always show label, just scale font with zoom and connection importance
-        const fs = Math.max(3, Math.min(6, 11 / globalScale + node.connections * 0.15));
-        ctx.font = (node.connections > 2 ? '600 ' : '') + fs + 'px -apple-system, sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'top';
-        // Brighter for connected, dimmer for isolated, but always readable
-        const labelAlpha = isHL ? (node.connections > 2 ? 'ee' : 'aa') : '66';
-        ctx.fillStyle = (node.connections > 2 ? '#ffffff' : '#aaaaaa') + (isHL ? '' : '60');
-        ctx.fillText(node.name, node.x, node.y + r + 2);
+        // (NOTE: this is the base renderer; thinking-mode renderer below overrides it.)
+        renderNode(node, ctx, globalScale);
       })
       .nodePointerAreaPaint((node, color, ctx) => {
         const r = nodeRadius(node) + 6;
@@ -1248,14 +1233,49 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
         ctx.fillStyle = color; ctx.fill();
       })
       .linkColor(l => {
-        if (highlightLinks.size > 0 && !highlightLinks.has(l)) return 'rgba(50,50,50,0.15)';
-        return EDGE_COLOR[l.type] || 'rgba(255,255,255,0.1)';
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        const isSynapse = thinkingActive.has(sId) || thinkingActive.has(tId);
+        const isTrail   = thinkingDone.has(sId) && thinkingDone.has(tId);
+        if (isSynapse) return 'rgba(93,224,230,0.85)';
+        if (isTrail)   return 'rgba(255,178,102,0.55)';
+        if (highlightLinks.size > 0 && !highlightLinks.has(l)) return 'rgba(60,60,70,0.10)';
+        return EDGE_COLOR[l.type] || 'rgba(255,255,255,0.08)';
       })
-      .linkWidth(l => (highlightLinks.has(l) ? (EDGE_WIDTH[l.type] || 1) * 2 : (EDGE_WIDTH[l.type] || 1)))
-      .linkDirectionalParticles(l => l.type === 'wikilink' ? 2 : 0)
-      .linkDirectionalParticleWidth(1.5)
-      .linkDirectionalParticleSpeed(0.006)
-      .linkDirectionalParticleColor(l => EDGE_COLOR[l.type] || '#00ff66')
+      .linkWidth(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        const isSynapse = thinkingActive.has(sId) || thinkingActive.has(tId);
+        const isTrail   = thinkingDone.has(sId) && thinkingDone.has(tId);
+        if (isSynapse) return 2.4;
+        if (isTrail)   return 1.6;
+        return highlightLinks.has(l) ? (EDGE_WIDTH[l.type] || 1) * 2 : (EDGE_WIDTH[l.type] || 1);
+      })
+      // Every link breathes a slow particle — synapse-active ones fire faster + brighter
+      .linkDirectionalParticles(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        if (thinkingActive.has(sId) || thinkingActive.has(tId)) return 4;
+        if (l.type === 'wikilink') return 2;
+        if (l.type === 'mdlink')   return 1;
+        return 0; // tag links stay quiet
+      })
+      .linkDirectionalParticleWidth(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        return (thinkingActive.has(sId) || thinkingActive.has(tId)) ? 2.4 : 1.4;
+      })
+      .linkDirectionalParticleSpeed(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        return (thinkingActive.has(sId) || thinkingActive.has(tId)) ? 0.018 : 0.005;
+      })
+      .linkDirectionalParticleColor(l => {
+        const sId = (l.source && l.source.id) || l.source;
+        const tId = (l.target && l.target.id) || l.target;
+        if (thinkingActive.has(sId) || thinkingActive.has(tId)) return SYNAPSE;
+        return EDGE_COLOR[l.type] || '#7DA8E6';
+      })
       .d3VelocityDecay(0.25)
       .warmupTicks(120)
       .cooldownTicks(1200)
@@ -1296,14 +1316,16 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
       }
     });
 
-    // Force tuning: scale repulsion DOWN for sparse graphs so isolated nodes
-    // don't fly off into space. Add a gentle center pull so orphans stay visible.
+    // Force tuning: hubs repel more (so they sit at cluster centers naturally),
+    // tag-only links are weaker so they don't dominate the layout, and a gentle
+    // center pull keeps orphans on-screen.
     const sparseFactor = Math.max(0.4, Math.min(1, data.links.length / Math.max(1, data.nodes.length)));
-    Graph.d3Force('charge').strength(-40 - 30 * sparseFactor);    // -40 ~ -70 depending on density
-    Graph.d3Force('link').distance(l => l.type === 'tag' ? 70 : 38);
-    // Add center force so orphan nodes drift toward center instead of fleeing
+    Graph.d3Force('charge').strength(n => -50 - 25 * sparseFactor - (isHub(n) ? 60 : 0));
+    Graph.d3Force('link')
+      .distance(l => l.type === 'tag' ? 90 : l.type === 'mdlink' ? 50 : 36)
+      .strength(l => l.type === 'tag' ? 0.15 : l.type === 'mdlink' ? 0.5 : 0.85);
     if (typeof window.d3 !== 'undefined' && window.d3.forceCenter) {
-      Graph.d3Force('center', window.d3.forceCenter(0, 0).strength(0.05));
+      Graph.d3Force('center', window.d3.forceCenter(0, 0).strength(0.06));
     }
 
     // Tooltip follow mouse
@@ -1356,90 +1378,114 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
     }
 
     // Currently-thinking nodes get this special render flag
-    const thinkingActive = new Set();   // node ids currently being read
-    const thinkingDone = new Set();     // node ids already cited as source
+    const thinkingActive = new Set();        // node ids currently being read (electric cyan)
+    const thinkingAdjacent = new Set();      // 1-hop neighbors of active nodes (faint glow)
+    const thinkingDone = new Set();          // node ids already cited (warm amber trail)
     let thinkPulseTime = 0;
 
-    // Override node renderer to add thinking effects, layered on top of the base style.
-    Graph.nodeCanvasObject((node, ctx, globalScale) => {
+    function recomputeAdjacent() {
+      thinkingAdjacent.clear();
+      thinkingActive.forEach(id => {
+        (neighborsOf[id] || new Set()).forEach(n => { if (!thinkingActive.has(n)) thinkingAdjacent.add(n); });
+      });
+    }
+
+    // Single canonical renderer — Obsidian + brain look, thinking effects layered on top.
+    function renderNode(node, ctx, globalScale) {
       const baseR = nodeRadius(node);
       const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
-      const isThinkActive = thinkingActive.has(node.id);
-      const isThinkDone = thinkingDone.has(node.id);
-      const isIsolated = node.connections === 0;
-      const color = folderColor[node.folder] || '#888';
+      const isActive = thinkingActive.has(node.id);
+      const isAdj    = thinkingAdjacent.has(node.id);
+      const isDone   = thinkingDone.has(node.id);
+      const isOrphan = node.connections === 0;
+      const hub      = isHub(node);
+      const color    = folderColor[node.folder] || '#9aa0a6';
 
-      // Active thinking node: pulsing halo on top of normal node
-      if (isThinkActive) {
-        const pulse = 0.5 + 0.5 * Math.sin(thinkPulseTime * 0.08);
-        const haloR = baseR * (2.4 + pulse * 0.7);
+      // ── 1. Active synapse halo: pulsing electric cyan ──
+      if (isActive) {
+        const pulse = 0.5 + 0.5 * Math.sin(thinkPulseTime * 0.09);
+        const haloR = baseR * (2.6 + pulse * 0.9);
         const grad = ctx.createRadialGradient(node.x, node.y, baseR, node.x, node.y, haloR);
-        grad.addColorStop(0, 'rgba(0,255,102,0.7)');
-        grad.addColorStop(1, 'rgba(0,255,102,0)');
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, haloR, 0, 2 * Math.PI);
-        ctx.fillStyle = grad;
-        ctx.fill();
+        grad.addColorStop(0, 'rgba(93,224,230,0.55)');
+        grad.addColorStop(0.5, 'rgba(93,224,230,0.20)');
+        grad.addColorStop(1,  'rgba(93,224,230,0)');
+        ctx.beginPath(); ctx.arc(node.x, node.y, haloR, 0, 2 * Math.PI);
+        ctx.fillStyle = grad; ctx.fill();
       }
 
-      // Soft outer glow (always visible, gives constellation feel)
-      const r = isHL ? baseR * (isThinkActive ? 1.6 : 1) : baseR * 0.65;
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, r + 3, 0, 2 * Math.PI);
-      const ambientColor = isThinkActive ? '#00ff66' : color;
-      const ambient = ctx.createRadialGradient(node.x, node.y, r * 0.5, node.x, node.y, r + 3);
-      ambient.addColorStop(0, ambientColor + (isHL || isThinkActive ? 'aa' : '55'));
-      ambient.addColorStop(1, ambientColor + '00');
-      ctx.fillStyle = ambient;
-      ctx.fill();
+      // ── 2. Adjacent ghost glow: faint cyan whisper ──
+      if (isAdj && !isActive) {
+        ctx.beginPath(); ctx.arc(node.x, node.y, baseR * 1.8, 0, 2 * Math.PI);
+        const g = ctx.createRadialGradient(node.x, node.y, baseR * 0.6, node.x, node.y, baseR * 1.8);
+        g.addColorStop(0, 'rgba(93,224,230,0.22)');
+        g.addColorStop(1, 'rgba(93,224,230,0)');
+        ctx.fillStyle = g; ctx.fill();
+      }
 
-      // Solid core
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
-      if (isThinkActive) {
-        ctx.shadowBlur = 22; ctx.shadowColor = '#00ff66';
-        ctx.fillStyle = '#00ff66';
-        ctx.fill();
-      } else if (isThinkDone) {
+      // ── 3. Ambient glow for hubs / done-trail ──
+      const r = isHL ? baseR : baseR * 0.7;
+      const ambientColor = isActive ? SYNAPSE : isDone ? TRAIL : color;
+      const ambientStrength = isActive ? 'cc' : isDone ? '99' : (hub && isHL ? '88' : (isHL ? '55' : '22'));
+      ctx.beginPath(); ctx.arc(node.x, node.y, r + (hub ? 5 : 3), 0, 2 * Math.PI);
+      const ambient = ctx.createRadialGradient(node.x, node.y, r * 0.4, node.x, node.y, r + (hub ? 5 : 3));
+      ambient.addColorStop(0, ambientColor + ambientStrength);
+      ambient.addColorStop(1, ambientColor + '00');
+      ctx.fillStyle = ambient; ctx.fill();
+
+      // ── 4. Solid core ──
+      ctx.beginPath(); ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      if (isActive) {
+        ctx.shadowBlur = 24; ctx.shadowColor = SYNAPSE;
+        ctx.fillStyle = SYNAPSE; ctx.fill();
+      } else if (isDone) {
+        ctx.shadowBlur = 12; ctx.shadowColor = TRAIL;
+        ctx.fillStyle = TRAIL; ctx.fill();
+      } else if (isOrphan) {
+        ctx.fillStyle = '#0a0a0a'; ctx.fill();
+        ctx.lineWidth = 1; ctx.strokeStyle = color + (isHL ? 'a0' : '50'); ctx.stroke();
+      } else if (hub && isHL) {
         ctx.shadowBlur = 14; ctx.shadowColor = color;
-        ctx.fillStyle = color;
-        ctx.fill();
-      } else if (isIsolated) {
-        // Outlined ring for orphans
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fill();
-        ctx.lineWidth = 1.5;
-        ctx.strokeStyle = isHL ? color : color + '80';
-        ctx.stroke();
-      } else if (node.connections > 2 && isHL) {
-        ctx.shadowBlur = 12; ctx.shadowColor = color;
-        ctx.fillStyle = color;
-        ctx.fill();
+        ctx.fillStyle = color; ctx.fill();
       } else {
-        ctx.fillStyle = isHL ? color : color + '99';
-        ctx.fill();
+        ctx.fillStyle = isHL ? color : color + '88'; ctx.fill();
       }
       ctx.shadowBlur = 0;
 
-      // Always show labels, scaled by zoom + importance
-      const fs = Math.max(3, Math.min(7, 12 / globalScale + node.connections * 0.15));
-      const isImportant = isThinkActive || isThinkDone || node.connections > 2;
-      ctx.font = (isImportant ? '600 ' : '') + fs + 'px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = isThinkActive
-        ? '#00ff66'
-        : isImportant ? '#ffffff' + (isHL ? '' : '80') : '#aaaaaa' + (isHL ? '' : '60');
-      ctx.fillText(node.name, node.x, node.y + r + 2);
-    });
+      // ── 5. Zoom-aware label ──
+      // Obsidian behavior: only hubs always show; mids appear as you zoom in;
+      // leaves only at high zoom. Active/done nodes always show their name.
+      const labelMinScale = isActive || isDone ? 0 : hub ? 0 : node.connections >= 2 ? 1.4 : 2.6;
+      if (globalScale < labelMinScale) return;
 
-    // Pulse animation tick
+      const fs = isActive || isDone || hub
+        ? Math.max(4, Math.min(8, 13 / globalScale + (hub ? 1.5 : 0)))
+        : Math.max(3, Math.min(6, 11 / globalScale));
+      const fontWeight = isActive ? '700 ' : (hub || isDone) ? '600 ' : '';
+      ctx.font = fontWeight + fs + "px -apple-system, 'SF Pro Display', sans-serif";
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+
+      const dimAlpha = highlightNodes.size > 0 && !isHL ? '40' : '';
+      ctx.fillStyle = isActive ? SYNAPSE
+                    : isDone   ? TRAIL
+                    : hub      ? '#f0f0f0' + dimAlpha
+                    :            '#a0a0a8' + dimAlpha;
+      // subtle text shadow for active/hub legibility
+      if (isActive || isDone) { ctx.shadowBlur = 6; ctx.shadowColor = isActive ? SYNAPSE : TRAIL; }
+      ctx.fillText(node.name, node.x, node.y + r + 2);
+      ctx.shadowBlur = 0;
+    }
+
+    // Re-bind renderer (override of the placeholder bound earlier).
+    Graph.nodeCanvasObject(renderNode);
+
+    // Pulse animation tick — drive both thinking pulse and a slow ambient breath.
     setInterval(() => {
-      if (thinkingActive.size > 0) {
-        thinkPulseTime++;
-        Graph.nodeRelSize(Graph.nodeRelSize());  // force redraw
+      thinkPulseTime++;
+      // Force redraw only when there's an active animation to avoid wasted work.
+      if (thinkingActive.size > 0 || thinkingAdjacent.size > 0) {
+        Graph.nodeRelSize(Graph.nodeRelSize());
       }
-    }, 33);
+    }, 40);
 
     function setPhase(id, state) {
       const el = document.getElementById('phase-' + id);
@@ -1491,6 +1537,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
           const node = findNodeForReadRequest(msg.note || '');
           if (node) {
             thinkingActive.add(node.id);
+            recomputeAdjacent();
             // Camera nudge — gently center on the active node
             try { Graph.centerAt(node.x, node.y, 800); } catch(e){}
             phaseBrain.querySelector('.text').textContent = '🧠 ' + node.name + ' 읽는 중...';
@@ -1498,6 +1545,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
             setTimeout(() => {
               thinkingActive.delete(node.id);
               thinkingDone.add(node.id);
+              recomputeAdjacent();
             }, 1400);
           } else {
             phaseBrain.querySelector('.text').textContent = '🧠 ' + (msg.note || '...') + ' 검색 중...';

@@ -1,4 +1,9 @@
 .vscode/**
+.claude/**
+.secondbrain/**
+.git/**
+.github/**
+ARCHITECTURE.md
 src/**
 node_modules/**
 !node_modules/axios/**
