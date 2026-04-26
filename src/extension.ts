@@ -811,6 +811,10 @@ export function activate(context: vscode.ExtensionContext) {
 
                         fs.writeFileSync(filePath, markdown, 'utf-8');
 
+                        // 0. 그래프 패널들에 새 데이터 broadcast — 새 노드가 즉시
+                        //    등장하고 살짝 펄스로 강조되어 "주입됨" 시각화 가능.
+                        provider.broadcastGraphRefresh(safeTitle);
+
                         // 1. VSCode 채팅창에 매트릭스 터미널 UI로 다운로드 시각화 인젝션
                         if ((provider as any).injectSystemMessage) {
                             (provider as any).injectSystemMessage(`\`\`\`console\n[SYSTEM] MATRIX UPLINK ESTABLISHED...\n[SYSTEM] DOWNLOADING BRAIN PACK: ${safeTitle}\n[SYSTEM] █████████░░░ 90% ...\n[SYSTEM] ████████████ 100% COMPLETE\n[SYSTEM] KNOWLEDGE INJECTED TO LOCAL NEURAL NET\n\`\`\``);
@@ -1859,6 +1863,76 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
           }
           break;
         }
+        case 'graphData': {
+          // Live refresh — new knowledge was injected (EZER / A.U Training).
+          // Replace data + tell force-graph to layout incrementally so existing
+          // nodes keep their positions and only new nodes settle in.
+          if (!msg.data || !Array.isArray(msg.data.nodes)) break;
+          data.nodes = msg.data.nodes;
+          data.links = msg.data.links || [];
+          // Refresh derived lookups
+          for (const k in nodeById) delete nodeById[k];
+          data.nodes.forEach(n => { nodeById[n.id] = n; });
+          for (const k in neighborsOf) delete neighborsOf[k];
+          data.nodes.forEach(n => { neighborsOf[n.id] = new Set(); });
+          data.links.forEach(l => {
+            const sId = (l.source && l.source.id) || l.source;
+            const tId = (l.target && l.target.id) || l.target;
+            if (neighborsOf[sId]) neighborsOf[sId].add(tId);
+            if (neighborsOf[tId]) neighborsOf[tId].add(sId);
+          });
+          for (const k in nodesByBasename) delete nodesByBasename[k];
+          data.nodes.forEach(n => {
+            const k = (n.name || '').toLowerCase();
+            nodesByBasename[k] = nodesByBasename[k] || [];
+            nodesByBasename[k].push(n);
+          });
+          // Push new graph data into force-graph
+          Graph.graphData(data);
+          // Stats refresh
+          const newFolders = [...new Set(data.nodes.map(n => n.folder))].sort();
+          newFolders.forEach((f, i) => { if (!folderColor[f]) folderColor[f] = PALETTE[i % PALETTE.length]; });
+          document.getElementById('stats').textContent =
+            data.nodes.length + ' 지식 · ' + data.links.length + ' 연결 · ' + newFolders.length + ' 폴더';
+          // Append any newly seen folders to legend chip list
+          const folderListEl = document.getElementById('folders-list');
+          if (folderListEl) {
+            const existing = new Set([...folderListEl.querySelectorAll('.folder-name')].map(el => el.textContent));
+            const counts = {};
+            data.nodes.forEach(n => { counts[n.folder] = (counts[n.folder] || 0) + 1; });
+            newFolders.forEach(f => {
+              if (existing.has(f || '/')) return;
+              const row = document.createElement('div');
+              row.className = 'folder-row';
+              const dot = document.createElement('div');
+              dot.className = 'folder-dot';
+              dot.style.background = folderColor[f] || '#888';
+              const name = document.createElement('div');
+              name.className = 'folder-name';
+              name.textContent = f || '/';
+              const count = document.createElement('div');
+              count.className = 'folder-count';
+              count.textContent = counts[f] || 0;
+              row.appendChild(dot); row.appendChild(name); row.appendChild(count);
+              folderListEl.appendChild(row);
+            });
+          }
+          // Pulse the freshly injected node so the user actually sees it
+          if (msg.highlightTitle) {
+            const node = findNodeForReadRequest(msg.highlightTitle);
+            if (node) {
+              thinkingActive.add(node.id);
+              recomputeAdjacent();
+              try { Graph.centerAt(node.x || 0, node.y || 0, 800); Graph.zoom(2.4, 900); } catch(e){}
+              setTimeout(() => {
+                thinkingActive.delete(node.id);
+                markDone(node.id);
+                recomputeAdjacent();
+              }, 2200);
+            }
+          }
+          break;
+        }
       }
     });
 
@@ -1898,6 +1972,34 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     public registerExternalGraphPanel(panel: vscode.WebviewPanel) {
         this._externalGraphPanels.add(panel);
         panel.onDidDispose(() => this._externalGraphPanels.delete(panel));
+    }
+
+    /** Re-scan the brain folder and push fresh node/link data to every open
+     *  graph panel. Called after brain-inject (EZER, A.U Training, etc.) so
+     *  the user sees new knowledge appear immediately, plus a brief pulse
+     *  on the freshly-added node. */
+    public broadcastGraphRefresh(highlightTitle?: string) {
+        try {
+            const brainDir = _getBrainDir();
+            if (!fs.existsSync(brainDir)) return;
+            const graph = buildKnowledgeGraph(brainDir);
+            const data = {
+                nodes: graph.nodes.map(n => ({
+                    id: n.id, name: n.name, folder: n.folder, tags: n.tags,
+                    connections: n.incoming + n.outgoing
+                })),
+                links: graph.links
+            };
+            const msg = { type: 'graphData', data, highlightTitle: highlightTitle || null };
+            if (this._thinkingPanel && this._thinkingReady) {
+                this._thinkingPanel.webview.postMessage(msg);
+            }
+            this._externalGraphPanels.forEach(panel => {
+                try { panel.webview.postMessage(msg); } catch { /* disposed */ }
+            });
+        } catch (e) {
+            console.error('broadcastGraphRefresh failed:', e);
+        }
     }
 
     // 🏛️ AI 파라미터 튜닝
