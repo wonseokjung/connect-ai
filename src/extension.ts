@@ -1078,22 +1078,17 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
         links: graph.links
     });
 
-    panel.webview.html = _RENDER_GRAPH_HTML(graphJson, isEmpty, _context.extensionPath, panel.webview.cspSource);
+    const forceGraphSrc = panel.webview.asWebviewUri(
+        vscode.Uri.file(path.join(_context.extensionPath, 'assets', 'force-graph.min.js'))
+    ).toString();
+    panel.webview.html = _RENDER_GRAPH_HTML(graphJson, isEmpty, forceGraphSrc, panel.webview.cspSource);
 }
 
 /** Returns the full graph webview HTML. Reused by showBrainNetwork + ThinkingPanel. */
-function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, extensionPath: string, cspSource: string): string {
-    // force-graph 라이브러리를 로컬 번들에서 인라인으로 로드 (CDN 차단 문제 해결)
-    let forceGraphScript = '';
-    try {
-        const bundlePath = extensionPath
-            ? path.join(extensionPath, 'assets', 'force-graph.min.js')
-            : path.join(__dirname, '..', 'assets', 'force-graph.min.js');
-        forceGraphScript = fs.readFileSync(bundlePath, 'utf-8');
-    } catch (e) {
-        console.error('force-graph.min.js 로드 실패:', e);
-    }
-
+function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: string, cspSource: string): string {
+    // NOTE: force-graph.min.js is loaded as an external script (not inlined).
+    // Inlining via template literal corrupts the bundle because the minified
+    // library contains `${...}` sequences that get evaluated as template parts.
     return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -1102,8 +1097,8 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, extensionPath: 
   <title>Connect AI — 지식 네트워크</title>
   <style>
     body { margin: 0; padding: 0; background: #131419; overflow: hidden; width: 100vw; height: 100vh; font-family: 'SF Pro Display', -apple-system, sans-serif; color: #d8d9de; }
-    /* Subtle vignette so the eye is drawn to the constellation center */
-    body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    /* Subtle vignette behind the canvas — z-index -1 so it never obscures nodes */
+    body::after { content: ''; position: fixed; inset: 0; pointer-events: none; z-index: -1;
       background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,.55) 100%); }
     #ui-layer { position: absolute; top: 20px; left: 24px; z-index: 10; pointer-events: none; max-width: 60%; }
     #ui-layer h1 { font-size: 22px; margin: 0 0 4px 0; font-weight: 700; letter-spacing: -0.4px; color: #e8e9ee; }
@@ -1135,7 +1130,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, extensionPath: 
     body.thinking::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(93,224,230,.05), transparent 65%); pointer-events: none; z-index: 1; animation: thinkingPulse 3s ease-in-out infinite; }
     @keyframes thinkingPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
   </style>
-  <script>${forceGraphScript}</script>
+  <script src="${forceGraphSrc}"></script>
 </head>
 <body>
   <div id="ui-layer">
@@ -1709,7 +1704,10 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 
         // Inject the same graph HTML used by showBrainNetwork — it already listens
         // for thinking events via window.message and is fully reusable.
-        panel.webview.html = this._buildThinkingHtml(graph, panel.webview.cspSource);
+        const forceGraphSrc = panel.webview.asWebviewUri(
+            vscode.Uri.file(path.join(this._ctx.extensionPath, 'assets', 'force-graph.min.js'))
+        ).toString();
+        panel.webview.html = this._buildThinkingHtml(graph, forceGraphSrc, panel.webview.cspSource);
 
         panel.webview.onDidReceiveMessage(async (msg) => {
             if (msg.type === 'graph_ready') {
@@ -1848,7 +1846,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     }
 
     /** Build the same HTML that showBrainNetwork uses — kept inline for reuse. */
-    private _buildThinkingHtml(graph: BrainGraph, cspSource: string): string {
+    private _buildThinkingHtml(graph: BrainGraph, forceGraphSrc: string, cspSource: string): string {
         const graphJson = JSON.stringify({
             nodes: graph.nodes.map(n => ({
                 id: n.id, name: n.name, folder: n.folder, tags: n.tags,
@@ -1857,7 +1855,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             links: graph.links
         });
         const isEmpty = graph.nodes.length === 0;
-        return _RENDER_GRAPH_HTML(graphJson, isEmpty, this._ctx.extensionPath, cspSource);
+        return _RENDER_GRAPH_HTML(graphJson, isEmpty, forceGraphSrc, cspSource);
     }
 
     /** 메모리 누수 방지: 대화 이력 길이 제한 (최근 50건만 유지, 시스템 프롬프트는 보존) */
