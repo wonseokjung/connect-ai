@@ -1248,15 +1248,27 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
     // ── Thinking-mode state — must be declared BEFORE Graph creation
     // because force-graph invokes linkColor/linkDirectionalParticles
     // synchronously during .graphData() and would otherwise hit TDZ.
-    const thinkingActive = new Set();        // node ids currently being read (electric cyan)
-    const thinkingAdjacent = new Set();      // 1-hop neighbors of active nodes (faint glow)
-    const thinkingDone = new Set();          // node ids already cited (warm amber trail)
+    const thinkingActive = new Set();          // node ids currently being read (electric cyan)
+    const thinkingAdjacent = new Set();        // 1-hop neighbors of active nodes (faint glow)
+    const thinkingDoneOrder = new Map();       // node id → 1-based usage index (warm amber trail)
+    let thinkingDoneCounter = 0;
     let thinkPulseTime = 0;
+    const nodeById = {};
+    data.nodes.forEach(n => { nodeById[n.id] = n; });
     function recomputeAdjacent() {
       thinkingAdjacent.clear();
       thinkingActive.forEach(id => {
         (neighborsOf[id] || new Set()).forEach(n => { if (!thinkingActive.has(n)) thinkingAdjacent.add(n); });
       });
+    }
+    function markDone(id) {
+      if (!thinkingDoneOrder.has(id)) thinkingDoneOrder.set(id, ++thinkingDoneCounter);
+    }
+    function clearThinkingTrail() {
+      thinkingActive.clear();
+      thinkingAdjacent.clear();
+      thinkingDoneOrder.clear();
+      thinkingDoneCounter = 0;
     }
 
     const Graph = ForceGraph()(document.getElementById('graph'))
@@ -1279,7 +1291,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
         const sId = (l.source && l.source.id) || l.source;
         const tId = (l.target && l.target.id) || l.target;
         const isSynapse = thinkingActive.has(sId) || thinkingActive.has(tId);
-        const isTrail   = thinkingDone.has(sId) && thinkingDone.has(tId);
+        const isTrail   = thinkingDoneOrder.has(sId) && thinkingDoneOrder.has(tId);
         if (isSynapse) return 'rgba(93,224,230,0.85)';
         if (isTrail)   return 'rgba(255,178,102,0.55)';
         if (highlightLinks.size > 0 && !highlightLinks.has(l)) return 'rgba(60,60,70,0.10)';
@@ -1289,7 +1301,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
         const sId = (l.source && l.source.id) || l.source;
         const tId = (l.target && l.target.id) || l.target;
         const isSynapse = thinkingActive.has(sId) || thinkingActive.has(tId);
-        const isTrail   = thinkingDone.has(sId) && thinkingDone.has(tId);
+        const isTrail   = thinkingDoneOrder.has(sId) && thinkingDoneOrder.has(tId);
         if (isSynapse) return 2.4;
         if (isTrail)   return 1.6;
         return highlightLinks.has(l) ? (EDGE_WIDTH[l.type] || 1) * 2 : (EDGE_WIDTH[l.type] || 1);
@@ -1524,7 +1536,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
       const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
       const isActive = thinkingActive.has(node.id);
       const isAdj    = thinkingAdjacent.has(node.id);
-      const isDone   = thinkingDone.has(node.id);
+      const isDone   = thinkingDoneOrder.has(node.id);
       const isOrphan = node.connections === 0;
       const hub      = isHub(node);
       const color    = folderColor[node.folder] || '#9aa0a6';
@@ -1601,10 +1613,48 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
       if (isActive || isDone) { ctx.shadowBlur = 6; ctx.shadowColor = isActive ? SYNAPSE : TRAIL; }
       ctx.fillText(node.name, node.x, node.y + r + 2);
       ctx.shadowBlur = 0;
+
+      // ── 6. Usage-order index chip on cited nodes (1, 2, 3...) ──
+      if (isDone) {
+        const idx = thinkingDoneOrder.get(node.id);
+        if (idx) {
+          const chipR = Math.max(4.5, 6 / globalScale);
+          const cx = node.x + r + chipR + 1;
+          const cy = node.y - r - 1;
+          ctx.beginPath(); ctx.arc(cx, cy, chipR, 0, 2 * Math.PI);
+          ctx.fillStyle = TRAIL; ctx.fill();
+          ctx.lineWidth = 0.6; ctx.strokeStyle = '#131419'; ctx.stroke();
+          ctx.fillStyle = '#131419';
+          ctx.font = '700 ' + Math.max(5, 7 / globalScale) + "px -apple-system, sans-serif";
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText(String(idx), cx, cy + 0.5);
+        }
+      }
     }
 
     // Re-bind renderer (override of the placeholder bound earlier).
     Graph.nodeCanvasObject(renderNode);
+
+    // ── Trail path: dashed amber line connecting cited nodes in usage order ──
+    Graph.onRenderFramePost((ctx) => {
+      if (thinkingDoneOrder.size < 2) return;
+      const ordered = [...thinkingDoneOrder.entries()]
+        .sort((a, b) => a[1] - b[1])
+        .map(([id]) => nodeById[id])
+        .filter(n => n && isFinite(n.x) && isFinite(n.y));
+      if (ordered.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,178,102,0.45)';
+      ctx.lineWidth = 1.3;
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath();
+      ordered.forEach((n, i) => {
+        if (i === 0) ctx.moveTo(n.x, n.y);
+        else ctx.lineTo(n.x, n.y);
+      });
+      ctx.stroke();
+      ctx.restore();
+    });
 
     // Pulse animation tick — drive both thinking pulse and a slow ambient breath.
     setInterval(() => {
@@ -1648,8 +1698,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
           setPhase('context', 'active'); setPhase('brain', null); setPhase('answer', null);
           answerPreview.style.display = 'none';
           answerPreview.textContent = '';
-          thinkingActive.clear();
-          // keep thinkingDone from previous session as faded trail
+          clearThinkingTrail();   // fresh session — drop the previous trail entirely
           break;
         }
         case 'context_done': {
@@ -1672,7 +1721,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
             // After 1.4s, mark as done (trail) and remove from active
             setTimeout(() => {
               thinkingActive.delete(node.id);
-              thinkingDone.add(node.id);
+              markDone(node.id);
               recomputeAdjacent();
             }, 1400);
           } else {
@@ -1703,7 +1752,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
           if (Array.isArray(msg.sources)) {
             msg.sources.forEach(req => {
               const node = findNodeForReadRequest(req);
-              if (node) thinkingDone.add(node.id);
+              if (node) markDone(node.id);
             });
           }
           hideThinkingOverlay();
@@ -1715,7 +1764,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
           // External request to focus on a specific note (citation badge click)
           const node = findNodeForReadRequest(msg.note || '');
           if (node) {
-            thinkingDone.add(node.id);
+            markDone(node.id);
             try { Graph.centerAt(node.x, node.y, 600); Graph.zoom(3, 800); } catch(e){}
             applyHighlight(node);
           }
