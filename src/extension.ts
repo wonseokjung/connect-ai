@@ -94,11 +94,12 @@ function readRequestBody(req: http.IncomingMessage, maxBytes = MAX_HTTP_BODY): P
  */
 function validateGitRemoteUrl(url: string): string | null {
     if (typeof url !== 'string') return null;
-    const trimmed = url.trim();
+    // 사용자가 흔히 붙여넣는 잡음 제거: 공백, 끝 슬래시, 쿼리스트링/프래그먼트
+    let trimmed = url.trim().replace(/[?#].*$/, '').replace(/\/+$/, '');
     if (!trimmed || trimmed.length > 500) return null;
-    // Allowed: https://host/path, http://host/path, git@host:path
-    const httpsLike = /^https?:\/\/[A-Za-z0-9._-]+(:\d+)?\/[A-Za-z0-9._\-/]+(\.git)?\/?$/;
-    const sshLike = /^git@[A-Za-z0-9._-]+:[A-Za-z0-9._\-/]+(\.git)?$/;
+    // Allowed: https://host/path, http://host/path, git@host:path  (host에는 :포트 허용)
+    const httpsLike = /^https?:\/\/[A-Za-z0-9.-]+(:\d+)?\/[A-Za-z0-9._\-/]+?(\.git)?$/;
+    const sshLike = /^git@[A-Za-z0-9.-]+:[A-Za-z0-9._\-/]+?(\.git)?$/;
     if (!httpsLike.test(trimmed) && !sshLike.test(trimmed)) return null;
     return trimmed;
 }
@@ -1492,13 +1493,25 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 break;
             }
             case 'changeGithub': {
+                const existing = vscode.workspace.getConfiguration('connectAiLab').get<string>('secondBrainRepo', '');
                 const inputUrl = await vscode.window.showInputBox({
-                    prompt: '🧠 새로운 깃허브 저장소 주소를 입력하세요',
-                    placeHolder: '예: https://github.com/사용자/레포지토리'
+                    prompt: '🧠 GitHub 저장소 주소를 입력하세요 (Enter로 저장)',
+                    placeHolder: '예: https://github.com/사용자명/저장소이름',
+                    value: existing,
+                    ignoreFocusOut: true,
+                    validateInput: (val) => {
+                        const v = (val || '').trim();
+                        if (!v) return null; // 빈 값은 OK (취소 의도일 수 있음)
+                        if (validateGitRemoteUrl(v)) return null;
+                        return '⚠️ 형식: https://github.com/사용자/저장소  또는  git@github.com:사용자/저장소.git';
+                    }
                 });
-                if (inputUrl) {
-                    await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', inputUrl, vscode.ConfigurationTarget.Global);
-                    vscode.window.showInformationMessage(`✅ 깃허브 연결 주소가 변경되었습니다! 이제 '깃허브 동기화'를 눌러주세요.`);
+                if (inputUrl !== undefined && inputUrl.trim()) {
+                    const cleaned = validateGitRemoteUrl(inputUrl) || inputUrl.trim();
+                    await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', cleaned, vscode.ConfigurationTarget.Global);
+                    // 저장 직후 다시 읽어와서 정말 저장됐는지 확인 (사용자에게 보여주기)
+                    const saved = vscode.workspace.getConfiguration('connectAiLab').get<string>('secondBrainRepo', '');
+                    vscode.window.showInformationMessage(`✅ GitHub 주소 저장됨: ${saved}\n🧠 메뉴 → 'GitHub에 백업'을 눌러 동기화하세요.`);
                 }
                 break;
             }
@@ -1526,13 +1539,21 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         // UX 극대화: 안 채워져 있으면 에러 내뱉지 말고 입력창 띄우기!
         if (!secondBrainRepo) {
             const inputUrl = await vscode.window.showInputBox({
-                prompt: '🧠 뇌를 연결할 깃허브 저장소 주소를 입력하세요',
-                placeHolder: '예: https://github.com/사용자/레포지토리'
+                prompt: '🧠 GitHub 저장소 주소를 입력하세요 (Enter로 저장)',
+                placeHolder: '예: https://github.com/사용자명/저장소이름',
+                ignoreFocusOut: true,
+                validateInput: (val) => {
+                    const v = (val || '').trim();
+                    if (!v) return null;
+                    if (validateGitRemoteUrl(v)) return null;
+                    return '⚠️ 형식: https://github.com/사용자/저장소  또는  git@github.com:사용자/저장소.git';
+                }
             });
-            if (!inputUrl) { return; }
-            
-            await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', inputUrl, vscode.ConfigurationTarget.Global);
-            secondBrainRepo = inputUrl;
+            if (!inputUrl || !inputUrl.trim()) { return; }
+
+            const cleaned = validateGitRemoteUrl(inputUrl) || inputUrl.trim();
+            await vscode.workspace.getConfiguration('connectAiLab').update('secondBrainRepo', cleaned, vscode.ConfigurationTarget.Global);
+            secondBrainRepo = cleaned;
         }
 
         // git이 시스템에 없으면 의미 있는 에러로 즉시 종료
@@ -1613,17 +1634,54 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                             this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화가 취소되었습니다. 로컬 파일은 안전하게 보존되었습니다.' });
                             return;
                         }
-                        if (choice.startsWith('🤝')) {
-                            const mergeRes = gitRun(['pull', 'origin', remoteBranch, '--no-edit', '--allow-unrelated-histories'], brainDir, 30000);
-                            if (mergeRes.status !== 0) {
+                        // 선택 적용 — 자동 병합 실패 시 즉시 재선택 다이얼로그를 띄워 사용자를 메뉴로 돌려보내지 않음
+                        let resolved = false;
+                        let activeChoice: string = choice;
+                        for (let attempt = 0; attempt < 3 && !resolved; attempt++) {
+                            if (activeChoice.startsWith('🤝')) {
+                                const mergeRes = gitRun(['pull', 'origin', remoteBranch, '--no-edit', '--allow-unrelated-histories'], brainDir, 30000);
+                                if (mergeRes.status === 0) {
+                                    resolved = true;
+                                    break;
+                                }
+                                // 실패 → 머지 상태 정리 후 사용자에게 다른 방법을 즉시 제안
                                 gitExecSafe(['merge', '--abort'], brainDir);
-                                throw new Error('자동 병합 실패. 메뉴에서 "로컬 우선" 또는 "GitHub 우선"을 선택해주세요.');
+                                const conflicted = gitExecSafe(['diff', '--name-only', '--diff-filter=U'], brainDir)?.trim();
+                                const detailMsg = conflicted
+                                    ? `⚠️ 같은 파일의 같은 줄이 양쪽에서 다르게 수정됐어요:\n${conflicted}\n\n어떻게 처리할까요?`
+                                    : '⚠️ 자동 병합이 안 돼요. 어떻게 처리할까요?';
+                                const next = await vscode.window.showWarningMessage(
+                                    detailMsg,
+                                    { modal: true },
+                                    '💪 로컬 우선 (GitHub 변경 무시)',
+                                    '☁️ GitHub 우선 (로컬 변경 무시)',
+                                    '🛠️ 폴더 열기 (직접 해결)'
+                                );
+                                if (!next) {
+                                    this._view.webview.postMessage({ type: 'response', value: '⏸️ 동기화가 취소되었습니다. 로컬 파일은 안전합니다.' });
+                                    return;
+                                }
+                                if (next.startsWith('🛠️')) {
+                                    await vscode.commands.executeCommand('revealFileInOS', vscode.Uri.file(brainDir));
+                                    this._view.webview.postMessage({ type: 'response', value: '🛠️ 충돌 파일을 직접 수정한 뒤, 메뉴에서 다시 동기화를 눌러주세요.' });
+                                    return;
+                                }
+                                activeChoice = next;
+                                continue;
                             }
-                        } else if (choice.startsWith('💪')) {
-                            gitExec(['pull', 'origin', remoteBranch, '--no-edit', '--allow-unrelated-histories', '-s', 'recursive', '-X', 'ours'], brainDir, 30000);
-                        } else {
+                            if (activeChoice.startsWith('💪')) {
+                                gitExec(['pull', 'origin', remoteBranch, '--no-edit', '--allow-unrelated-histories', '-s', 'recursive', '-X', 'ours'], brainDir, 30000);
+                                resolved = true;
+                                break;
+                            }
+                            // ☁️ GitHub 우선
                             gitExec(['fetch', 'origin', remoteBranch], brainDir, 30000);
                             gitExec(['reset', '--hard', `origin/${remoteBranch}`], brainDir, 15000);
+                            resolved = true;
+                            break;
+                        }
+                        if (!resolved) {
+                            throw new Error('충돌 해결에 실패했습니다. 폴더를 직접 열어 수동으로 해결해주세요.');
                         }
                     }
                 }
