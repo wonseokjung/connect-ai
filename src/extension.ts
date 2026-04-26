@@ -1023,7 +1023,12 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
         links: graph.links
     });
 
-    panel.webview.html = `<!DOCTYPE html>
+    panel.webview.html = _RENDER_GRAPH_HTML(graphJson, isEmpty);
+}
+
+/** Returns the full graph webview HTML. Reused by showBrainNetwork + ThinkingPanel. */
+function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean): string {
+    return `<!DOCTYPE html>
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
@@ -1046,6 +1051,17 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
     #tooltip .t-tag { background: rgba(0,255,102,.1); color: #00ff66; padding: 1px 6px; border-radius: 8px; font-size: 9px; }
     canvas { cursor: grab; }
     canvas:active { cursor: grabbing; }
+    /* Thinking Mode */
+    #thinking-overlay { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 15; background: rgba(15,15,15,.92); border: 1px solid rgba(0,255,102,.4); border-radius: 14px; padding: 14px 22px; font-size: 13px; color: #e0e0e0; backdrop-filter: blur(16px); box-shadow: 0 8px 40px rgba(0,255,102,.18); display: none; min-width: 320px; max-width: 580px; }
+    #thinking-overlay.active { display: block; animation: slideUp .45s cubic-bezier(.16,1,.3,1); }
+    @keyframes slideUp { from { opacity: 0; transform: translate(-50%, 30px); } to { opacity: 1; transform: translate(-50%, 0); } }
+    #thinking-overlay .phase { display: flex; align-items: center; gap: 10px; margin: 4px 0; opacity: .35; transition: opacity .4s; font-size: 12px; }
+    #thinking-overlay .phase.active { opacity: 1; color: #00ff66; }
+    #thinking-overlay .phase.done { opacity: .6; }
+    #thinking-overlay .phase .icon { width: 18px; text-align: center; }
+    #thinking-overlay .answer-preview { margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,.08); font-size: 11px; color: #888; max-height: 60px; overflow: hidden; }
+    body.thinking::before { content: ''; position: absolute; inset: 0; background: radial-gradient(ellipse at center, rgba(0,255,102,.04), transparent 70%); pointer-events: none; z-index: 1; animation: thinkingPulse 3s ease-in-out infinite; }
+    @keyframes thinkingPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
   </style>
   <script src="https://unpkg.com/force-graph"></script>
 </head>
@@ -1053,6 +1069,12 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
   <div id="ui-layer">
     <h1>✦ <span id="titleSpan">지식 네트워크</span></h1>
     <p id="stats">로딩 중...</p>
+  </div>
+  <div id="thinking-overlay">
+    <div class="phase" id="phase-context"><span class="icon">📂</span><span class="text">컨텍스트 모으는 중...</span></div>
+    <div class="phase" id="phase-brain"><span class="icon">🧠</span><span class="text">관련 노트 찾는 중...</span></div>
+    <div class="phase" id="phase-answer"><span class="icon">✍️</span><span class="text">답변 생성 중...</span></div>
+    <div class="answer-preview" id="answer-preview" style="display:none"></div>
   </div>
   <div id="legend">
     <div class="row"><div class="swatch" style="background:#00ff66"></div><span>위키링크 [[...]]</span></div>
@@ -1214,6 +1236,206 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
     window.addEventListener('resize', () => {
       Graph.width(window.innerWidth).height(window.innerHeight);
     });
+
+    // ============================================================
+    // 🎬 THINKING MODE — receive realtime events from chat extension
+    // ============================================================
+    const thinkingOverlay = document.getElementById('thinking-overlay');
+    const phaseContext = document.getElementById('phase-context');
+    const phaseBrain = document.getElementById('phase-brain');
+    const phaseAnswer = document.getElementById('phase-answer');
+    const answerPreview = document.getElementById('answer-preview');
+
+    // Map basename → node for fast lookup when AI sends "read this brain note"
+    const nodesByBasename = {};
+    data.nodes.forEach(n => {
+      const k = n.name.toLowerCase();
+      nodesByBasename[k] = nodesByBasename[k] || [];
+      nodesByBasename[k].push(n);
+    });
+    function findNodeForReadRequest(req) {
+      // Try by exact id first
+      const direct = data.nodes.find(n => n.id === req || n.id === req + '.md');
+      if (direct) return direct;
+      // Then by basename match
+      const base = (req.split(/[\\\\/]/).pop() || '').replace(/\\.md$/i, '').toLowerCase();
+      const matches = nodesByBasename[base];
+      return matches && matches.length > 0 ? matches[0] : null;
+    }
+
+    // Currently-thinking nodes get this special render flag
+    const thinkingActive = new Set();   // node ids currently being read
+    const thinkingDone = new Set();     // node ids already cited as source
+    let thinkPulseTime = 0;
+
+    // Override node renderer to add thinking effects (re-call .nodeCanvasObject with new fn)
+    Graph.nodeCanvasObject((node, ctx, globalScale) => {
+      const baseR = Math.sqrt(Math.max(2, node.connections * 1.4 + 1)) * 1.8;
+      const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
+      const isThinkActive = thinkingActive.has(node.id);
+      const isThinkDone = thinkingDone.has(node.id);
+      const color = folderColor[node.folder] || '#888';
+
+      // Active thinking node: pulsing halo + bigger
+      if (isThinkActive) {
+        const pulse = 0.5 + 0.5 * Math.sin(thinkPulseTime * 0.08);
+        const haloR = baseR * (2.2 + pulse * 0.6);
+        const grad = ctx.createRadialGradient(node.x, node.y, baseR, node.x, node.y, haloR);
+        grad.addColorStop(0, 'rgba(0,255,102,0.6)');
+        grad.addColorStop(1, 'rgba(0,255,102,0)');
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, haloR, 0, 2 * Math.PI);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+
+      const r = isHL ? baseR * (isThinkActive ? 1.6 : 1) : baseR * 0.7;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+      if (isThinkActive) {
+        ctx.shadowBlur = 22; ctx.shadowColor = '#00ff66';
+        ctx.fillStyle = '#00ff66';
+      } else if (isThinkDone) {
+        ctx.shadowBlur = 14; ctx.shadowColor = color;
+        ctx.fillStyle = color;
+      } else if (node.connections > 3 && isHL) {
+        ctx.shadowBlur = 12; ctx.shadowColor = color;
+        ctx.fillStyle = color;
+      } else {
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = isHL ? color : 'rgba(60,60,60,0.6)';
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      const showLabel = isThinkActive || isThinkDone || (globalScale > 1.4 || node.connections > 2) && isHL;
+      if (showLabel) {
+        const fs = Math.max(2.5, Math.min(6, 12 / globalScale));
+        ctx.font = (isThinkActive ? 'bold ' : '') + fs + 'px -apple-system, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.fillStyle = isThinkActive ? '#00ff66' : (node.connections > 2 ? '#e0e0e0' : '#777');
+        ctx.fillText(node.name, node.x, node.y + r + 2);
+      }
+    });
+
+    // Pulse animation tick
+    setInterval(() => {
+      if (thinkingActive.size > 0) {
+        thinkPulseTime++;
+        Graph.nodeRelSize(Graph.nodeRelSize());  // force redraw
+      }
+    }, 33);
+
+    function setPhase(id, state) {
+      const el = document.getElementById('phase-' + id);
+      if (!el) return;
+      el.classList.remove('active', 'done');
+      if (state) el.classList.add(state);
+    }
+
+    function showThinkingOverlay() {
+      thinkingOverlay.classList.add('active');
+      document.body.classList.add('thinking');
+    }
+    function hideThinkingOverlay() {
+      // Keep the thinking trail visible (done nodes stay highlighted) but remove pulse overlay
+      document.body.classList.remove('thinking');
+      // Auto-hide overlay after a delay so user can see the final state
+      setTimeout(() => {
+        thinkingOverlay.classList.remove('active');
+        thinkingActive.clear();
+      }, 6000);
+    }
+
+    window.addEventListener('message', (event) => {
+      const msg = event.data;
+      if (!msg || !msg.type) return;
+      switch (msg.type) {
+        case 'thinking_start': {
+          showThinkingOverlay();
+          phaseContext.querySelector('.text').textContent = '컨텍스트 모으는 중...';
+          phaseBrain.querySelector('.text').textContent = '관련 노트 찾는 중...';
+          phaseAnswer.querySelector('.text').textContent = '답변 생성 중...';
+          setPhase('context', 'active'); setPhase('brain', null); setPhase('answer', null);
+          answerPreview.style.display = 'none';
+          answerPreview.textContent = '';
+          thinkingActive.clear();
+          // keep thinkingDone from previous session as faded trail
+          break;
+        }
+        case 'context_done': {
+          const summary = (msg.workspace ? '📂 워크스페이스' : '') +
+                          (msg.brainCount > 0 ? '  🧠 ' + msg.brainCount + '개 노트' : '') +
+                          (msg.web ? '  🌐 인터넷' : '');
+          phaseContext.querySelector('.text').textContent = '컨텍스트 모음 완료' + (summary ? ' · ' + summary : '');
+          setPhase('context', 'done');
+          setPhase('brain', 'active');
+          break;
+        }
+        case 'brain_read': {
+          const node = findNodeForReadRequest(msg.note || '');
+          if (node) {
+            thinkingActive.add(node.id);
+            // Camera nudge — gently center on the active node
+            try { Graph.centerAt(node.x, node.y, 800); } catch(e){}
+            phaseBrain.querySelector('.text').textContent = '🧠 ' + node.name + ' 읽는 중...';
+            // After 1.4s, mark as done (trail) and remove from active
+            setTimeout(() => {
+              thinkingActive.delete(node.id);
+              thinkingDone.add(node.id);
+            }, 1400);
+          } else {
+            phaseBrain.querySelector('.text').textContent = '🧠 ' + (msg.note || '...') + ' 검색 중...';
+          }
+          break;
+        }
+        case 'url_read': {
+          phaseBrain.querySelector('.text').textContent = '🌐 ' + (msg.url || '').slice(0, 60) + '...';
+          break;
+        }
+        case 'answer_start': {
+          setPhase('brain', 'done');
+          setPhase('answer', 'active');
+          answerPreview.style.display = 'block';
+          break;
+        }
+        case 'answer_chunk': {
+          // Show last ~120 chars as live preview
+          if (typeof msg.text === 'string') {
+            answerPreview.textContent = (answerPreview.textContent + msg.text).slice(-180);
+          }
+          break;
+        }
+        case 'answer_complete': {
+          setPhase('answer', 'done');
+          phaseAnswer.querySelector('.text').textContent = '✅ 답변 완료';
+          if (Array.isArray(msg.sources)) {
+            msg.sources.forEach(req => {
+              const node = findNodeForReadRequest(req);
+              if (node) thinkingDone.add(node.id);
+            });
+          }
+          hideThinkingOverlay();
+          // Re-fit so user sees the full thinking trail
+          setTimeout(() => Graph.zoomToFit(1000, 80), 400);
+          break;
+        }
+        case 'highlight_node': {
+          // External request to focus on a specific note (citation badge click)
+          const node = findNodeForReadRequest(msg.note || '');
+          if (node) {
+            thinkingDone.add(node.id);
+            try { Graph.centerAt(node.x, node.y, 600); Graph.zoom(3, 800); } catch(e){}
+            applyHighlight(node);
+          }
+          break;
+        }
+      }
+    });
+
+    // Notify extension we're ready to receive events
+    vscode.postMessage({ type: 'graph_ready' });
   </script>
 </body>
 </html>`;
@@ -1238,6 +1460,12 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private _abortController?: AbortController;
     private _lastPrompt?: string;
     private _lastModel?: string;
+
+    // 🎬 Thinking Mode — live cinematic graph that visualises AI reasoning
+    private _thinkingMode: boolean = false;
+    private _thinkingPanel?: vscode.WebviewPanel;
+    private _thinkingReady: boolean = false;
+    private _lastSources: string[] = [];
 
     // 🏛️ AI 파라미터 튜닝
     private _temperature: number;
@@ -1273,6 +1501,89 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             chat: this._chatHistory,
             display: this._displayMessages
         });
+    }
+
+    // ============================================================
+    // 🎬 Thinking Mode helpers
+    // ============================================================
+    private async _toggleThinkingMode() {
+        this._thinkingMode = !this._thinkingMode;
+        if (this._thinkingMode) {
+            this._openThinkingPanel();
+        } else {
+            this._closeThinkingPanel();
+        }
+        if (this._view) {
+            this._view.webview.postMessage({ type: 'thinkingModeState', value: this._thinkingMode });
+        }
+    }
+
+    private _openThinkingPanel() {
+        if (this._thinkingPanel) {
+            this._thinkingPanel.reveal(vscode.ViewColumn.Beside, true);
+            return;
+        }
+        const brainDir = _getBrainDir();
+        const graph = buildKnowledgeGraph(brainDir);
+
+        const panel = vscode.window.createWebviewPanel(
+            'connectAiThinking',
+            '🎬 Thinking Mode — AI 사고 시각화',
+            { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true },
+            { enableScripts: true, retainContextWhenHidden: true }
+        );
+
+        // Inject the same graph HTML used by showBrainNetwork — it already listens
+        // for thinking events via window.message and is fully reusable.
+        panel.webview.html = this._buildThinkingHtml(graph);
+
+        panel.webview.onDidReceiveMessage(async (msg) => {
+            if (msg.type === 'graph_ready') {
+                this._thinkingReady = true;
+                return;
+            }
+            if (msg.type === 'openFile' && typeof msg.id === 'string') {
+                const safe = safeResolveInside(brainDir, msg.id);
+                if (safe && fs.existsSync(safe)) {
+                    const doc = await vscode.workspace.openTextDocument(safe);
+                    vscode.window.showTextDocument(doc, vscode.ViewColumn.Active);
+                }
+            }
+        });
+        panel.onDidDispose(() => {
+            this._thinkingPanel = undefined;
+            this._thinkingReady = false;
+            this._thinkingMode = false;
+            if (this._view) this._view.webview.postMessage({ type: 'thinkingModeState', value: false });
+        });
+        this._thinkingPanel = panel;
+    }
+
+    private _closeThinkingPanel() {
+        if (this._thinkingPanel) {
+            this._thinkingPanel.dispose();
+            this._thinkingPanel = undefined;
+            this._thinkingReady = false;
+        }
+    }
+
+    private _postThinking(message: any) {
+        if (this._thinkingPanel && this._thinkingReady) {
+            this._thinkingPanel.webview.postMessage(message);
+        }
+    }
+
+    /** Build the same HTML that showBrainNetwork uses — kept inline for reuse. */
+    private _buildThinkingHtml(graph: BrainGraph): string {
+        const graphJson = JSON.stringify({
+            nodes: graph.nodes.map(n => ({
+                id: n.id, name: n.name, folder: n.folder, tags: n.tags,
+                connections: n.incoming + n.outgoing
+            })),
+            links: graph.links
+        });
+        const isEmpty = graph.nodes.length === 0;
+        return _RENDER_GRAPH_HTML(graphJson, isEmpty);
     }
 
     /** 메모리 누수 방지: 대화 이력 길이 제한 (최근 50건만 유지, 시스템 프롬프트는 보존) */
@@ -1397,6 +1708,16 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     break;
                 case 'showBrainNetwork':
                     vscode.commands.executeCommand('connect-ai-lab.showBrainNetwork');
+                    break;
+                case 'toggleThinking':
+                    await this._toggleThinkingMode();
+                    break;
+                case 'highlightBrainNote':
+                    if (typeof msg.note === 'string') {
+                        if (!this._thinkingPanel) this._openThinkingPanel();
+                        // Allow the panel a moment to load before sending the highlight
+                        setTimeout(() => this._postThinking({ type: 'highlight_node', note: msg.note }), 350);
+                    }
                     break;
                 case 'injectLocalBrain':
                     await this._handleInjectLocalBrain(msg.files);
@@ -2401,11 +2722,36 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._lastModel = modelName;
             this._abortController = new AbortController();
 
-            const response = await axios.post(apiUrl, streamBody, { 
-                timeout, 
+            // 🎬 Thinking Mode: notify graph panel that a session is starting
+            if (this._thinkingMode) {
+                this._postThinking({ type: 'thinking_start', prompt });
+                this._postThinking({
+                    type: 'context_done',
+                    workspace: !!workspaceCtx,
+                    brainCount: this._brainEnabled ? (brainCtx ? brainCtx.split('📄').length - 1 : 0) : 0,
+                    web: !!internetEnabled
+                });
+            }
+
+            const response = await axios.post(apiUrl, streamBody, {
+                timeout,
                 responseType: 'stream',
                 signal: this._abortController.signal
             });
+
+            // 🎬 Track which brain notes the AI mentions DURING streaming
+            const seenBrainReads = new Set<string>();
+            const detectBrainReadsLive = () => {
+                if (!this._thinkingMode) return;
+                const matches = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)];
+                for (const m of matches) {
+                    const note = m[1].trim();
+                    if (note && !seenBrainReads.has(note)) {
+                        seenBrainReads.add(note);
+                        this._postThinking({ type: 'brain_read', note });
+                    }
+                }
+            };
 
             await new Promise<void>((resolve, reject) => {
                 const stream = response.data;
@@ -2431,6 +2777,11 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                             if (token) {
                                 aiMessage += token;
                                 this._view!.webview.postMessage({ type: 'streamChunk', value: token });
+                                // 🎬 Live thinking detection — fire as soon as a tag is closed
+                                detectBrainReadsLive();
+                                if (this._thinkingMode) {
+                                    this._postThinking({ type: 'answer_chunk', text: token });
+                                }
                             }
                         } catch { /* skip malformed JSON */ }
                     }
@@ -2549,6 +2900,18 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
 
             // 저장용: AI 응답 기록
             this._displayMessages.push({ text: this._stripActionTags(aiMessage), role: 'ai' });
+
+            // 📚 Citation badges + 🎬 final source highlight
+            const allBrainReads = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)]
+                .map(m => m[1].trim()).filter(s => s.length > 0);
+            const uniqueSources = [...new Set(allBrainReads)];
+            if (uniqueSources.length > 0) {
+                this._lastSources = uniqueSources;
+                this._view.webview.postMessage({ type: 'attachCitations', sources: uniqueSources });
+            }
+            if (this._thinkingMode) {
+                this._postThinking({ type: 'answer_complete', sources: uniqueSources });
+            }
 
             this._pruneHistory();
             this._saveHistory();
@@ -3055,7 +3418,7 @@ body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;tr
 .msg-body pre .op{color:#89ddff}
 .msg-body pre .type{color:#ffcb6b}
 </style></head><body class="init">
-<div class="header"><div class="header-left"><div class="logo">\u2726</div><span class="brand">Connect AI</span></div><div class="header-right"><select id="modelSel"></select><button class="btn-icon" id="internetBtn" title="인터넷 검색 켜기 (현재: OFF)" style="opacity: 0.4; filter: grayscale(1);">🌐</button><button class="btn-icon" id="brainBtn" title="내 지식 관리">\ud83e\udde0</button><button class="btn-icon" id="settingsBtn" title="설정">\u2699\ufe0f</button><button class="btn-icon" id="newChatBtn" title="새 대화 시작">+</button></div></div>
+<div class="header"><div class="header-left"><div class="logo">\u2726</div><span class="brand">Connect AI</span></div><div class="header-right"><select id="modelSel"></select><button class="btn-icon" id="internetBtn" title="인터넷 검색 켜기 (현재: OFF)" style="opacity: 0.4; filter: grayscale(1);">🌐</button><button class="btn-icon" id="thinkingBtn" title="Thinking Mode — AI가 어떻게 생각하는지 시각화" style="opacity:0.5">🎬</button><button class="btn-icon" id="brainBtn" title="내 지식 관리">\ud83e\udde0</button><button class="btn-icon" id="settingsBtn" title="설정">\u2699\ufe0f</button><button class="btn-icon" id="newChatBtn" title="새 대화 시작">+</button></div></div>
 <div class="thinking-bar" id="thinkingBar"></div>
 <div class="main-view" id="mainView">
 <div class="chat" id="chat">
@@ -3077,7 +3440,7 @@ window.addEventListener('unhandledrejection', function(event) {
 try {
 const vscode=acquireVsCodeApi(),chat=document.getElementById('chat'),input=document.getElementById('input'),
 sendBtn=document.getElementById('sendBtn'),stopBtn=document.getElementById('stopBtn'),
-modelSel=document.getElementById('modelSel'),newChatBtn=document.getElementById('newChatBtn'),settingsBtn=document.getElementById('settingsBtn'),brainBtn=document.getElementById('brainBtn'),
+modelSel=document.getElementById('modelSel'),newChatBtn=document.getElementById('newChatBtn'),settingsBtn=document.getElementById('settingsBtn'),brainBtn=document.getElementById('brainBtn'),thinkingBtn=document.getElementById('thinkingBtn'),
 internetBtn=document.getElementById('internetBtn'),attachBtn=document.getElementById('attachBtn'),injectLocalBtn=document.getElementById('injectLocalBtn'),fileInput=document.getElementById('fileInput'),attachPreview=document.getElementById('attachPreview'),
 thinkingBar=document.getElementById('thinkingBar');
 let loader=null,sending=false,pendingFiles=[],internetEnabled=false;
@@ -3264,6 +3627,8 @@ input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventD
 newChatBtn.addEventListener('click',()=>vscode.postMessage({type:'newChat'}));
 settingsBtn.addEventListener('click',()=>vscode.postMessage({type:'openSettings'}));
 brainBtn.addEventListener('click',()=>vscode.postMessage({type:'syncBrain'}));
+let thinkingModeOn=false;
+thinkingBtn.addEventListener('click',()=>vscode.postMessage({type:'toggleThinking'}));
 stopBtn.addEventListener('click',()=>{vscode.postMessage({type:'stopGeneration'});hideLoader();setSending(false);if(streamBody){streamBody.classList.remove('stream-active')}streamEl=null;streamBody=null;});
 let streamEl=null,streamBody=null;
 window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
@@ -3291,6 +3656,39 @@ window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
     setSending(false);streamEl=null;streamBody=null;
     break;}
   case 'modelsList':modelSel.innerHTML='';msg.value.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;modelSel.appendChild(o)});break;
+  case 'thinkingModeState':
+    thinkingModeOn = !!msg.value;
+    thinkingBtn.style.opacity = thinkingModeOn ? '1' : '0.5';
+    thinkingBtn.style.background = thinkingModeOn ? 'linear-gradient(135deg,var(--accent),var(--accent2))' : '';
+    thinkingBtn.title = thinkingModeOn ? 'Thinking Mode: ON (클릭으로 끄기)' : 'Thinking Mode — AI가 어떻게 생각하는지 시각화';
+    break;
+  case 'attachCitations': {
+    // Find the most recent AI message and append citation chips
+    const msgs = chat.querySelectorAll('.msg');
+    const last = msgs[msgs.length-1];
+    if (last && msg.sources && msg.sources.length > 0) {
+      const wrap = document.createElement('div');
+      wrap.className = 'citations';
+      wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;margin-left:29px;font-size:11px;color:var(--text-dim);align-items:center';
+      const label = document.createElement('span');
+      label.textContent = '📚 출처:';
+      label.style.cssText = 'opacity:0.7';
+      wrap.appendChild(label);
+      msg.sources.forEach(src => {
+        const chip = document.createElement('button');
+        chip.textContent = src.length > 28 ? src.slice(0, 26) + '…' : src;
+        chip.title = src;
+        chip.style.cssText = 'background:rgba(0,255,102,0.08);border:1px solid rgba(0,255,102,0.25);color:var(--accent);padding:3px 10px;border-radius:12px;font-size:10px;cursor:pointer;font-family:inherit;transition:all 0.2s';
+        chip.onmouseover = () => { chip.style.background='rgba(0,255,102,0.18)'; chip.style.transform='translateY(-1px)'; };
+        chip.onmouseout = () => { chip.style.background='rgba(0,255,102,0.08)'; chip.style.transform='translateY(0)'; };
+        chip.onclick = () => vscode.postMessage({ type: 'highlightBrainNote', note: src });
+        wrap.appendChild(chip);
+      });
+      last.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    break;
+  }
   case 'clearChat':
     document.body.classList.add('init');
     chat.innerHTML=welcomeHtml();
