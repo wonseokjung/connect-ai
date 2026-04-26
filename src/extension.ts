@@ -821,10 +821,11 @@ export function activate(context: vscode.ExtensionContext) {
                         //     등장하고 살짝 펄스로 강조되어 "주입됨" 시각화 가능.
                         provider.broadcastGraphRefresh(safeTitle);
 
-                        // 1. VSCode 채팅창에 매트릭스 터미널 UI로 다운로드 시각화 인젝션
-                        if ((provider as any).injectSystemMessage) {
-                            (provider as any).injectSystemMessage(`\`\`\`console\n[SYSTEM] MATRIX UPLINK ESTABLISHED...\n[SYSTEM] DOWNLOADING BRAIN PACK: ${safeTitle}\n[SYSTEM] █████████░░░ 90% ...\n[SYSTEM] ████████████ 100% COMPLETE\n[SYSTEM] KNOWLEDGE INJECTED TO LOCAL NEURAL NET\n\`\`\``);
-                        }
+                        // 1. 채팅창에 화려한 inject 카드 + history 영구 저장 — 사이드바가
+                        //    닫혀있어도 다음에 열면 breadcrumb으로 남고, 열려있으면 곧장
+                        //    애니메이션 카드가 등장합니다.
+                        const relPath = path.relative(brainDir, filePath);
+                        provider.broadcastInjectCard(safeTitle, relPath);
 
                         // 2. AI 입을 빌려 네오의 명대사를 치게 함
                         setTimeout(() => {
@@ -1978,6 +1979,21 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     public registerExternalGraphPanel(panel: vscode.WebviewPanel) {
         this._externalGraphPanels.add(panel);
         panel.onDidDispose(() => this._externalGraphPanels.delete(panel));
+    }
+
+    /** Push a flashy "knowledge injected" card into the chat sidebar and
+     *  persist a tiny markdown breadcrumb to history so it survives reloads
+     *  even if the sidebar wasn't open at injection time. */
+    public broadcastInjectCard(title: string, relPath: string) {
+        // Persistent breadcrumb in chat history (compact markdown)
+        const breadcrumb = '> 🧠 **새 지식 주입됨** · `' + title + '.md`\n> 📁 `' + relPath + '`\n> ✦ I know ' + title + '.';
+        this._chatHistory.push({ role: 'assistant', content: breadcrumb });
+        this._displayMessages.push({ role: 'ai', text: breadcrumb });
+        this._saveHistory();
+        // Live, animated card if the sidebar is mounted right now
+        if (this._view) {
+            this._view.webview.postMessage({ type: 'brainInject', title, relPath });
+        }
     }
 
     /** Re-scan the brain folder and push fresh node/link data to every open
@@ -4086,6 +4102,20 @@ select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--a
 .av-ai{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 0 10px rgba(124,106,255,.3)}
 .msg-body{padding-left:29px;line-height:1.75;color:var(--text);white-space:pre-wrap;word-break:break-word;font-size:13px}
 .msg-user .msg-body{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;margin-left:29px;color:var(--text-bright);backdrop-filter:blur(8px)}
+/* Brain injection card — fired on /api/brain-inject */
+.inject-card{padding:0}
+.inject-card .inject-banner{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(93,224,230,.16),rgba(93,224,230,.04) 60%,rgba(255,178,102,.08));border:1px solid rgba(93,224,230,.4);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18);animation:injectIn .55s cubic-bezier(.16,1,.3,1)}
+@keyframes injectIn{from{opacity:0;transform:translateY(10px) scale(.98);box-shadow:0 0 60px rgba(93,224,230,.5)}to{opacity:1;transform:translateY(0) scale(1);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18)}}
+.inject-card .inject-sweep{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(93,224,230,.18),transparent);animation:injectSweep 1.5s ease-in-out;pointer-events:none}
+@keyframes injectSweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.inject-card .inject-header{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#5DE0E6;margin-bottom:10px;text-shadow:0 0 10px rgba(93,224,230,.5);position:relative;z-index:1}
+.inject-card .inject-bar{height:3px;background:rgba(93,224,230,.12);border-radius:2px;overflow:hidden;margin-bottom:14px;position:relative;z-index:1}
+.inject-card .inject-bar-fill{height:100%;background:linear-gradient(90deg,#5DE0E6,#FFB266);border-radius:2px;transform-origin:left;animation:injectFill 1.4s cubic-bezier(.16,1,.3,1)}
+@keyframes injectFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.inject-card .inject-title{font-size:15px;font-weight:700;color:#e8e9ee;margin-bottom:3px;position:relative;z-index:1}
+.inject-card .inject-path{font-family:'SF Mono',monospace;font-size:11px;color:#7c7f8a;margin-bottom:12px;position:relative;z-index:1;word-break:break-all}
+.inject-card .inject-quote{font-size:13px;color:#5DE0E6;font-weight:600;letter-spacing:.3px;position:relative;z-index:1;display:flex;align-items:center;gap:6px}
+.inject-card .inject-quote::before{content:'';width:14px;height:1px;background:linear-gradient(90deg,#5DE0E6,transparent);flex-shrink:0}
 .msg-body pre{background:var(--code-bg);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;overflow-x:auto;margin:8px 0;font-size:12px;line-height:1.6;color:#c9d1d9;position:relative}
 .msg-body pre::-webkit-scrollbar{height:6px}
 .msg-body pre::-webkit-scrollbar-track{background:rgba(0,0,0,.2);border-radius:4px}
@@ -4335,6 +4365,19 @@ function addMsg(text,role){
   if(isUser){body.innerText=text}else{body.innerHTML=fmt(text)}
   el.appendChild(head);el.appendChild(body);chat.appendChild(el);chat.scrollTop=chat.scrollHeight;
 }
+function escapeHtml(s){return String(s||'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]))}
+function showInjectCard(title,relPath){
+  const safeT=escapeHtml(title||'');const safeP=escapeHtml(relPath||'');
+  const el=document.createElement('div');el.className='msg inject-card';
+  el.innerHTML='<div class="inject-banner"><div class="inject-sweep"></div>'+
+    '<div class="inject-header">\u2726 NEURAL INJECTION \u2022 KNOWLEDGE PACK RECEIVED</div>'+
+    '<div class="inject-bar"><div class="inject-bar-fill"></div></div>'+
+    '<div class="inject-title">'+safeT+'.md</div>'+
+    '<div class="inject-path">\ud83d\udcc1 '+safeP+'</div>'+
+    '<div class="inject-quote">I know '+safeT+'.</div>'+
+    '</div>';
+  chat.appendChild(el);chat.scrollTop=chat.scrollHeight;
+}
 const LOADING_PHASES=[
   '\ud83d\udcc2 \ud504\ub85c\uc81d\ud2b8 \ud30c\uc77c \uc0b4\ud3b4\ubcf4\ub294 \uc911...',
   '\ud83e\udde0 \uad00\ub828 \uc815\ubcf4 \ubaa8\uc73c\ub294 \uc911...',
@@ -4460,6 +4503,7 @@ stopBtn.addEventListener('click',()=>{vscode.postMessage({type:'stopGeneration'}
 let streamEl=null,streamBody=null;
 window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
   case 'response':hideLoader();setSending(false);addMsg(msg.value,'ai');break;
+  case 'brainInject':showInjectCard(msg.title,msg.relPath);break;
   case 'error':hideLoader();setSending(false);addMsg(msg.value,'error');break;
   case 'streamStart':{
     hideLoader();
