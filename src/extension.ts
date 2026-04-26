@@ -1405,7 +1405,10 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
 
     // Single canonical renderer — Obsidian + brain look, thinking effects layered on top.
     function renderNode(node, ctx, globalScale) {
-      const baseR = nodeRadius(node);
+      // Skip the very first ticks before force-graph has assigned coords —
+      // createRadialGradient throws if any value is non-finite.
+      if (!isFinite(node.x) || !isFinite(node.y)) return;
+      const baseR = Math.max(1, nodeRadius(node) || 0);
       const isHL = highlightNodes.size === 0 || highlightNodes.has(node.id);
       const isActive = thinkingActive.has(node.id);
       const isAdj    = thinkingAdjacent.has(node.id);
