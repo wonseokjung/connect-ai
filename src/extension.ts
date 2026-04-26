@@ -852,11 +852,21 @@ export function activate(context: vscode.ExtensionContext) {
                 res.end();
             }
         });
-        server.listen(4825, '127.0.0.1', () => {
-            console.log('Connect AI Local Bridge listening on port 4825');
+        server.on('error', (err: any) => {
+            // listen() failures arrive as 'error' events, NOT as throws.
+            const msg = err?.code === 'EADDRINUSE'
+                ? `🚫 Connect AI Bridge: 포트 4825가 이미 사용 중입니다. 다른 Antigravity/VS Code 인스턴스를 종료하고 재시작해 주세요. (EZER / A.U Training 연동이 동작하지 않습니다.)`
+                : `🚫 Connect AI Bridge 시작 실패: ${err?.message || err}`;
+            console.error('[Connect AI Bridge] server error:', err);
+            vscode.window.showErrorMessage(msg);
         });
-    } catch (e) {
-        console.error('Failed to start local bridge server:', e);
+        server.listen(4825, '127.0.0.1', () => {
+            console.log('[Connect AI Bridge] listening on http://127.0.0.1:4825');
+            vscode.window.setStatusBarMessage('🟢 Connect AI Bridge: 포트 4825 listening', 4000);
+        });
+    } catch (e: any) {
+        console.error('[Connect AI Bridge] failed to start:', e);
+        vscode.window.showErrorMessage(`🚫 Connect AI Bridge 초기화 실패: ${e?.message || e}`);
     }
     // ==========================================
 
