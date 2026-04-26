@@ -515,11 +515,17 @@ async function _safeGitAutoSync(brainDir: string, commitMsg: string, provider: a
 // Extension Activation
 // ============================================================
 
+// Module-level reference so module-scope helpers (e.g. showBrainNetwork) can
+// register externally-opened graph panels with the provider for thinking
+// event broadcasts.
+let _activeChatProvider: SidebarChatProvider | null = null;
+
 export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('🔥 Connect AI V2 활성화 완료!');
     console.log('Connect AI extension activated.');
 
     const provider = new SidebarChatProvider(context.extensionUri, context);
+    _activeChatProvider = provider;
 
     // ==========================================
     // 초기 설정 마법사 (첫 실행 시에만)
@@ -1056,6 +1062,11 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
             vscode.ViewColumn.One,
             { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [assetsRoot] }
         );
+
+        // Hook this panel into the chat provider's thinking-event broadcast,
+        // so AI search activity pulses on this graph too — not just on the
+        // separate Thinking Mode panel.
+        _activeChatProvider?.registerExternalGraphPanel(panel);
 
         const brainDir = _getBrainDir();
         const graph = buildKnowledgeGraph(brainDir);
@@ -1888,6 +1899,13 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     private _thinkingMode: boolean = false;
     private _thinkingPanel?: vscode.WebviewPanel;
     private _thinkingReady: boolean = false;
+    // Externally-opened brain network panels (메뉴 → 🌐 네트워크 보기) that should
+    // also receive thinking events so the user sees the same node pulse / trail.
+    private _externalGraphPanels: Set<vscode.WebviewPanel> = new Set();
+    public registerExternalGraphPanel(panel: vscode.WebviewPanel) {
+        this._externalGraphPanels.add(panel);
+        panel.onDidDispose(() => this._externalGraphPanels.delete(panel));
+    }
 
     // 🏛️ AI 파라미터 튜닝
     private _temperature: number;
@@ -1997,6 +2015,12 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         if (this._thinkingPanel && this._thinkingReady) {
             this._thinkingPanel.webview.postMessage(message);
         }
+        // Also broadcast to any externally-opened brain network panels.
+        // Their webview always has the message listener attached, so we don't
+        // need a per-panel "ready" handshake — best-effort send is fine.
+        this._externalGraphPanels.forEach(panel => {
+            try { panel.webview.postMessage(message); } catch { /* disposed */ }
+        });
     }
 
     // ============================================================
