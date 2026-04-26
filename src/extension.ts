@@ -3095,6 +3095,15 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     }
                 }
             };
+            // 🎬 Emit answer_start exactly once when the first real answer token arrives.
+            // Without this, the thinking panel sticks at "🧠 파일명 검색 중..." forever.
+            let answerStartFired = false;
+            const fireAnswerStart = () => {
+                if (this._thinkingMode && !answerStartFired) {
+                    answerStartFired = true;
+                    this._postThinking({ type: 'answer_start' });
+                }
+            };
 
             await new Promise<void>((resolve, reject) => {
                 const stream = response.data;
@@ -3123,6 +3132,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                 // 🎬 Live thinking detection — fire as soon as a tag is closed
                                 detectBrainReadsLive();
                                 if (this._thinkingMode) {
+                                    fireAnswerStart();
                                     this._postThinking({ type: 'answer_chunk', text: token });
                                 }
                             }
@@ -3194,7 +3204,12 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 }, { timeout, responseType: 'stream', signal: this._abortController?.signal });
 
                 aiMessage = cleanedResponse + uiFeedbackStr;
-                
+
+                // 🎬 Brain phase done, real answer phase begins on the follow-up stream
+                if (this._thinkingMode) {
+                    this._postThinking({ type: 'answer_start' });
+                }
+
                 await new Promise<void>((resolve, reject) => {
                     const stream = followUpResponse.data;
                     let buffer = '';
@@ -3216,6 +3231,9 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                 if (token) {
                                     aiMessage += token;
                                     this._view!.webview.postMessage({ type: 'streamChunk', value: token });
+                                    if (this._thinkingMode) {
+                                        this._postThinking({ type: 'answer_chunk', text: token });
+                                    }
                                 }
                             } catch { /* skip */ }
                         }
