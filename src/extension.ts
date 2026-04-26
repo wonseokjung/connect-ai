@@ -763,6 +763,10 @@ export function activate(context: vscode.ExtensionContext) {
             }
             else if (req.method === 'POST' && req.url === '/api/brain-inject') {
                 (async () => {
+                    // Unconditional reception signal — proves the bridge endpoint
+                    // was hit, regardless of folder state / sidebar / graph.
+                    console.log('[Connect AI Bridge] /api/brain-inject hit @', new Date().toISOString());
+                    vscode.window.setStatusBarMessage('🛬 Connect AI: 주입 요청 수신', 4000);
                     try {
                         const body = await readRequestBody(req);
                         const parsed = JSON.parse(body);
