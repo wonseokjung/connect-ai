@@ -1200,14 +1200,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
     <div class="answer-preview" id="answer-preview" style="display:none"></div>
   </div>
   <div id="legend">
-    <div class="row"><div class="swatch" style="background:#7DC8E8"></div><span>위키링크 [[...]]</span></div>
-    <div class="row"><div class="swatch" style="background:#A89BD9"></div><span>마크다운 링크</span></div>
-    <div class="row"><div class="swatch" style="background:#B4B4C8;opacity:.5"></div><span>같은 태그</span></div>
-    <div class="row synapse" style="margin-top:6px"><div class="swatch" style="background:#5DE0E6"></div><span>🧠 검색 중</span></div>
-    <div class="row"><div class="swatch" style="background:#FFB266"></div><span>이미 사용함</span></div>
-    <div class="row" style="margin-top:8px;font-size:10px;color:#5a5d68;line-height:1.55"><span>💡 클릭 → 인접만 강조<br>&nbsp;&nbsp;&nbsp;&nbsp;더블클릭 → 파일 열기<br>&nbsp;&nbsp;&nbsp;&nbsp;빈 곳 클릭 → 해제<br>&nbsp;&nbsp;&nbsp;&nbsp;빈 곳 더블클릭 → 전체 줌<br>&nbsp;&nbsp;&nbsp;&nbsp;<kbd style="background:#1a1a1f;padding:1px 5px;border-radius:3px;border:1px solid #2a2a30;font-family:SF Mono,monospace;font-size:9px">/</kbd> → 검색</span></div>
     <div class="folders" id="folders-list"></div>
-    <div class="toggle-row" id="toggle-orphans" title="고립 노드 숨기기"><div class="switch"></div><span>👻 고립 노드 숨기기</span></div>
   </div>
   <div id="empty">
     <div class="big">📂 아직 지식이 없어요</div>
@@ -2009,6 +2002,14 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             this._thinkingPanel = undefined;
             this._thinkingReady = false;
         }
+    }
+
+    /** Should we emit thinking events at all? True if either:
+     *  - the dedicated Thinking Mode panel is on, or
+     *  - the user has a normal brain-network graph panel open and would
+     *    benefit from seeing the AI's live activity on it. */
+    private _shouldEmitThinking(): boolean {
+        return this._thinkingMode || this._externalGraphPanels.size > 0;
     }
 
     private _postThinking(message: any) {
@@ -3336,7 +3337,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             };
 
             // 🎬 Thinking Mode: notify graph panel that a session is starting
-            if (this._thinkingMode) {
+            if (this._shouldEmitThinking()) {
                 this._postThinking({ type: 'thinking_start', prompt });
                 this._postThinking({
                     type: 'context_done',
@@ -3355,7 +3356,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // 🎬 Track which brain notes the AI mentions DURING streaming
             const seenBrainReads = new Set<string>();
             const detectBrainReadsLive = () => {
-                if (!this._thinkingMode) return;
+                if (!this._shouldEmitThinking()) return;
                 const matches = [...aiMessage.matchAll(/<read_brain>([\s\S]*?)<\/read_brain>/g)];
                 for (const m of matches) {
                     const note = m[1].trim();
@@ -3369,7 +3370,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             // Without this, the thinking panel sticks at "🧠 파일명 검색 중..." forever.
             let answerStartFired = false;
             const fireAnswerStart = () => {
-                if (this._thinkingMode && !answerStartFired) {
+                if (this._shouldEmitThinking() && !answerStartFired) {
                     answerStartFired = true;
                     this._postThinking({ type: 'answer_start' });
                 }
@@ -3401,7 +3402,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                 this._view!.webview.postMessage({ type: 'streamChunk', value: token });
                                 // 🎬 Live thinking detection — fire as soon as a tag is closed
                                 detectBrainReadsLive();
-                                if (this._thinkingMode) {
+                                if (this._shouldEmitThinking()) {
                                     fireAnswerStart();
                                     this._postThinking({ type: 'answer_chunk', text: token });
                                 }
@@ -3476,7 +3477,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                 aiMessage = cleanedResponse + uiFeedbackStr;
 
                 // 🎬 Brain phase done, real answer phase begins on the follow-up stream
-                if (this._thinkingMode) {
+                if (this._shouldEmitThinking()) {
                     this._postThinking({ type: 'answer_start' });
                 }
 
@@ -3501,7 +3502,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                                 if (token) {
                                     aiMessage += token;
                                     this._view!.webview.postMessage({ type: 'streamChunk', value: token });
-                                    if (this._thinkingMode) {
+                                    if (this._shouldEmitThinking()) {
                                         this._postThinking({ type: 'answer_chunk', text: token });
                                     }
                                 }
@@ -3539,7 +3540,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             if (uniqueSources.length > 0) {
                 this._view.webview.postMessage({ type: 'attachCitations', sources: uniqueSources });
             }
-            if (this._thinkingMode) {
+            if (this._shouldEmitThinking()) {
                 this._postThinking({ type: 'answer_complete', sources: uniqueSources });
             }
 
