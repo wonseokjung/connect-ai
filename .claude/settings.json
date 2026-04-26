@@ -11,7 +11,17 @@
       "Bash(git -C /Users/jay/로컬테스트/local-ai-coder branch --show-current)",
       "Bash(git -C /Users/jay/로컬테스트/local-ai-coder remote -v)",
       "Bash(git -C /Users/jay/로컬테스트/local-ai-coder ls-files)",
-      "Bash(npx --yes @vscode/vsce package --no-dependencies --no-git-tag-version)"
+      "Bash(npx --yes @vscode/vsce package --no-dependencies --no-git-tag-version)",
+      "Bash(npx --yes @vscode/vsce package --no-dependencies --out connect-ai-lab-2.10.0.vsix)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder diff .claude/settings.json)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder diff package.json)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder ls-files -v)",
+      "Bash(git -C /Users/jay/로컬테스트/local-ai-coder rev-parse HEAD)",
+      "Bash(npx --yes @vscode/vsce package --no-dependencies --allow-star-activation --out connect-ai-lab-2.10.2.vsix)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(grep -c '`' /Users/jay/로컬테스트/local-ai-coder/assets/force-graph.min.js)",
+      "Bash(grep -o '\\\\${' /Users/jay/로컬테스트/local-ai-coder/assets/force-graph.min.js)"
     ],
     "additionalDirectories": [
       "/Users/jay/로컬테스트/local-ai-coder"
