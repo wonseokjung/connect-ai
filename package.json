@@ -2,7 +2,7 @@
   "name": "connect-ai-lab",
   "displayName": "Connect AI for Antigravity",
   "description": "⚡ Built for Antigravity · 내 지식과 연결된 100% 로컬 AI 워크스페이스. 파일 생성, 코드 편집, 터미널 실행, Second Brain까지 오프라인으로.",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "publisher": "connectailab",
   "license": "MIT",
   "icon": "assets/icon.png",

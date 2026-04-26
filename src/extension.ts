@@ -1706,15 +1706,57 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
     }
 
     private async _handleStatusGitClick() {
+        // Beginner-friendly: clicking ☁️ ALWAYS opens the URL input box, with the
+        // current URL pre-filled. After save, sync runs automatically.
+        // No nested menu — direct typing is the most intuitive flow.
         const cfg = vscode.workspace.getConfiguration('connectAiLab');
-        const url = cfg.get<string>('secondBrainRepo', '');
-        if (!url) {
-            // Not configured → open the brain menu so user can set it up
-            await this._handleBrainMenu();
-        } else {
-            // Configured → trigger sync now
-            await this._syncSecondBrain();
+        const existing = cfg.get<string>('secondBrainRepo', '') || '';
+
+        const inputUrl = await vscode.window.showInputBox({
+            prompt: existing
+                ? '🔗 GitHub 저장소 주소를 확인하거나 변경하세요 (Enter로 저장 + 동기화)'
+                : '🔗 백업할 GitHub 저장소 주소를 붙여넣고 Enter (예: https://github.com/내이름/저장소)',
+            placeHolder: 'https://github.com/사용자명/저장소이름',
+            value: existing,
+            ignoreFocusOut: true,
+            validateInput: (val) => {
+                const v = (val || '').trim();
+                if (!v) return null;
+                if (validateGitRemoteUrl(v)) return null;
+                return '⚠️ 형식이 맞지 않아요. 예: https://github.com/내이름/저장소  또는  git@github.com:내이름/저장소.git';
+            }
+        });
+
+        if (inputUrl === undefined) {
+            // User pressed ESC — do nothing
+            return;
         }
+
+        const trimmed = inputUrl.trim();
+        if (!trimmed) {
+            // User cleared the input → ask if they want to disconnect
+            const disconnect = await vscode.window.showWarningMessage(
+                'GitHub 백업을 끊을까요?',
+                { modal: true },
+                '☁️ 끊기',
+                '⛔ 취소'
+            );
+            if (disconnect === '☁️ 끊기') {
+                await cfg.update('secondBrainRepo', '', vscode.ConfigurationTarget.Global);
+                vscode.window.showInformationMessage('☁️ GitHub 백업 연결을 해제했어요.');
+                this._sendStatusUpdate();
+            }
+            return;
+        }
+
+        const cleaned = validateGitRemoteUrl(trimmed) || trimmed;
+        const isNew = cleaned !== existing;
+        if (isNew) {
+            await cfg.update('secondBrainRepo', cleaned, vscode.ConfigurationTarget.Global);
+        }
+
+        // Always sync after — fresh URL or just confirming
+        await this._syncSecondBrain();
         this._sendStatusUpdate();
     }
 
