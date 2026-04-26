@@ -1149,7 +1149,7 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
     <div class="row"><div class="swatch" style="background:#B4B4C8;opacity:.5"></div><span>같은 태그</span></div>
     <div class="row synapse" style="margin-top:6px"><div class="swatch" style="background:#5DE0E6"></div><span>🧠 검색 중</span></div>
     <div class="row"><div class="swatch" style="background:#FFB266"></div><span>이미 사용함</span></div>
-    <div class="row" style="margin-top:8px;font-size:10px;color:#5a5d68"><span>💡 노드 더블클릭 → 파일 열기</span></div>
+    <div class="row" style="margin-top:8px;font-size:10px;color:#5a5d68;line-height:1.5"><span>💡 클릭 → 인접만 강조<br>&nbsp;&nbsp;&nbsp;&nbsp;더블클릭 → 파일 열기<br>&nbsp;&nbsp;&nbsp;&nbsp;빈 곳 클릭 → 해제</span></div>
   </div>
   <div id="empty">
     <div class="big">📂 아직 지식이 없어요</div>
@@ -1303,7 +1303,9 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
       .cooldownTicks(1200)
       .onNodeHover(node => {
         hoverNode = node || null;
-        applyHighlight(hoverNode);
+        // Sticky selection wins — when a node is "pinned" via click, hover
+        // doesn't disturb the highlight set (Obsidian-style behavior).
+        if (!stickyNode) applyHighlight(hoverNode);
         document.body.style.cursor = node ? 'pointer' : 'grab';
         if (node) {
           tooltip.style.display = 'block';
@@ -1316,26 +1318,49 @@ function _RENDER_GRAPH_HTML(graphJson: string, isEmpty: boolean, forceGraphSrc: 
           tooltip.style.display = 'none';
         }
       })
-      .onNodeClick(node => {
-        Graph.centerAt(node.x, node.y, 600);
-        Graph.zoom(3, 800);
-      })
       .onNodeRightClick(node => {
         vscode.postMessage({ type: 'openFile', id: node.id });
       });
 
-    // Open file on double-click (force-graph emits dblClick via interval check)
+    // ── Sticky selection (Obsidian signature behavior) ──
+    // Single click → pin a node + its 1-hop neighbors as the highlight set
+    //                (everything else dims).
+    // Same node clicked again → unpin.
+    // Different node clicked → repin.
+    // Double-click → open file.
+    // Background click → unpin.
+    let stickyNode = null;
+    function pinNode(node) {
+      stickyNode = node;
+      applyHighlight(node);
+    }
+    function unpinNode() {
+      stickyNode = null;
+      applyHighlight(hoverNode);  // fall back to hover state if any
+    }
+
     let lastClick = { id: null, t: 0 };
     Graph.onNodeClick(node => {
       const now = Date.now();
       if (lastClick.id === node.id && now - lastClick.t < 400) {
+        // Double-click on the same node → open file
         vscode.postMessage({ type: 'openFile', id: node.id });
         lastClick = { id: null, t: 0 };
+        return;
+      }
+      lastClick = { id: node.id, t: now };
+
+      if (stickyNode && stickyNode.id === node.id) {
+        unpinNode();
       } else {
-        lastClick = { id: node.id, t: now };
+        pinNode(node);
         Graph.centerAt(node.x, node.y, 600);
         Graph.zoom(3, 800);
       }
+    });
+
+    Graph.onBackgroundClick(() => {
+      if (stickyNode) unpinNode();
     });
 
     // Force tuning: hubs repel more (so they sit at cluster centers naturally),
