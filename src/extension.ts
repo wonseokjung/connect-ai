@@ -6191,7 +6191,7 @@ if __name__ == "__main__":
    참여율·제목 키워드·인기 댓글·구체 액션 추천까지 포함. */
 function _seedYouTubeMyVideosCheck(toolsDir: string) {
   const py = `#!/usr/bin/env python3
-"""Professional YouTube Channel Analysis — pro_v1.
+"""Professional YouTube Channel Analysis — pro_v2.
 
 채널 메타 · 영상별 상세 (조회수·좋아요율·댓글율·길이·요일) · 상위/하위 영상의 패턴 ·
 인기 댓글 샘플 · 발행 요일 분석 · 제목 키워드 · 우선순위 액션 추천. 모든 분석은
@@ -6199,8 +6199,10 @@ function _seedYouTubeMyVideosCheck(toolsDir: string) {
 
 Reads YOUTUBE_API_KEY + MY_CHANNEL_HANDLE/ID from youtube_account.json.
 Reads LOOKBACK_DAYS / TOP_N / COMMENT_SAMPLES from my_videos_check.json."""
-import os, json, sys, time, datetime, re, statistics
+import os, json, sys, time, datetime, re, statistics, warnings
 from collections import Counter
+# v2.89.49 — DeprecationWarning(utcnow 등) 노이즈 제거. 사용자 채팅창 출력에 끼면 못생김.
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ACCOUNT = os.path.join(HERE, "youtube_account.json")
@@ -6266,19 +6268,31 @@ def _resolve_telegram(account):
     return token, chat
 
 def _push_telegram(account, text):
+    """v2.89.49 — 마크다운 모드는 *,[,(,),# 같은 특수문자 많은 보고서에서 자주 400 거부.
+    이전엔 그래도 'sent' print해서 사용자한테 가짜 성공 보고. 이제 plain text 모드로
+    안전하게 보내고 HTTP status 체크해서 진짜 성공/실패 정확히 알려줌."""
     token, chat = _resolve_telegram(account)
     if not token or not chat:
+        print("⚠️  텔레그램 토큰/chat_id 미설정 — 전송 안 함", file=sys.stderr)
         return
     try:
         import requests
-        requests.post(
+        # plain text (parse_mode 없음) — 어떤 특수문자든 통과
+        r = requests.post(
             f"https://api.telegram.org/bot{token}/sendMessage",
-            json={"chat_id": chat, "text": text, "parse_mode": "Markdown"},
+            json={"chat_id": chat, "text": text[:4000]},
             timeout=10,
         )
-        print("📨 텔레그램으로 보고 전송")
+        if r.status_code == 200:
+            print("📨 텔레그램 전송 성공", file=sys.stderr)
+        else:
+            try:
+                err = r.json().get("description", r.text[:200])
+            except Exception:
+                err = r.text[:200]
+            print(f"⚠️  텔레그램 전송 실패 (HTTP {r.status_code}): {err}", file=sys.stderr)
     except Exception as e:
-        print(f"⚠️  텔레그램 전송 실패: {e}")
+        print(f"⚠️  텔레그램 전송 에러: {e}", file=sys.stderr)
 
 def _fmt_num(n):
     if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
@@ -6332,7 +6346,7 @@ def main():
         sys.exit(1)
 
     # === 1. 채널 메타 ===
-    print(f"🔍 채널 정보 가져오는 중...")
+    print(f"🔍 채널 정보 가져오는 중...", file=sys.stderr)
     cr = youtube.channels().list(part="snippet,statistics,contentDetails,brandingSettings", id=cid).execute()
     cit = cr.get("items", [])
     if not cit:
@@ -6360,7 +6374,7 @@ def main():
     avg_views_per_video_alltime = view_count_total // video_count_total if video_count_total else 0
 
     # === 2. 최근 영상 목록 ===
-    print(f"🔍 최근 {lookback}일 영상 가져오는 중...")
+    print(f"🔍 최근 {lookback}일 영상 가져오는 중...", file=sys.stderr)
     after = (datetime.datetime.utcnow() - datetime.timedelta(days=lookback)).isoformat("T") + "Z"
     sr = youtube.search().list(part="snippet", channelId=cid, maxResults=top_n,
                                 order="date", publishedAfter=after, type="video").execute()
@@ -6377,7 +6391,7 @@ def main():
         sys.exit(0)
 
     # === 3. 영상 상세 통계 ===
-    print(f"🔍 영상 {len(vids)}개 상세 통계 + 길이·태그 가져오는 중...")
+    print(f"🔍 영상 {len(vids)}개 상세 통계 + 길이·태그 가져오는 중...", file=sys.stderr)
     vstats = youtube.videos().list(
         part="statistics,contentDetails,snippet",
         id=",".join(v[0] for v in vids)
@@ -6444,7 +6458,7 @@ def main():
     top_keywords = [w for w, _ in top_title_words.most_common(8)]
 
     # === 5. 인기 댓글 샘플 (상위 3개 영상) ===
-    print(f"💬 상위 영상의 인기 댓글 가져오는 중...")
+    print(f"💬 상위 영상의 인기 댓글 가져오는 중...", file=sys.stderr)
     comments_by_video = {}
     for r in top_videos[:3]:
         try:
@@ -6502,9 +6516,9 @@ def main():
     L.append("## 🏆 상위 영상 — 무엇이 잘 됐나")
     for r in top_videos:
         L.append(f"### {_fmt_num(r['views'])}회 · {r['title']}")
-        # v2.89.45 — 썸네일 이미지 인라인 (IDE 채팅창은 markdown image 렌더링 지원)
-        L.append(f"![썸네일](https://i.ytimg.com/vi/{r['id']}/mqdefault.jpg)")
-        L.append(f"- 🔗 https://youtu.be/{r['id']}")
+        # v2.89.49 — 채팅 sidebar markdown renderer가 ![](url) 이미지 안 잡아서 "!썸네일"로
+        # 깨짐. 썸네일 이미지를 클릭 가능 링크로 교체. 사용자가 클릭하면 브라우저에서 큰 사이즈.
+        L.append(f"- 🖼 [썸네일](https://i.ytimg.com/vi/{r['id']}/mqdefault.jpg) · 🔗 [영상 보기](https://youtu.be/{r['id']})")
         L.append(f"- 좋아요 {_fmt_num(r['likes'])} ({r['like_rate']:.2f}%) · 댓글 {_fmt_num(r['comments'])} ({r['comment_rate']:.2f}%)")
         L.append(f"- 길이 {_fmt_duration(r['duration_sec'])} · 발행 {r['pub']} {r['weekday']}요일 {r['hour']:02d}시")
         if r['tags']:
@@ -6586,17 +6600,35 @@ def main():
         L.append("")
 
     summary = chr(10).join(L)
+    # v2.89.49 — stdout은 보고서 markdown만. 메타·진단 메시지는 stderr로.
     print(summary)
     with open(REPORT, "a", encoding="utf-8") as f:
         f.write(chr(10) + chr(10) + summary + chr(10) + chr(10) + "---" + chr(10))
-    print(f"\\n✅ 보고서 저장: {REPORT}")
-    # Telegram (4096자 제한 — 핵심만)
-    tg_summary_lines = L[:25]
-    tg_summary_lines.append("")
-    tg_summary_lines.append("_(전체 보고는 IDE 채팅창 또는 my_videos_check_report.md)_")
-    tg_text = chr(10).join(tg_summary_lines)
-    if len(tg_text) > 3800:
-        tg_text = tg_text[:3700] + "...\\n\\n_(잘림 — 전체는 IDE 확인)_"
+    print(f"\\n✅ 보고서 저장: {REPORT}", file=sys.stderr)
+    # Telegram (4096자 제한 — plain text라 마크다운 특수문자 그대로 보내도 통과)
+    tg_lines = []
+    tg_lines.append(f"📊 {ch_title} — 채널 분석")
+    tg_lines.append(f"({time.strftime('%Y-%m-%d %H:%M')} · 최근 {lookback}일 · 영상 {len(rows)}개)")
+    tg_lines.append("")
+    tg_lines.append(f"구독자 {sub_str} · 누적 {_fmt_num(view_count_total)} · 총 {video_count_total}개")
+    if rows:
+        tg_lines.append(f"중간값 {_fmt_num(median_views)}회 · 최고 {_fmt_num(rows_sorted[0]['views'])} · 최저 {_fmt_num(rows_sorted[-1]['views'])}")
+    tg_lines.append(f"좋아요율 {avg_like_rate:.2f}% · 댓글율 {avg_comment_rate:.2f}%")
+    tg_lines.append("")
+    if top_videos:
+        tg_lines.append(f"🏆 최고: {_fmt_num(top_videos[0]['views'])} {top_videos[0]['title'][:40]}")
+    if bottom_videos:
+        tg_lines.append(f"🥶 부진: {_fmt_num(bottom_videos[0]['views'])} {bottom_videos[0]['title'][:40]}")
+    tg_lines.append("")
+    if recs:
+        tg_lines.append("🎯 액션:")
+        for i, rec in enumerate(recs[:3], 1):
+            # 마크다운 ** 같은거 plain text라 그대로 보내도 OK
+            clean = re.sub(r'\\*\\*|\`', '', rec.split(' — ')[0] if ' — ' in rec else rec)
+            tg_lines.append(f"{i}. {clean[:80]}")
+    tg_lines.append("")
+    tg_lines.append("(전체 분석은 IDE 채팅창 확인)")
+    tg_text = chr(10).join(tg_lines)
     _push_telegram(acct, tg_text)
 
 if __name__ == "__main__":
@@ -6629,7 +6661,8 @@ if __name__ == "__main__":
   /* Force-upgrade the .py — older users on pre-telegram_v2 versions need
      the Secretary fallback so token doesn't have to be duplicated. */
   /* v2.89.43 — sentinel 'pro_v1' = 종합 분석 버전. 기존 사용자도 자동 업그레이드. */
-  _seedFileForceUpgrade(path.join(toolsDir, 'my_videos_check.py'), py, 'pro_v1');
+  /* sentinel pro_v2 — Telegram plain-text + stderr 분리 + 썸네일 링크 변경. 기존 설치자 자동 업그레이드. */
+  _seedFileForceUpgrade(path.join(toolsDir, 'my_videos_check.py'), py, 'pro_v2');
   _seedFile(path.join(toolsDir, 'my_videos_check.json'), json);
   /* v2.89.20 — Force upgrade .md heading from old "내 영상 체크" to "내 유튜브 채널 분석"
      for existing users. Sentinel = the new heading text. */
@@ -20159,20 +20192,22 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
            pro_v1 스크립트는 이미 (1) 채널 메타 (2) 영상별 표 (3) 상위 영상 + 인기 댓글
            (4) 패턴 분석 (5) 우선순위 액션 추천 까지 다 출력하는 진짜 분석. 즉 LLM이 죽어도
            쓸만한 분석은 이미 손에 있음. 이걸 항상 펼쳐서 주답으로, LLM 분석은 "추가 인사이트"로. */
+        /* v2.89.49 — 출력 정리. 이전엔 ![alt](url) 마크다운 이미지가 채팅 sidebar의
+           markdown renderer에서 안 렌더되고 "!alt"로 깨져 보였음. 아바타 이미지 markdown
+           제거하고 이모지·이름만으로 헤더. 데이터 분석은 stdout 그대로 (이미 markdown 정렬). */
         const sections: string[] = [];
         if (ceoSummary && ceoSummary.trim()) {
             sections.push(`## 👔 CEO 종합\n\n${ceoSummary.trim()}`);
         }
-        const avatarMd = this._agentAvatarUriMd(entry.agentId);
-        /* 스크립트 분석을 항상 펼쳐서 1차 표시 — LLM 없이도 사용자가 보는 첫 분석 */
-        sections.push(`## ${avatarMd}${a.emoji} ${a.name} — 데이터 분석\n\n${toolOut.slice(0, 12000)}`);
+        /* 스크립트 분석은 자체적으로 # 🎬 헤딩으로 시작하므로 추가 헤딩 없이 그대로 삽입 */
+        sections.push(toolOut.slice(0, 12000).trim());
         /* LLM 자가 분석은 추가 레이어 — 성공 시 더 깊은 인사이트, 실패 시 짧게 안내만 */
         if (specialistOk) {
-            sections.push(`## 🧠 LLM 추가 인사이트 (${a.name} 자가 분석)\n\n${specialistContent}`);
+            sections.push(`---\n\n## 🧠 ${a.emoji} ${a.name} 추가 인사이트\n\n${specialistContent}`);
         } else if (specialistError) {
-            sections.push(`> ⚠️ LLM 추가 인사이트 단계 스킵: ${specialistError.slice(0, 200)}\n> 💡 모델 오케스트레이션 모달에서 ${a.name}의 모델을 더 작은 것으로 변경하면 다음번엔 LLM 인사이트도 같이 옵니다. 위 데이터 분석은 LLM 없이도 정상 수집·집계된 결과입니다.`);
+            sections.push(`---\n\n> ⚠️ LLM 추가 인사이트 단계 스킵: \`${specialistError.slice(0, 200)}\`\n> 💡 모델 오케스트레이션 모달 → ${a.name} 모델을 더 작은 것으로 변경하면 다음번엔 인사이트도 같이 옵니다. 위 데이터 분석은 LLM 없이 정상 집계된 결과예요.`);
         }
-        const body = sections.join('\n\n---\n\n');
+        const body = sections.join('\n\n');
 
         this._displayMessages.push({ text: body, role: 'ai' });
         post({ type: 'response', value: body });
