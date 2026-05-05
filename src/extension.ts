@@ -17116,6 +17116,21 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             return `<img src="${uri.toString()}" alt="${a.name}" width="56" height="56" style="border-radius:50%;vertical-align:middle;margin-right:12px;border:2px solid ${a.color}"/>`;
         } catch { return ''; }
     }
+
+    /* v2.89.47 — 마크다운 이미지 버전. webview markdown sanitizer가 inline <img> HTML
+       문자 그대로 표시하던 문제 해결. ![alt](url) 형식은 표준 마크다운이라 항상 렌더됨.
+       헤딩 라인 뒤에 같이 붙여서 ## ![](url) 📺 레오 형태로 한 줄 헤더 만듦. */
+    private _agentAvatarUriMd(agentId: string): string {
+        const a = AGENTS[agentId];
+        if (!a?.profileImage || !this._view) return '';
+        try {
+            const uri = this._view.webview.asWebviewUri(
+                vscode.Uri.joinPath(this._extensionUri, 'assets', 'agents', a.profileImage)
+            );
+            /* 마크다운 이미지 + alt text. 가까이 붙어 있는 텍스트와 함께 헤딩에 들어가게 */
+            return `![${a.name}](${uri.toString()}) `;
+        } catch { return ''; }
+    }
     /** Notify the sidebar webview that the office panel opened/closed so it can update its UI. */
     public broadcastOfficeState(open: boolean) {
         try { this._view?.webview.postMessage({ type: 'officeStateChanged', open }); } catch { /* ignore */ }
@@ -20097,6 +20112,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         post({ type: 'agentStart', agent: entry.agentId, task: '전문가 자가 분석' });
         post({ type: 'response', value: `🧠 ${a.emoji} ${a.name}: 데이터 보고 전문가 분석 중...` });
         let specialistAnalysis = '';
+        let specialistError = '';
         try {
             specialistAnalysis = await this._callAgentLLM(
                 specialistSysPrompt,
@@ -20106,37 +20122,52 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                 true,
             );
         } catch (e: any) {
-            specialistAnalysis = `⚠️ ${a.name} 분석 실패: ${e?.message || e}\n(LLM 호출 실패 — 원본 데이터만 사용 가능)`;
+            specialistError = e?.message || String(e);
+            specialistAnalysis = '';
         }
         post({ type: 'agentEnd', agent: entry.agentId });
 
-        /* === 3단계: CEO가 종합 요약 ===
-           Specialist의 깊은 분석을 사용자한테 넘기기 전에 CEO가 한 번 정리. "결론 + 핵심 3가지"
-           포맷으로 사장님이 30초 안에 파악 가능하게. */
-        post({ type: 'agentStart', agent: 'ceo', task: '종합 요약' });
-        post({ type: 'response', value: `👔 CEO: 사장님께 올릴 종합 정리 중...` });
-        const ceoModel = getAgentModel('ceo', '') || defaultModel || '';
-        const ceoSysPrompt = `${_personalizePrompt(CEO_REPORT_PROMPT)}\n${readAgentSharedContext('ceo', { lean: true })}`;
-        const ceoUserMsg = `[사장님 명령]\n${prompt}\n\n[${a.emoji} ${a.name} 전문가 분석]\n${specialistAnalysis.slice(0, 6000)}\n\n위 ${a.name}의 분석을 사장님이 30초에 파악할 수 있게 종합 요약하세요. ${a.name}의 결론과 액션을 충실히 반영하되, 너무 길지 않게.`;
-        let ceoSummary = '';
-        try {
-            ceoSummary = await this._callAgentLLM(ceoSysPrompt, ceoUserMsg, ceoModel, 'ceo', false);
-        } catch (e: any) {
-            ceoSummary = ''; /* CEO 실패하면 specialist 분석만 보임 */
-        }
-        post({ type: 'agentEnd', agent: 'ceo' });
+        /* v2.89.47 — 빈 답 감지. 작은 모델·메모리 부족 시 LLM이 빈 string 반환하는데
+           이전엔 그대로 CEO한테 넘겨서 "분석 결과를 제공해주시면..." 헛소리 출력. */
+        const specialistContent = (specialistAnalysis || '').trim();
+        const specialistOk = specialistContent.length > 50 && !/^⚠️/.test(specialistContent);
 
-        /* === 출력 조합: CEO 요약 → Specialist 상세 분석 → 원본 데이터 (collapsible) === */
+        /* === 3단계: CEO 종합 요약 ===
+           Specialist 분석이 의미 있을 때만 CEO 호출. 빈 답이면 CEO 스킵 → 명시적 실패 보고. */
+        let ceoSummary = '';
+        if (specialistOk) {
+            post({ type: 'agentStart', agent: 'ceo', task: '종합 요약' });
+            post({ type: 'response', value: `👔 CEO: 사장님께 올릴 종합 정리 중...` });
+            const ceoModel = getAgentModel('ceo', '') || defaultModel || '';
+            const ceoSysPrompt = `${_personalizePrompt(CEO_REPORT_PROMPT)}\n${readAgentSharedContext('ceo', { lean: true })}`;
+            const ceoUserMsg = `[사장님 명령]\n${prompt}\n\n[${a.emoji} ${a.name} 전문가 분석]\n${specialistContent.slice(0, 6000)}\n\n위 ${a.name}의 분석을 사장님이 30초에 파악할 수 있게 종합 요약하세요. ${a.name}의 결론과 액션을 충실히 반영하되, 너무 길지 않게.\n\n⚠️ "분석 결과를 제공해주시면", "데이터가 들어오면" 같은 placeholder 절대 금지 — 위 분석은 이미 제공됐음.`;
+            try {
+                ceoSummary = await this._callAgentLLM(ceoSysPrompt, ceoUserMsg, ceoModel, 'ceo', false);
+                /* CEO도 placeholder 뱉으면 무시 → specialist 분석만 보임 */
+                if (/분석\s*결과를\s*제공|데이터가\s*제공|데이터가\s*들어오면|once\s+the\s+output|when\s+the\s+output/i.test(ceoSummary)) {
+                    ceoSummary = '';
+                }
+            } catch { ceoSummary = ''; }
+            post({ type: 'agentEnd', agent: 'ceo' });
+        }
+
+        /* === 출력 조합 — CEO 요약(있으면) → Specialist 분석 또는 실패 알림 → 원본 데이터 ===
+           v2.89.47 — 아바타는 markdown image (작은 사이즈)로 교체. 이전 inline <img> HTML은
+           webview markdown sanitizer가 raw text로 표시함. */
         const sections: string[] = [];
         if (ceoSummary && ceoSummary.trim()) {
             sections.push(`## 👔 CEO 종합\n\n${ceoSummary.trim()}`);
         }
-        /* v2.89.45 — Specialist 섹션 위에 프로필 사진 + 이름. 진짜 사람이 말하는 느낌. */
-        const avatarMd = this._agentAvatarMd(entry.agentId);
-        const specialistHeader = avatarMd
-            ? `<div style="display:flex;align-items:center;margin-bottom:8px">${avatarMd}<strong style="font-size:16px">${a.emoji} ${a.name} — 전문가 분석</strong></div>`
-            : `## ${a.emoji} ${a.name} 전문가 분석`;
-        sections.push(`${specialistHeader}\n\n${specialistAnalysis.trim()}`);
+        const avatarMd = this._agentAvatarUriMd(entry.agentId);
+        const headerLine = `## ${avatarMd}${a.emoji} ${a.name} — 전문가 분석`;
+        if (specialistOk) {
+            sections.push(`${headerLine}\n\n${specialistContent}`);
+        } else {
+            const reason = specialistError
+                ? `LLM 호출 실패: ${specialistError}`
+                : `빈 답변 반환 (LLM이 응답 안 함 — 메모리 부족·모델 미로드 가능성)`;
+            sections.push(`${headerLine}\n\n⚠️ **분석 실패** — ${reason}\n\n💡 **모델 오케스트레이션 모달**에서 ${a.name}의 모델을 더 작은 것으로 변경 후 재시도. 또는 LM Studio에서 모델을 미리 로드.\n\n_(아래 원본 데이터는 정상 수집됨 — my_videos_check.py의 자동 분석·추천은 그대로 유효)_`);
+        }
         sections.push(`<details>\n<summary>📊 원본 데이터 (${entry.tool} ${toolStatus})</summary>\n\n\`\`\`\n${toolOut.slice(0, 6000)}\n\`\`\`\n</details>`);
         const body = sections.join('\n\n---\n\n');
 
