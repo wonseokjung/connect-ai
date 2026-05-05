@@ -22935,10 +22935,9 @@ function fmt(t){
   /* 표·코드 placeholder 복원 */
   t=t.replace(/__T(\\d+)__/g, (_,i)=>tableRows[i]);
   t=t.replace(/__B(\\d+)__/g, (_,i)=>blocks[i]);
-  /* v2.89.55 — 마지막에 \\n을 br로 변환. 블록 요소(h*/bq/ul/ol/table/hr/div)
-     직전·직후 \\n은 자체 margin으로 흡수되도록 제거 (이중 spacing 방지).
-     이전 버전은 닫는 태그 직후만 처리 → 리스트(ul/ol) 안의 \\n이 br로 잘못 변환되어
-     아이템 사이에 공백 두 줄 생기던 버그 수정. */
+  /* v2.89.57 — newline을 br로 변환. 블록 요소(h1-h6, blockquote, ul, ol, table, hr, div) 직전·
+     직후 newline은 자체 margin으로 흡수되도록 제거 (이중 spacing 방지). 이전 버전은 닫는 태그
+     직후만 처리해서 리스트 안의 newline이 br로 잘못 변환되던 문제 수정. */
   t=t.replace(/\\n+(?=<(?:h[1-6]|blockquote|ul|ol|table|hr|div)[\\s>])/gi, '');
   t=t.replace(/(<\\/(?:h[1-6]|blockquote|ul|ol|table|div)>|<hr[^>]*\\/?>)\\n+/gi, '$1');
   /* 리스트·표 안의 줄바꿈은 br로 만들지 말고 제거 (각 li/tr/td는 이미 자체 줄) */
