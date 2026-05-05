@@ -1,0 +1,2525 @@
+<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Connect AI</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#000000;--bg2:#050505;--surface:rgba(0,18,5,.75);--surface2:rgba(0,35,10,.6);
+  --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.12);
+  --text:#A1A1AA;--text-bright:#FFFFFF;--text-dim:#71717A;
+  --accent:#00FF41;--accent2:#008F11;--accent3:#00FF41;
+  --accent-glow:rgba(0,255,65,.25);--accent2-glow:rgba(0,143,17,.2);
+  --input-bg:rgba(0,10,2,.9);--code-bg:#020502;
+  --green:#00FF41;--yellow:#ffab40;--cyan:#00e5ff;--red:#ff5252;
+}
+/* === 1인 기업 모드 — 임원실 amber/gold 팔레트로 시각적 차별화 === */
+body.corp-on {
+  --accent:#FFB627;--accent2:#C97800;--accent3:#FFD874;
+  --accent-glow:rgba(255,182,39,.25);--accent2-glow:rgba(201,120,0,.2);
+  --bg:#0a0805;--bg2:#0e0b06;
+  --surface:rgba(28,18,5,.75);--surface2:rgba(50,32,8,.6);
+  --input-bg:rgba(20,14,5,.9);
+}
+body.vscode-light {
+  --bg:#fafafa;--bg2:#ffffff;--surface:rgba(255,255,255,.8);--surface2:rgba(240,240,245,.8);
+  --border:rgba(0,0,0,.08);--border2:rgba(0,0,0,.15);
+  --text:#454555;--text-bright:#111118;--text-dim:#888899;
+  --accent-glow:rgba(124,106,255,.1);--accent2-glow:rgba(224,64,251,.08);
+  --input-bg:rgba(255,255,255,.9);--code-bg:#f5f5f7;
+}
+html,body{height:100%;font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;background:var(--bg);color:var(--text);display:flex;flex-direction:column;overflow:hidden;min-height:0}
+
+/* AURORA BACKGROUND */
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 20% 50%,rgba(124,106,255,.06) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(224,64,251,.04) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(0,229,255,.03) 0%,transparent 50%);animation:aurora 20s ease-in-out infinite;z-index:0;pointer-events:none}
+@keyframes aurora{0%,100%{transform:translate(0,0) rotate(0deg)}33%{transform:translate(2%,-1%) rotate(.5deg)}66%{transform:translate(-1%,2%) rotate(-.5deg)}}
+
+/* HEADER */
+.header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(10,10,12,.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:10}
+.header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 5%,var(--accent) 30%,var(--accent2) 50%,var(--accent3) 70%,transparent 95%);opacity:.5;animation:headerGlow 4s ease-in-out infinite alternate}
+@keyframes headerGlow{0%{opacity:.3}100%{opacity:.6}}
+.thinking-bar{height:2px;background:transparent;position:relative;overflow:hidden;flex-shrink:0;z-index:10}
+.thinking-bar.active{background:rgba(124,106,255,.1)}
+.thinking-bar.active::after{content:'';position:absolute;top:0;left:-40%;width:40%;height:100%;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),var(--accent3),transparent);animation:thinkSlide 1.5s ease-in-out infinite}
+@keyframes thinkSlide{0%{left:-40%}100%{left:100%}}
+.header-left{display:flex;align-items:center;gap:8px}
+.logo{width:26px;height:26px;border-radius:6px;background:#050505;border:1px solid rgba(0,255,65,.3);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--accent);box-shadow:0 0 15px rgba(0,255,65,.15);animation:logoPulse 3s ease-in-out infinite;position:relative;text-shadow:0 0 8px var(--accent)}
+.logo::after{content:'';position:absolute;inset:-1px;border-radius:7px;background:var(--accent);opacity:.2;filter:blur(3px);animation:logoPulse 3s ease-in-out infinite}
+@keyframes logoPulse{0%,100%{box-shadow:0 0 10px rgba(0,255,65,.1)}50%{box-shadow:0 0 25px rgba(0,255,65,.3)}}
+.brand{font-weight:800;font-size:14px;color:var(--text-bright);letter-spacing:-.5px;background:linear-gradient(135deg,#fff 40%,var(--accent) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header-right{display:flex;align-items:center;gap:5px}
+select{background:rgba(22,22,28,.9);color:var(--text-bright);border:1px solid var(--border2);padding:5px 8px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;outline:none;max-width:120px;transition:all .3s;backdrop-filter:blur(8px)}
+select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.btn-icon{background:rgba(22,22,28,.7);border:1px solid var(--border2);color:var(--text-dim);width:28px;height:28px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .3s;backdrop-filter:blur(8px);position:relative;overflow:hidden}
+.more-wrap{position:relative;display:inline-block}
+.more-menu{position:absolute;right:0;top:36px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:100;min-width:180px;display:flex;flex-direction:column;gap:2px}
+.more-menu[hidden]{display:none}
+.more-item{background:transparent;border:none;color:var(--text);text-align:left;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;transition:all .15s;white-space:nowrap}
+.more-item:hover{background:var(--surface2);color:var(--accent)}
+.btn-icon::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--accent-glow),var(--accent2-glow));opacity:0;transition:opacity .3s}
+.btn-icon:hover{color:var(--text-bright);border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 15px var(--accent-glow)}
+.btn-icon:hover::before{opacity:1}
+
+/* CHAT */
+.chat{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:16px;position:relative;z-index:1;min-height:0}
+.chat::-webkit-scrollbar{width:2px}.chat::-webkit-scrollbar-track{background:transparent}.chat::-webkit-scrollbar-thumb{background:var(--accent);border-radius:2px;opacity:.5}
+
+/* MESSAGES */
+.msg{display:flex;flex-direction:column;gap:5px;animation:msgIn .5s cubic-bezier(.16,1,.3,1)}
+.msg-head{display:flex;align-items:center;gap:7px;font-weight:600;font-size:11px;color:var(--text)}
+.msg-time{font-weight:400;font-size:9px;color:var(--text-dim);margin-left:auto;opacity:.6}
+.av{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.av-user{background:var(--surface2);color:var(--text);border:1px solid var(--border2)}
+.av-ai{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 0 10px rgba(124,106,255,.3)}
+.msg-body{padding-left:29px;line-height:1.75;color:var(--text);white-space:pre-wrap;word-break:break-word;font-size:13px}
+.msg-user .msg-body{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;margin-left:29px;color:var(--text-bright);backdrop-filter:blur(8px)}
+/* Brain injection card — fired on /api/brain-inject */
+.inject-card{padding:0}
+.inject-card .inject-banner{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(93,224,230,.16),rgba(93,224,230,.04) 60%,rgba(255,178,102,.08));border:1px solid rgba(93,224,230,.4);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18);animation:injectIn .55s cubic-bezier(.16,1,.3,1)}
+@keyframes injectIn{from{opacity:0;transform:translateY(10px) scale(.98);box-shadow:0 0 60px rgba(93,224,230,.5)}to{opacity:1;transform:translateY(0) scale(1);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18)}}
+.inject-card .inject-sweep{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(93,224,230,.18),transparent);animation:injectSweep 1.5s ease-in-out;pointer-events:none}
+@keyframes injectSweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.inject-card .inject-header{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#5DE0E6;margin-bottom:10px;text-shadow:0 0 10px rgba(93,224,230,.5);position:relative;z-index:1}
+.inject-card .inject-bar{height:3px;background:rgba(93,224,230,.12);border-radius:2px;overflow:hidden;margin-bottom:14px;position:relative;z-index:1}
+.inject-card .inject-bar-fill{height:100%;background:linear-gradient(90deg,#5DE0E6,#FFB266);border-radius:2px;transform-origin:left;animation:injectFill 1.4s cubic-bezier(.16,1,.3,1)}
+@keyframes injectFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.inject-card .inject-title{font-size:15px;font-weight:700;color:#e8e9ee;margin-bottom:3px;position:relative;z-index:1}
+.inject-card .inject-path{font-family:'SF Mono',monospace;font-size:11px;color:#7c7f8a;margin-bottom:12px;position:relative;z-index:1;word-break:break-all}
+.inject-card .inject-quote{font-size:13px;color:#5DE0E6;font-weight:600;letter-spacing:.3px;position:relative;z-index:1;display:flex;align-items:center;gap:6px}
+.inject-card .inject-quote::before{content:'';width:14px;height:1px;background:linear-gradient(90deg,#5DE0E6,transparent);flex-shrink:0}
+.msg-body pre{background:var(--code-bg);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;overflow-x:auto;margin:8px 0;font-size:12px;line-height:1.6;color:#c9d1d9;position:relative}
+.msg-body pre::-webkit-scrollbar{height:6px}
+.msg-body pre::-webkit-scrollbar-track{background:rgba(0,0,0,.2);border-radius:4px}
+.msg-body pre::-webkit-scrollbar-thumb{background:rgba(124,106,255,.3);border-radius:4px}
+.msg-body pre::-webkit-scrollbar-thumb:hover{background:rgba(124,106,255,.6)}
+.msg-body code{font-family:'SF Mono','JetBrains Mono','Fira Code','Menlo',monospace;font-size:11.5px}
+.msg-body :not(pre)>code{background:rgba(124,106,255,.1);color:var(--accent);padding:2px 7px;border-radius:5px;border:1px solid rgba(124,106,255,.15)}
+.msg-body a{color:var(--accent);text-decoration:none}
+.msg-body a:hover{text-decoration:underline}
+.code-wrap{position:relative}
+.code-lang{position:absolute;top:0;left:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:2px 10px;border-radius:0 0 6px 6px;font-size:9px;font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.copy-btn{position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);padding:4px 12px;border-radius:6px;font-size:10px;cursor:pointer;opacity:0;transition:all .3s;font-family:inherit;z-index:1;backdrop-filter:blur(8px)}
+.code-wrap:hover .copy-btn{opacity:1}.copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.copy-btn.copied{background:var(--green);color:#fff;border-color:var(--green);opacity:1}
+
+/* BADGES */
+.file-badge{background:rgba(255,171,64,.05);border:1px solid rgba(255,171,64,.2);border-radius:10px 10px 0 0;border-bottom:none;padding:8px 14px;font-size:11px;font-weight:700;color:var(--yellow);display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
+.edit-badge{background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.2);border-radius:10px 10px 0 0;border-bottom:none;padding:8px 14px;font-size:11px;font-weight:700;color:var(--cyan);display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
+.cmd-badge{background:rgba(124,106,255,.05);border:1px solid rgba(124,106,255,.25);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:12px;color:var(--accent);font-family:'SF Mono','Menlo',monospace;display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
+.msg-error .msg-body{color:var(--red);text-shadow:0 0 20px rgba(255,82,82,.2)}
+
+/* WELCOME */
+.welcome{text-align:center;padding:0 20px 20px;position:relative}
+.welcome-logo{width:56px;height:56px;border-radius:16px;margin:0 auto 16px;background:#050505;border:1px solid rgba(0,255,65,.3);display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--accent);box-shadow:inset 0 0 15px rgba(0,255,65,.1), 0 0 30px rgba(0,255,65,.2);animation:welcomeFloat 4s ease-in-out infinite;position:relative;text-shadow:0 0 15px var(--accent)}
+.welcome-logo::before{content:'';position:absolute;inset:-2px;border-radius:18px;background:var(--accent);opacity:.15;filter:blur(8px);animation:pulseGlow 3s linear infinite}
+@keyframes pulseGlow{0%,100%{opacity:.15;filter:blur(8px)}50%{opacity:.3;filter:blur(12px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes welcomeFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.03)}}
+.welcome-title{font-size:22px;font-weight:900;letter-spacing:-1px;color:var(--text-bright);margin-bottom:8px}
+@keyframes gradText{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.welcome-sub{color:var(--text-dim);font-size:12px;line-height:1.7;margin-bottom:18px;letter-spacing:-.2px}
+.quick-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:14px;padding:0 10px}
+.qa-btn{background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:18px;font-size:11px;cursor:pointer;font-family:inherit;transition:all .25s;backdrop-filter:blur(8px)}
+.qa-btn:hover{color:var(--text-bright);border-color:var(--accent);background:var(--surface2);transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow)}
+.ag-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,rgba(66,133,244,.15),rgba(0,255,102,.1));border:1px solid rgba(66,133,244,.35);color:#4285F4;padding:4px 12px;border-radius:14px;font-size:10px;font-weight:600;letter-spacing:.3px;margin-bottom:14px;text-transform:uppercase;box-shadow:0 0 16px rgba(66,133,244,.15)}
+/* === Onboarding wizard card === */
+.onboard-card{margin:18px auto 8px;max-width:520px;background:linear-gradient(180deg,rgba(0,18,5,.6),rgba(0,8,2,.85));border:1px solid var(--border2);border-radius:14px;padding:18px 20px;text-align:left;position:relative;overflow:hidden}
+.onboard-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 0% 0%,var(--accent-glow) 0%,transparent 50%);opacity:.4;pointer-events:none}
+.onboard-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;position:relative}
+.onboard-title{font-size:13px;font-weight:700;color:var(--text-bright);letter-spacing:.2px}
+.onboard-skip{background:transparent;border:none;color:var(--text-dim);font-size:10px;cursor:pointer;padding:4px 8px;border-radius:6px}
+.onboard-skip:hover{color:var(--text);background:var(--surface)}
+.onboard-progress{display:flex;gap:6px;margin-bottom:14px}
+.onboard-dot{flex:1;height:3px;background:var(--border2);border-radius:2px;transition:background .25s}
+.onboard-dot.done{background:var(--accent);box-shadow:0 0 6px var(--accent-glow)}
+.onboard-dot.active{background:var(--accent2);box-shadow:0 0 8px var(--accent-glow)}
+.onboard-step-label{font-family:'SF Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px}
+.onboard-step-title{font-size:14px;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.onboard-step-body{font-size:11.5px;color:var(--text);line-height:1.55;margin-bottom:12px}
+.onboard-step-body code{background:var(--surface);padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:10.5px;color:var(--accent)}
+.onboard-step-body a{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent)}
+.onboard-input{width:100%;background:var(--input-bg);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:7px;font-family:inherit;font-size:11px;margin-bottom:8px}
+.onboard-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.onboard-actions{display:flex;gap:8px;flex-wrap:wrap}
+.onboard-btn{background:var(--accent);border:none;color:#000;padding:8px 14px;border-radius:7px;font-weight:700;font-size:11px;cursor:pointer;transition:all .2s;font-family:inherit}
+.onboard-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow);filter:brightness(1.1)}
+.onboard-btn.secondary{background:transparent;border:1px solid var(--border2);color:var(--text-dim)}
+.onboard-btn.secondary:hover{color:var(--text);border-color:var(--accent)}
+.onboard-result{font-size:11px;color:var(--text);padding:8px 10px;background:var(--surface);border-left:2px solid var(--accent);border-radius:0 6px 6px 0;margin-top:8px}
+.onboard-result.error{border-left-color:#ff5252;color:#ff8a8a}
+/* Header Status Bar (folder + github status, always visible) */
+.status-bar{display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(8,8,12,.85);border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);backdrop-filter:blur(12px);flex-shrink:0;z-index:9}
+.status-bar .status-item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;cursor:pointer;transition:all .2s;border:1px solid transparent}
+.status-bar .status-item:hover{background:var(--surface2);color:var(--text);border-color:var(--border2)}
+.status-bar .status-item.warn{color:#ffab40}
+.status-bar .status-item.warn:hover{border-color:rgba(255,171,64,.3);background:rgba(255,171,64,.08)}
+.status-bar .status-item.ok{color:#00cc44}
+.status-bar .status-item.syncing{color:#00b7ff}
+.status-bar .status-item.syncing .status-icon{animation:spin 1.4s linear infinite}
+.status-bar .sep{opacity:.3}
+.status-bar .ag-mini{margin-left:auto;color:#4285F4;font-size:9px;font-weight:600;letter-spacing:.4px;opacity:.7}
+
+/* LOADING */
+.loading-wrap{padding-left:29px;padding-top:6px;display:flex;align-items:center;gap:10px}
+.loading-dots{display:flex;gap:4px}
+.loading-dots span{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:dotBounce 1.4s ease-in-out infinite}
+.loading-dots span:nth-child(2){animation-delay:.2s;background:var(--accent2)}
+.loading-dots span:nth-child(3){animation-delay:.4s;background:var(--accent3)}
+@keyframes dotBounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1.2);opacity:1}}
+.loading-text{font-size:11px;color:var(--text-dim);animation:pulse 2s ease-in-out infinite;letter-spacing:.3px}
+
+/* INPUT */
+.input-wrap{padding:8px 14px 14px;flex-shrink:0;position:relative;z-index:1}
+.input-box{background:var(--input-bg);border:1px solid var(--border2);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:all .3s;position:relative;backdrop-filter:blur(12px)}
+.input-box:focus-within{border-color:var(--accent);box-shadow:0 0 24px rgba(0,255,65,.15);animation:focusPulse 3s infinite}
+@keyframes focusPulse{0%,100%{box-shadow:0 0 20px rgba(0,255,65,.08)}50%{box-shadow:0 0 28px rgba(0,255,65,.2)}}
+textarea{width:100%;background:transparent;border:none;color:var(--text-bright);font-family:inherit;font-size:13px;line-height:1.5;resize:none;outline:none;min-height:22px;max-height:150px}
+textarea::placeholder{color:var(--text-dim)}
+.input-footer{display:flex;align-items:center;justify-content:space-between}
+.input-hint{font-size:10px;color:var(--text-dim);opacity:.5}
+.input-btns{display:flex;gap:5px}
+.send-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .2s;box-shadow:0 2px 12px rgba(124,106,255,.35);position:relative;overflow:hidden}
+.send-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(255,255,255,.15));opacity:0;transition:opacity .3s}
+.send-btn:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 6px 24px rgba(124,106,255,.45)}
+.send-btn:hover::after{opacity:1}
+.send-btn:active{transform:scale(.92)}.send-btn:disabled{opacity:.2;cursor:not-allowed;transform:none;box-shadow:none}
+.stop-btn{background:var(--red);border:none;color:#fff;width:32px;height:32px;border-radius:10px;cursor:pointer;display:none;align-items:center;justify-content:center;font-size:11px;box-shadow:0 0 12px rgba(255,82,82,.3)}
+.stop-btn.visible{display:flex}
+@keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.stream-active{position:relative}
+.stream-active::after{content:'';display:inline-block;width:2px;height:14px;background:var(--accent);margin-left:2px;animation:blink .6s step-end infinite;vertical-align:text-bottom;border-radius:1px;box-shadow:0 0 6px var(--accent)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.stream-active .code-wrap:last-child {
+  border: 1px solid var(--accent);
+  animation: codePulse 2s infinite;
+}
+.stream-active .code-wrap:last-child pre {
+  box-shadow: inset 0 0 20px rgba(124,106,255,0.05);
+}
+@keyframes codePulse {
+  0%, 100% { box-shadow: 0 0 15px var(--accent-glow); }
+  50% { box-shadow: 0 0 35px var(--accent2-glow); border-color: var(--accent2); }
+}
+.main-view{flex:1;display:flex;flex-direction:column;overflow:hidden;transition:all .5s cubic-bezier(.16,1,.3,1);min-height:0;max-height:100%}
+body.init .main-view{justify-content:center;margin-top:-6vh}
+body.init .chat{flex:0 0 auto;overflow:visible;padding-bottom:15px}
+body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;transition:all .5s cubic-bezier(.16,1,.3,1)}
+
+/* ATTACHMENT */
+.attach-btn{background:transparent;border:1px solid var(--border2);color:var(--text-dim);width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .3s;flex-shrink:0}
+.attach-btn:hover{color:var(--accent);border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow);transform:translateY(-1px)}
+.attach-preview{display:none;gap:6px;padding:0 0 6px;flex-wrap:wrap}
+.attach-preview.visible{display:flex}
+.attach-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:4px 10px;font-size:10px;color:var(--text);animation:msgIn .3s ease}
+.attach-chip .chip-icon{font-size:12px}
+.attach-chip .chip-name{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attach-chip .chip-remove{cursor:pointer;color:var(--text-dim);font-size:12px;margin-left:2px;transition:color .2s}
+.attach-chip .chip-remove:hover{color:var(--red)}
+.attach-thumb{width:28px;height:28px;border-radius:5px;object-fit:cover;border:1px solid var(--border2)}
+
+/* REGENERATE BUTTON */
+.regen-btn{display:inline-flex;align-items:center;gap:4px;background:transparent;border:none;color:var(--text-dim);padding:4px 6px;border-radius:4px;font-size:11px;cursor:pointer;transition:color 0.2s;font-family:inherit;margin-top:6px;margin-left:29px;opacity:0.7}
+.regen-btn:hover{color:var(--text);opacity:1}
+
+/* SYNTAX HIGHLIGHTING */
+.msg-body pre .kw{color:#c792ea}
+.msg-body pre .str{color:#c3e88d}
+.msg-body pre .num{color:#f78c6c}
+.msg-body pre .cm{color:#546e7a;font-style:italic}
+.msg-body pre .fn{color:#82aaff}
+.msg-body pre .tag{color:#f07178}
+.msg-body pre .attr{color:#ffcb6b}
+.msg-body pre .op{color:#89ddff}
+.msg-body pre .type{color:#ffcb6b}
+
+/* ============================================================
+   1인 기업 모드 — Agent Board
+   ============================================================ */
+/* Agent board: hidden by default. Click 👔 in the header to show the team.
+   Once visible, click any character card to open that agent's panel.
+   Coexists with the office full-screen view — both stay open together. */
+.agent-board{display:none;background:linear-gradient(180deg,rgba(8,10,15,.95),rgba(5,7,11,.92));border-bottom:1px solid var(--border);padding:8px 12px 10px;position:relative;z-index:8;flex-shrink:0;backdrop-filter:blur(12px);transition:padding .25s ease}
+body.corp-on .agent-board{display:block;animation:abSlideIn .45s cubic-bezier(.16,1,.3,1)}
+.agent-board.collapsed{padding-bottom:8px}
+.agent-board.collapsed .ab-head{margin-bottom:0}
+.agent-board.collapsed .ab-grid,.agent-board.collapsed .ab-svg{display:none}
+.agent-board.collapsed .ab-mini-strip{display:flex}
+.agent-board.collapsed .ab-chevron{transform:rotate(-90deg)}
+
+@keyframes abSlideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+/* Header is now a clickable button (collapse toggle). Reset native styles. */
+.ab-head{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-size:10px;letter-spacing:.5px;width:100%;background:transparent;border:none;color:inherit;padding:2px 0;cursor:pointer;text-align:left;font-family:inherit}
+.ab-head:hover .ab-title,.ab-head:hover .ab-chevron{color:var(--accent)}
+.ab-chevron{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;font-size:10px;color:var(--text-dim);transition:transform .25s ease,color .2s}
+/* Collapsed-only emoji strip — shows team status without taking the grid's space */
+.ab-mini-strip{display:none;flex:1;align-items:center;gap:5px;justify-content:flex-start;margin-left:6px;overflow:hidden}
+.ab-mini-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.03);border:1px solid var(--border2);font-size:11px;line-height:1;flex-shrink:0;transition:all .2s;position:relative}
+.ab-mini-dot.thinking{border-color:#ffab40;box-shadow:0 0 6px rgba(255,171,64,.5)}
+.ab-mini-dot.working{border-color:var(--ag-color,var(--accent));box-shadow:0 0 8px var(--ag-color-glow,var(--accent-glow))}
+.ab-mini-dot.done{border-color:#00cc77;opacity:.85}
+.ab-mini-dot.idle{opacity:.45}
+.ab-title{font-family:'SF Mono','JetBrains Mono',monospace;color:var(--text-bright);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;font-size:10px;transition:color .2s}
+.ab-title .ab-sub{color:var(--text-dim);font-weight:400;letter-spacing:.5px;text-transform:none;margin-left:4px}
+.ab-folder{font-family:'SF Mono',monospace;color:var(--text-dim);font-size:9.5px;cursor:pointer;padding:3px 8px;border-radius:6px;border:1px solid transparent;transition:all .2s}
+.ab-folder:hover{color:var(--accent);border-color:var(--border2);background:var(--surface2)}
+.ab-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;position:relative;z-index:2}
+.ab-svg{position:absolute;left:12px;right:12px;top:36px;bottom:12px;width:calc(100% - 24px);height:calc(100% - 48px);pointer-events:none;z-index:1;opacity:0;transition:opacity .3s}
+body.corp-dispatching .ab-svg{opacity:1}
+.ab-card{position:relative;background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:9px 6px 7px;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .35s cubic-bezier(.16,1,.3,1);overflow:hidden;backdrop-filter:blur(8px);cursor:pointer;min-height:64px}
+.ab-card::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 60%,var(--ag-color,var(--accent)) 200%);opacity:0;transition:opacity .4s;pointer-events:none}
+.ab-card:hover{transform:translateY(-1px);border-color:var(--ag-color,var(--accent));box-shadow:0 4px 14px var(--accent-glow)}
+.ab-card.thinking::before{opacity:.18;animation:cardPulse 1.6s ease-in-out infinite}
+.ab-card.working{border-color:var(--ag-color,var(--accent));box-shadow:0 0 18px var(--ag-color-glow,var(--accent-glow)),inset 0 0 12px rgba(0,0,0,.3)}
+.ab-card.working::before{opacity:.2}
+.ab-card.working::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 4px,var(--ag-color,var(--accent)) 4px,var(--ag-color,var(--accent)) 4.5px);opacity:.06;animation:cardScan 2.2s linear infinite;pointer-events:none}
+.ab-card.done{border-color:var(--ag-color,var(--accent));opacity:.85}
+.ab-card.done::before{opacity:.08}
+.ab-card.idle{opacity:.55}
+@keyframes cardPulse{0%,100%{opacity:.05}50%{opacity:.25}}
+@keyframes cardScan{from{background-position:0 0}to{background-position:0 -40px}}
+.ab-emoji{font-size:18px;line-height:1;filter:drop-shadow(0 0 6px var(--ag-color-glow,transparent))}
+.ab-card.idle .ab-emoji{filter:grayscale(.4) brightness(.8)}
+.ab-name{font-family:'SF Mono','JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--text-bright);letter-spacing:.6px;text-transform:uppercase}
+.ab-status{font-family:'SF Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:.4px;text-transform:uppercase}
+.ab-card.thinking .ab-status{color:#ffab40}
+.ab-card.working .ab-status{color:var(--ag-color,var(--accent))}
+.ab-card.done .ab-status{color:#00cc77}
+.ab-card .ab-led{position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--text-dim);opacity:.4;transition:all .3s}
+.ab-card.thinking .ab-led{background:#ffab40;animation:ledBlink 1s ease-in-out infinite;box-shadow:0 0 6px #ffab40}
+.ab-card.working .ab-led{background:var(--ag-color,var(--accent));animation:ledBlink .7s ease-in-out infinite;box-shadow:0 0 8px var(--ag-color,var(--accent))}
+.ab-card.done .ab-led{background:#00cc77;opacity:1;box-shadow:0 0 6px #00cc77}
+@keyframes ledBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.ab-task-toast{position:absolute;left:50%;bottom:calc(100% + 4px);transform:translateX(-50%);background:rgba(8,10,15,.96);border:1px solid var(--ag-color,var(--accent));border-radius:6px;padding:4px 8px;font-size:9.5px;color:var(--text-bright);white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis;font-family:'SF Mono',monospace;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5),0 0 12px var(--ag-color-glow,var(--accent-glow));animation:toastIn .4s cubic-bezier(.16,1,.3,1)}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(4px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.ab-svg .ab-beam{stroke:var(--accent);stroke-width:1.5;fill:none;stroke-dasharray:4 6;opacity:.65;filter:drop-shadow(0 0 4px var(--accent))}
+.ab-svg .ab-beam.dispatching{animation:beamFlow 1.2s linear}
+@keyframes beamFlow{0%{stroke-dashoffset:60;opacity:0}20%{opacity:1}100%{stroke-dashoffset:0;opacity:.65}}
+
+/* ===== Agent-tagged messages ===== */
+.msg.msg-agent{position:relative}
+.msg-agent .av{background:rgba(20,22,28,.85);color:var(--ag-color,var(--accent));border:1px solid var(--ag-color,var(--accent));box-shadow:0 0 10px var(--ag-color-glow,var(--accent-glow))}
+.msg-agent .ag-tag{font-family:'SF Mono','JetBrains Mono',monospace;font-size:9.5px;font-weight:700;color:var(--ag-color,var(--accent));letter-spacing:1px;text-transform:uppercase;padding:1px 7px;border:1px solid var(--ag-color,var(--accent));border-radius:5px;background:rgba(0,0,0,.3);margin-left:2px}
+.msg-agent .ag-task{font-size:10px;color:var(--text-dim);margin-left:4px;font-weight:400}
+.msg-agent .msg-body{border-left:2px solid var(--ag-color,var(--accent));padding-left:12px;margin-left:23px}
+.msg-agent.streaming .msg-body{box-shadow:inset 0 0 18px var(--ag-color-glow,transparent)}
+.msg-agent .ag-elapsed{font-size:9px;color:var(--text-dim);margin-left:auto;font-family:'SF Mono',monospace;opacity:.6}
+
+/* ===== CEO Brief Card (작업 분배 시작 알림) ===== */
+.brief-card{background:linear-gradient(135deg,rgba(248,250,252,.06),rgba(248,250,252,.02));border:1px solid rgba(248,250,252,.25);border-radius:14px;padding:14px 16px;margin-left:29px;animation:msgIn .5s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;backdrop-filter:blur(8px)}
+.brief-card::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(248,250,252,.08),transparent);transform:translateX(-100%);animation:briefSweep 2s ease-out}
+@keyframes briefSweep{to{transform:translateX(100%)}}
+.brief-head{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2px;color:#F8FAFC;margin-bottom:8px;text-transform:uppercase;opacity:.85}
+.brief-text{font-size:13px;line-height:1.6;color:var(--text-bright);margin-bottom:10px;font-weight:500}
+.brief-tasks{display:flex;flex-direction:column;gap:5px;margin-top:8px}
+.brief-task{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--text);padding:5px 8px;background:rgba(0,0,0,.3);border-radius:7px;border-left:2px solid var(--ag-color,var(--accent));animation:briefTaskIn .4s ease-out backwards}
+.brief-task .bt-emoji{font-size:13px}
+.brief-task .bt-name{font-family:'SF Mono',monospace;font-size:9.5px;font-weight:700;color:var(--ag-color,var(--accent));letter-spacing:.5px;text-transform:uppercase;min-width:62px}
+.brief-task .bt-text{flex:1;color:var(--text-bright);font-size:11.5px}
+@keyframes briefTaskIn{from{opacity:0;transform:translateX(-6px)}to{opacity:1;transform:translateX(0)}}
+
+/* ===== CEO Final Report Card ===== */
+.report-card{background:linear-gradient(135deg,rgba(0,255,65,.04),rgba(0,143,17,.02));border:1px solid rgba(0,255,65,.3);border-radius:16px;padding:18px 20px;margin-left:29px;animation:msgIn .55s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;backdrop-filter:blur(8px);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 24px rgba(0,255,65,.12)}
+.report-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+@keyframes reportLine{0%,100%{opacity:.4}50%{opacity:1}}
+.report-head{display:flex;align-items:center;justify-content:space-between;font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--accent);margin-bottom:12px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.report-head .rh-tag{padding:2px 8px;border:1px solid rgba(0,255,65,.4);border-radius:5px;background:rgba(0,255,65,.06)}
+.report-body{font-size:13px;line-height:1.75;color:var(--text-bright)}
+.report-body h2{font-size:13px;color:var(--accent);margin:10px 0 6px;letter-spacing:.5px}
+.report-body ul,.report-body ol{padding-left:20px;margin:4px 0}
+.report-body li{margin:3px 0;color:var(--text)}
+.report-body strong{color:var(--text-bright)}
+.report-foot{margin-top:14px;padding-top:10px;border-top:1px solid rgba(0,255,65,.15);display:flex;align-items:center;justify-content:space-between;font-size:10px;font-family:'SF Mono',monospace;color:var(--text-dim)}
+.report-foot .rf-link{color:var(--accent);cursor:pointer;text-decoration:none}
+.report-foot .rf-link:hover{text-decoration:underline}
+
+/* ===== Onboarding & Interview Cards ===== */
+.onboard-card,.interview-card{background:linear-gradient(135deg,rgba(0,255,65,.05),rgba(0,143,17,.02));border:1px solid rgba(0,255,65,.28);border-radius:16px;padding:18px 20px;margin-left:29px;animation:msgIn .5s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;backdrop-filter:blur(8px);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 18px rgba(0,255,65,.08)}
+.onboard-card::before,.interview-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+.onboard-head,.interview-head{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--accent);margin-bottom:8px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.onboard-title,.interview-title{font-size:15px;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.onboard-sub,.interview-sub{font-size:11.5px;color:var(--text-dim);line-height:1.6;margin-bottom:14px}
+.onboard-options{display:flex;flex-direction:column;gap:6px}
+.onboard-opt{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;cursor:pointer;transition:all .25s;font-family:inherit;color:var(--text-bright);text-align:left}
+.onboard-opt:hover{border-color:var(--accent);background:rgba(0,255,65,.06);transform:translateY(-1px);box-shadow:0 4px 14px var(--accent-glow)}
+.onboard-opt .oo-icon{font-size:18px;flex-shrink:0}
+.onboard-opt .oo-text{display:flex;flex-direction:column;gap:2px;flex:1}
+.onboard-opt .oo-title{font-size:12.5px;font-weight:700}
+.onboard-opt .oo-desc{font-size:10.5px;color:var(--text-dim);font-weight:400}
+.interview-fields{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.interview-field label{display:block;font-size:10px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.interview-field input{width:100%;background:var(--input-bg);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text-bright);font-family:inherit;font-size:13px;outline:none;transition:all .2s}
+.interview-field input:focus{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.interview-actions{display:flex;justify-content:flex-end;gap:8px}
+.interview-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;padding:8px 18px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .2s}
+.interview-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px var(--accent-glow)}
+.interview-btn.skip{background:transparent;border:1px solid var(--border2);color:var(--text-dim)}
+.interview-btn.skip:hover{border-color:var(--accent);color:var(--text-bright);box-shadow:none}
+
+/* 헤더에 회사명 표시 */
+.brand-suffix{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;color:var(--accent);font-weight:600;letter-spacing:.5px;margin-left:6px;padding:2px 7px;border:1px solid var(--accent);border-radius:5px;background:rgba(255,255,255,.03);display:none;animation:brandPulse 3s ease-in-out infinite}
+@keyframes brandPulse{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:0 0 10px var(--accent-glow)}}
+body.corp-on .brand-suffix{display:inline-block}
+
+/* ===== Cinematic dispatch overlay (boot moment) ===== */
+.corp-overlay{position:absolute;inset:0;background:radial-gradient(circle at center,rgba(0,255,65,.06),rgba(0,0,0,.7));backdrop-filter:blur(2px);pointer-events:none;opacity:0;z-index:50;display:flex;align-items:center;justify-content:center}
+body.corp-dispatching .corp-overlay{opacity:1;animation:overlayPulse 1.5s ease-out forwards}
+@keyframes overlayPulse{0%{opacity:0}30%{opacity:1}100%{opacity:0}}
+.corp-overlay-text{font-family:'SF Mono',monospace;font-size:11px;letter-spacing:4px;color:var(--accent);text-transform:uppercase;text-shadow:0 0 12px var(--accent),0 0 24px var(--accent2);animation:bootText 1.5s ease-out}
+@keyframes bootText{0%{opacity:0;letter-spacing:0}30%{opacity:1;letter-spacing:6px}70%{opacity:1}100%{opacity:0;letter-spacing:8px}}
+
+/* ===== Agent panel — game-style character card ===== */
+.ap-backdrop{position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:apIn .25s ease-out;padding:20px}
+@keyframes apIn{from{opacity:0}to{opacity:1}}
+.ap-modal{width:min(420px,100%);max-height:92vh;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(20,20,26,0.98),rgba(8,8,12,0.99));border:1px solid rgba(255,255,255,0.06);border-radius:20px;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 0 1px var(--ag-color-glow,rgba(255,255,255,0.04)),0 0 60px var(--ag-color-glow,transparent);animation:apModalIn .35s cubic-bezier(.16,1,.3,1);overflow:hidden;position:relative}
+@keyframes apModalIn{from{transform:translateY(20px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+/* Aurora glow behind the modal — subtle agent-color wash */
+.ap-modal::before{content:'';position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:300px;height:300px;background:radial-gradient(circle,var(--ag-color-glow,transparent) 0%,transparent 60%);pointer-events:none;animation:apAura 8s ease-in-out infinite alternate;opacity:0.6}
+@keyframes apAura{0%{transform:translateX(-50%) scale(1)}100%{transform:translateX(-55%) scale(1.1)}}
+/* Close button — floats top-right */
+.ap-close{position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.06);border:none;color:var(--text-dim);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;z-index:10;backdrop-filter:blur(8px)}
+.ap-close:hover{color:var(--text-bright);background:rgba(255,255,255,0.12);transform:scale(1.1)}
+/* Hero header — large centered portrait */
+.ap-head{padding:32px 24px 20px;display:flex;flex-direction:column;align-items:center;gap:14px;position:relative;z-index:2}
+.ap-head::after{content:'';position:absolute;left:24px;right:24px;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--ag-color,rgba(255,255,255,0.15)),transparent);opacity:0.6}
+.ap-portrait-wrap{position:relative;display:flex;align-items:center;justify-content:center}
+.ap-portrait-wrap::before{content:'';position:absolute;inset:-8px;border-radius:50%;background:conic-gradient(from 0deg,var(--ag-color,#fff),transparent 30%,var(--ag-color,#fff) 60%,transparent 90%,var(--ag-color,#fff));opacity:0.4;animation:apSpin 6s linear infinite;filter:blur(2px)}
+@keyframes apSpin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.ap-portrait{width:104px;height:104px;border-radius:50%;background:#0a0a0d center/cover no-repeat;border:3px solid rgba(0,0,0,0.6);box-shadow:0 8px 32px rgba(0,0,0,0.5),inset 0 0 0 2px var(--ag-color,rgba(255,255,255,0.2));image-rendering:pixelated;position:relative;z-index:2}
+.ap-portrait.ap-portrait-custom{image-rendering:auto}
+.ap-portrait-emoji{display:flex;align-items:center;justify-content:center;font-size:48px}
+.ap-portrait-locked{filter:grayscale(1) brightness(0.4);position:relative}
+.ap-portrait-locked::after{content:'🔒';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:36px;filter:none;text-shadow:0 4px 12px rgba(0,0,0,0.8)}
+.ap-title{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;position:relative;z-index:2}
+.ap-name{font-size:20px;font-weight:700;color:var(--text-bright);letter-spacing:-.3px;text-shadow:0 2px 8px rgba(0,0,0,0.5)}
+.ap-role{font-size:11.5px;color:var(--text-dim);font-weight:500;letter-spacing:1.5px;text-transform:uppercase;display:flex;align-items:center;gap:6px}
+.ap-role-emoji{font-size:14px;letter-spacing:0}
+.ap-status-pill{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;background:var(--ag-color-glow,rgba(255,255,255,0.06));border:1px solid var(--ag-color,rgba(255,255,255,0.15));font-size:10px;font-weight:600;color:var(--ag-color,var(--text-bright));letter-spacing:1px;text-transform:uppercase;margin-top:2px}
+.ap-status-pill::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--ag-color,#fff);box-shadow:0 0 6px var(--ag-color);animation:apPulse 1.5s ease-in-out infinite}
+@keyframes apPulse{0%,100%{opacity:0.5}50%{opacity:1}}
+/* Body */
+.ap-body{padding:18px 22px 20px;overflow-y:auto;display:flex;flex-direction:column;gap:18px;position:relative;z-index:2}
+.ap-body::-webkit-scrollbar{width:4px}
+.ap-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
+.ap-section{display:flex;flex-direction:column;gap:10px}
+.ap-section-label{font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1.5px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.ap-section-label::before{content:'';width:3px;height:12px;background:var(--ag-color,var(--accent));border-radius:2px;box-shadow:0 0 6px var(--ag-color-glow)}
+.ap-section-count{font-size:10px;color:var(--text-dim);opacity:0.6;font-weight:500;letter-spacing:0;margin-left:auto}
+.ap-mission-sub{font-size:9.5px;color:var(--text-dim);opacity:.65;font-weight:500;letter-spacing:0;text-transform:none}
+.ap-saved-pill{margin-left:auto;font-size:9px;font-weight:600;letter-spacing:.5px;color:#00cc77;background:rgba(0,204,119,.1);border:1px solid rgba(0,204,119,.25);border-radius:10px;padding:2px 8px;opacity:0;transform:translateY(-2px);transition:opacity .2s,transform .2s;pointer-events:none}
+.ap-saved-pill.show{opacity:1;transform:translateY(0)}
+/* Goal textarea */
+.ap-goal{width:100%;min-height:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:11px 13px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:12px;line-height:1.6;color:var(--text-bright);resize:vertical;outline:none;transition:all .2s;box-sizing:border-box}
+.ap-goal:focus{border-color:var(--ag-color,var(--accent));background:rgba(0,0,0,0.3)}
+.ap-goal::placeholder{color:var(--text-dim);opacity:0.5}
+/* Tool list */
+.ap-tools{display:flex;flex-direction:column;gap:6px}
+.ap-tool{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;transition:all .15s}
+.ap-tool:hover{background:rgba(255,255,255,0.04);border-color:rgba(255,255,255,0.1)}
+.ap-tool-emoji{font-size:18px;flex-shrink:0;width:28px;text-align:center}
+.ap-tool-meta{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.ap-tool-name{font-size:12.5px;color:var(--text-bright);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ap-tool-desc{font-size:10.5px;color:var(--text-dim);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.ap-tool-actions{display:flex;gap:4px;flex-shrink:0}
+.ap-tool-btn{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.06);color:var(--text);width:30px;height:30px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .15s;padding:0}
+.ap-tool-btn:hover{background:var(--ag-color,var(--accent));color:#000;border-color:transparent}
+/* Toggle row */
+.ap-toggle-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;cursor:pointer;transition:all .15s}
+.ap-toggle-row:hover{background:rgba(255,255,255,0.04)}
+.ap-toggle-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ap-toggle-title{font-size:12.5px;color:var(--text-bright);font-weight:500}
+.ap-toggle-sub{font-size:10.5px;color:var(--text-dim);line-height:1.4}
+.ap-toggle{position:relative;width:38px;height:22px;border-radius:11px;background:rgba(255,255,255,0.1);transition:all .25s;flex-shrink:0;border:none;padding:0;cursor:pointer}
+.ap-toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:all .25s cubic-bezier(.16,1,.3,1)}
+.ap-toggle.on{background:var(--ag-color,var(--accent))}
+.ap-toggle.on::after{left:19px}
+/* Primary action — game-style CTA */
+.ap-primary{width:100%;background:linear-gradient(135deg,var(--ag-color,var(--accent)),var(--ag-color,var(--accent)));color:#000;border:none;border-radius:14px;padding:14px 16px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .25s;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;box-shadow:0 4px 20px var(--ag-color-glow,rgba(255,182,39,0.2))}
+.ap-primary::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(255,255,255,0.2),transparent);opacity:0;transition:opacity .3s}
+.ap-primary:hover{transform:translateY(-1px);box-shadow:0 8px 28px var(--ag-color-glow,rgba(255,182,39,0.4))}
+.ap-primary:hover::before{opacity:1}
+.ap-primary:active{transform:translateY(0)}
+.ap-primary:disabled{opacity:0.5;cursor:not-allowed;filter:none;box-shadow:none}
+/* Footer link */
+.ap-footer{display:flex;align-items:center;justify-content:center;padding-top:2px}
+.ap-footer-link{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:5px 10px;border-radius:6px;transition:all .15s;font-family:inherit;display:inline-flex;align-items:center;gap:4px}
+.ap-footer-link:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+/* Toast */
+.ap-toast{font-size:11px;color:var(--ag-color,var(--accent));text-align:center;min-height:14px;transition:opacity .25s;opacity:0;margin-top:-6px;font-weight:500;letter-spacing:.2px}
+.ap-toast.show{opacity:1}
+/* Locked state — full-card silhouette layout, no folder access */
+.ap-locked-body{padding:0 24px 32px;display:flex;flex-direction:column;align-items:center;gap:16px;position:relative;z-index:2}
+.ap-locked-banner{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:11px;color:var(--text-dim);font-weight:600;letter-spacing:1.5px;text-transform:uppercase}
+.ap-locked-banner-dot{width:6px;height:6px;border-radius:50%;background:#A78BFA;box-shadow:0 0 8px #A78BFA}
+.ap-locked-msg{font-size:14.5px;color:var(--text-bright);font-weight:600;text-align:center}
+.ap-locked-sub{font-size:12px;color:var(--text-dim);line-height:1.6;text-align:center;max-width:300px}
+.ap-locked-tip{font-size:11px;color:var(--text-dim);background:rgba(255,182,39,0.06);border:1px solid rgba(255,182,39,0.15);border-radius:10px;padding:10px 14px;text-align:center;line-height:1.5;margin-top:8px}
+.ap-locked-tip strong{color:#FFB627}
+
+/* ===== Tool config form (nested modal) ===== */
+.tc-backdrop{position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:8vh 14px;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);animation:apIn .2s ease-out;overflow-y:auto}
+.tc-modal{width:min(440px,94vw);background:linear-gradient(180deg,rgba(20,20,24,0.98),rgba(10,10,12,0.99));border:1px solid rgba(255,255,255,0.1);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.7);animation:apModalIn .28s cubic-bezier(.16,1,.3,1);overflow:hidden}
+.tc-head{display:flex;align-items:flex-start;gap:10px;padding:18px 18px 4px}
+.tc-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.tc-tool-name{font-size:14px;color:var(--text-bright);font-weight:600;display:flex;align-items:center;gap:6px}
+.tc-tool-desc{font-size:11.5px;color:var(--text-dim);line-height:1.5}
+.tc-body{padding:14px 18px;display:flex;flex-direction:column;gap:14px;max-height:60vh;overflow-y:auto}
+.tc-field{display:flex;flex-direction:column;gap:5px}
+.tc-label{font-size:10.5px;color:var(--text-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;gap:6px;justify-content:space-between}
+.tc-label-help{font-size:10px;color:var(--text-dim);opacity:0.7;font-weight:400;text-transform:none;letter-spacing:0}
+.tc-input{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12px;color:var(--text-bright);outline:none;transition:all .2s;box-sizing:border-box}
+.tc-input:focus{border-color:var(--accent);background:rgba(0,0,0,0.3)}
+.tc-input.password{font-family:'SF Mono',monospace;letter-spacing:.5px}
+.tc-list{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12px;color:var(--text-bright);outline:none;min-height:60px;resize:vertical;transition:all .2s;box-sizing:border-box}
+.tc-list:focus{border-color:var(--accent);background:rgba(0,0,0,0.3)}
+.tc-actions{display:flex;gap:8px;padding:0 18px 18px}
+.tc-btn{flex:1;background:var(--accent);color:#000;border:none;border-radius:10px;padding:11px 14px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s}
+.tc-btn:hover{filter:brightness(1.1)}
+.tc-btn.secondary{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.tc-btn.secondary:hover{background:rgba(255,255,255,0.1)}
+.tc-help{padding:0 18px 14px;font-size:11px;color:var(--text-dim);line-height:1.5}
+.tc-help code{background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px;font-size:10.5px}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOT SEQUENCE — cinematic full-overlay onboarding (hero → wizard → team)
+   Replaces the inline onboard-card / interview-card chat messages with a
+   guided experience that frames the company setup as "your AI company is
+   booting up." Stages: folder choice → 3-step wizard → team reveal.
+   ──────────────────────────────────────────────────────────────────────── */
+/* Same body/flex caveat as .cg-backdrop — force viewport coverage. */
+.boot-backdrop{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;width:100vw !important;height:100vh !important;inset:0;z-index:99997;display:flex !important;align-items:center;justify-content:center;background:radial-gradient(ellipse at top,rgba(0,30,8,.92) 0%,rgba(0,0,0,.97) 70%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:bootIn .45s ease-out;padding:24px;overflow-y:auto;box-sizing:border-box}
+@keyframes bootIn{from{opacity:0}to{opacity:1}}
+@keyframes bootOut{from{opacity:1}to{opacity:0}}
+.boot-backdrop.closing{animation:bootOut .3s ease-out forwards}
+/* Animated grid that pulses behind the content — gives the "booting up" feel */
+.boot-backdrop::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(0,255,65,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,.04) 1px,transparent 1px);background-size:42px 42px;opacity:.6;animation:bootGrid 30s linear infinite;pointer-events:none}
+@keyframes bootGrid{from{transform:translateY(0)}to{transform:translateY(42px)}}
+/* Scan line drifting downward */
+.boot-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0,transparent 50%,rgba(0,255,65,.06) 50.2%,transparent 51%);background-size:100% 240px;animation:bootScan 6s linear infinite;pointer-events:none;mix-blend-mode:screen}
+@keyframes bootScan{from{background-position:0 -240px}to{background-position:0 100vh}}
+
+.boot-stage{position:relative;width:min(620px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(8,12,18,.97),rgba(2,5,8,.99));border:1px solid rgba(0,255,65,.28);border-radius:22px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.85),0 0 1px rgba(0,255,65,.4),0 0 80px rgba(0,255,65,.18);animation:bootStageIn .6s cubic-bezier(.16,1,.3,1)}
+@keyframes bootStageIn{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.boot-stage::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+.boot-stage::after{content:'';position:absolute;top:-180px;left:50%;transform:translateX(-50%);width:520px;height:520px;background:radial-gradient(circle,rgba(0,255,65,.18) 0%,transparent 60%);pointer-events:none;animation:bootAura 8s ease-in-out infinite alternate;opacity:.7;filter:blur(10px)}
+@keyframes bootAura{0%{opacity:.5;transform:translateX(-50%) scale(.95)}100%{opacity:.85;transform:translateX(-50%) scale(1.05)}}
+
+/* Stage corner decorations — sci-fi HUD vibe */
+.boot-corner{position:absolute;width:22px;height:22px;border:1.5px solid var(--accent);opacity:.7;pointer-events:none}
+.boot-corner.tl{top:14px;left:14px;border-right:none;border-bottom:none}
+.boot-corner.tr{top:14px;right:14px;border-left:none;border-bottom:none}
+.boot-corner.bl{bottom:14px;left:14px;border-right:none;border-top:none}
+.boot-corner.br{bottom:14px;right:14px;border-left:none;border-top:none}
+
+.boot-close{position:absolute;top:16px;right:54px;background:transparent;border:none;color:var(--text-dim);font-size:12px;font-family:'SF Mono',monospace;letter-spacing:1px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s;z-index:5}
+.boot-close:hover{color:var(--text-bright);background:rgba(255,255,255,.06)}
+
+/* Header */
+.boot-head{padding:38px 36px 6px;text-align:center;position:relative;z-index:2}
+.boot-tag{display:inline-flex;align-items:center;gap:8px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;letter-spacing:2.5px;color:var(--accent);text-transform:uppercase;padding:5px 12px;border:1px solid rgba(0,255,65,.3);border-radius:20px;background:rgba(0,255,65,.05);margin-bottom:16px;text-shadow:0 0 8px var(--accent-glow)}
+.boot-tag .boot-tag-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:bootBlink 1.4s ease-in-out infinite}
+@keyframes bootBlink{0%,100%{opacity:1}50%{opacity:.3}}
+.boot-h1{font-size:24px;font-weight:800;color:var(--text-bright);letter-spacing:-.5px;line-height:1.25;margin-bottom:8px;text-shadow:0 0 20px rgba(0,255,65,.15)}
+.boot-h1 .accent{color:var(--accent);text-shadow:0 0 12px var(--accent-glow)}
+.boot-sub{font-size:13px;color:var(--text-dim);line-height:1.6;max-width:440px;margin:0 auto;font-weight:400}
+
+/* Body region — scrollable when content overflows */
+.boot-body{padding:22px 36px 18px;overflow-y:auto;flex:1;position:relative;z-index:2}
+
+/* Hero stage — folder choice tiles */
+.boot-options{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.boot-opt{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(255,255,255,.025),rgba(0,255,65,.02));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 20px;cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1);font-family:inherit;color:var(--text-bright);text-align:left;width:100%;position:relative;overflow:hidden}
+.boot-opt::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);transform:scaleY(0);transform-origin:center;transition:transform .3s}
+.boot-opt:hover{border-color:var(--accent);background:linear-gradient(135deg,rgba(0,255,65,.06),rgba(0,255,65,.02));transform:translateX(4px);box-shadow:0 6px 20px rgba(0,255,65,.15)}
+.boot-opt:hover::before{transform:scaleY(1)}
+.boot-opt .bo-icon{font-size:24px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(0,255,65,.06);border:1px solid rgba(0,255,65,.18);border-radius:10px}
+.boot-opt .bo-text{display:flex;flex-direction:column;gap:3px;flex:1}
+.boot-opt .bo-title{font-size:13.5px;font-weight:700;color:var(--text-bright)}
+.boot-opt .bo-desc{font-size:11px;color:var(--text-dim);font-weight:400;line-height:1.5}
+.boot-opt .bo-arrow{font-size:14px;color:var(--text-dim);transition:all .25s}
+.boot-opt:hover .bo-arrow{color:var(--accent);transform:translateX(3px)}
+.boot-opt.recommended{border-color:rgba(0,255,65,.32);background:linear-gradient(135deg,rgba(0,255,65,.05),rgba(0,255,65,.01))}
+.boot-opt.recommended .bo-icon{background:rgba(0,255,65,.12);border-color:rgba(0,255,65,.32)}
+.boot-opt .bo-recpill{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1.5px;color:var(--accent);background:rgba(0,255,65,.1);border:1px solid rgba(0,255,65,.3);padding:2px 6px;border-radius:8px;text-transform:uppercase;margin-left:6px;align-self:flex-start;margin-top:1px}
+
+/* Wizard stage */
+.boot-progress{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 36px 8px;position:relative;z-index:2}
+.boot-progress-step{display:flex;align-items:center;gap:8px;font-family:'SF Mono',monospace;font-size:10px;letter-spacing:1.4px;color:var(--text-dim);text-transform:uppercase;transition:color .3s}
+.boot-progress-step.active{color:var(--accent);text-shadow:0 0 8px var(--accent-glow)}
+.boot-progress-step.done{color:var(--accent2)}
+.boot-progress-step .bp-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;border:1.5px solid currentColor;font-size:10px;font-weight:700;transition:all .3s}
+.boot-progress-step.active .bp-num{background:var(--accent);color:#000;box-shadow:0 0 12px var(--accent-glow)}
+.boot-progress-step.done .bp-num{background:var(--accent2);color:#000;border-color:var(--accent2)}
+.boot-progress-line{flex:0 0 28px;height:1.5px;background:var(--border2);transition:background .3s}
+.boot-progress-line.done{background:var(--accent)}
+
+.boot-wstep{display:flex;flex-direction:column;gap:14px}
+.boot-wstep.exit{animation:wstepOut .25s ease-in forwards}
+.boot-wstep.enter{animation:wstepIn .35s cubic-bezier(.16,1,.3,1)}
+@keyframes wstepIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes wstepOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(-15px)}}
+
+.boot-field{display:flex;flex-direction:column;gap:6px}
+.boot-field-label{display:flex;align-items:center;gap:6px;font-size:11px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1.2px;text-transform:uppercase;opacity:.9}
+.boot-field-help{font-size:11px;font-family:inherit;color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;margin-left:auto;opacity:.7}
+.boot-input,.boot-textarea{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 14px;font-family:inherit;font-size:14px;color:var(--text-bright);outline:none;transition:all .2s;box-sizing:border-box;line-height:1.55}
+.boot-input::placeholder,.boot-textarea::placeholder{color:var(--text-dim);opacity:.5}
+.boot-input:focus,.boot-textarea:focus{border-color:var(--accent);background:rgba(0,0,0,.3);box-shadow:0 0 0 3px rgba(0,255,65,.1),0 0 20px rgba(0,255,65,.18)}
+.boot-textarea{min-height:72px;resize:vertical;font-size:13.5px}
+
+/* Footer with nav buttons */
+.boot-foot{display:flex;align-items:center;gap:10px;padding:14px 36px 30px;position:relative;z-index:2}
+.boot-foot .boot-spacer{flex:1}
+.boot-btn{padding:11px 22px;border-radius:11px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all .25s;display:inline-flex;align-items:center;gap:8px;letter-spacing:.3px}
+.boot-btn.primary{background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%);color:#000;box-shadow:0 4px 18px rgba(0,255,65,.28)}
+.boot-btn.primary:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,255,65,.4)}
+.boot-btn.primary:active{transform:translateY(0)}
+.boot-btn.primary:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.boot-btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border2)}
+.boot-btn.ghost:hover{color:var(--text-bright);border-color:var(--accent);background:rgba(0,255,65,.04)}
+.boot-foot-hint{font-size:10.5px;color:var(--text-dim);font-family:'SF Mono',monospace;letter-spacing:.5px}
+
+/* Team reveal stage */
+.boot-team-status{font-family:'SF Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--accent);text-align:center;margin-bottom:18px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow);min-height:14px}
+.boot-team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.boot-team-card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.4));border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;opacity:0;transform:translateY(14px) scale(.94);position:relative;overflow:hidden}
+.boot-team-card.in{animation:teamCardIn .55s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes teamCardIn{from{opacity:0;transform:translateY(14px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+.boot-team-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ag-color,var(--accent));opacity:.5;box-shadow:0 0 12px var(--ag-color,var(--accent))}
+.boot-team-card .btc-emoji{font-size:32px;line-height:1;filter:drop-shadow(0 4px 14px var(--ag-color-glow,rgba(0,255,65,.4)));animation:teamEmojiBob 4s ease-in-out infinite}
+@keyframes teamEmojiBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.boot-team-card .btc-name{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:var(--text-bright);letter-spacing:.8px;text-transform:uppercase;margin-top:2px}
+.boot-team-card .btc-role{font-size:10px;color:var(--text-dim);line-height:1.4;font-weight:400}
+.boot-team-card .btc-active{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1px;color:var(--ag-color,var(--accent));margin-top:4px;padding:2px 7px;border:1px solid var(--ag-color,var(--accent));border-radius:6px;text-transform:uppercase;background:rgba(0,255,65,.04)}
+.boot-team-card .btc-pending{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1px;color:var(--text-dim);margin-top:4px;padding:2px 7px;border:1px solid var(--border2);border-radius:6px;text-transform:uppercase;opacity:.6}
+
+/* Wow flash — fired when company is first set up */
+@keyframes wowFlash{0%{opacity:0}30%{opacity:.6}100%{opacity:0}}
+.boot-flash{position:fixed;inset:0;background:radial-gradient(circle,rgba(0,255,65,.5) 0%,transparent 50%);pointer-events:none;z-index:10000;animation:wowFlash 1s ease-out forwards}
+
+/* Particle burst */
+.boot-particles{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden}
+.boot-particle{position:absolute;width:3px;height:3px;background:var(--accent);border-radius:50%;box-shadow:0 0 6px var(--accent);opacity:0}
+.boot-particle.go{animation:particleFly 1.4s ease-out forwards}
+@keyframes particleFly{
+  0%{opacity:1;transform:translate(0,0) scale(1)}
+  100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}
+}
+
+/* Company setup edit modal — reuses the tc-* visual language. Brand badge
+   click opens this so users can edit name / goals / needs without digging
+   into _shared/ files. */
+.cs-backdrop{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:apIn .25s ease-out;padding:20px}
+.cs-modal{width:min(460px,100%);max-height:92vh;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(20,20,26,0.98),rgba(8,8,12,0.99));border:1px solid rgba(255,255,255,0.06);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 50px rgba(0,255,65,.15);animation:apModalIn .35s cubic-bezier(.16,1,.3,1);overflow:hidden;position:relative}
+.cs-head{display:flex;align-items:center;gap:10px;padding:18px 20px 6px}
+.cs-head-emoji{font-size:22px}
+.cs-head-title{font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--accent);font-weight:700;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.cs-head-sub{font-size:11.5px;color:var(--text-dim);margin-top:1px}
+.cs-close{margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s}
+.cs-close:hover{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.cs-body{padding:6px 20px 8px;overflow-y:auto;display:flex;flex-direction:column;gap:11px}
+.cs-section{display:flex;flex-direction:column;gap:6px}
+.cs-section-label{font-size:9.5px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1.2px;text-transform:uppercase;opacity:.85}
+.cs-section-help{font-size:10.5px;color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;margin-left:6px;opacity:.7}
+.cs-input{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12.5px;color:var(--text-bright);outline:none;transition:all .2s;box-sizing:border-box}
+.cs-input:focus{border-color:var(--accent);background:rgba(0,0,0,0.3);box-shadow:0 0 12px var(--accent-glow)}
+.cs-textarea{width:100%;min-height:60px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12.5px;color:var(--text-bright);outline:none;resize:vertical;transition:all .2s;box-sizing:border-box;line-height:1.5}
+.cs-textarea:focus{border-color:var(--accent);background:rgba(0,0,0,0.3);box-shadow:0 0 12px var(--accent-glow)}
+.cs-actions{display:flex;gap:8px;padding:14px 20px 20px}
+.cs-btn{flex:1;background:var(--accent);color:#000;border:none;border-radius:10px;padding:11px 14px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .2s}
+.cs-btn:hover{filter:brightness(1.1)}
+.cs-btn.secondary{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.cs-btn.secondary:hover{background:rgba(255,255,255,0.1)}
+.cs-saved{font-size:11px;color:#00cc77;text-align:center;padding:0 20px 4px;opacity:0;transition:opacity .25s}
+.cs-saved.show{opacity:1}
+/* Brand badge becomes interactive so users discover the editor */
+.brand-suffix{cursor:pointer}
+.brand-suffix:hover{background:rgba(0,255,65,.08)}
+
+/* ============================================================ */
+/* ENTERPRISE OS GATE MODAL (0101)                              */
+/* ============================================================ */
+.cg-backdrop{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;width:100vw !important;height:100vh !important;inset:0;z-index:99999;display:flex !important;align-items:center;justify-content:center;background:radial-gradient(ellipse at top,rgba(0,30,8,.92) 0%,rgba(0,0,0,.97) 70%);backdrop-filter:blur(14px) saturate(1.3);-webkit-backdrop-filter:blur(14px) saturate(1.3);animation:cgBdIn .35s ease-out;padding:24px;overflow-y:auto;box-sizing:border-box}
+.cg-backdrop[hidden]{display:none}
+@keyframes cgBdIn{from{opacity:0;backdrop-filter:blur(0)}to{opacity:1;backdrop-filter:blur(14px)}}
+.cg-backdrop::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(0,255,65,.045) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,.045) 1px,transparent 1px);background-size:38px 38px;opacity:.55;animation:cgGrid 22s linear infinite;pointer-events:none}
+@keyframes cgGrid{from{transform:translateY(0)}to{transform:translateY(38px)}}
+.cg-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0,transparent 50%,rgba(0,255,65,.07) 50.2%,transparent 51%);background-size:100% 220px;animation:cgScan2 5.5s linear infinite;pointer-events:none;mix-blend-mode:screen}
+@keyframes cgScan2{from{background-position:0 -220px}to{background-position:0 100vh}}
+
+.cg-modal{position:relative;width:min(420px,100%);background:linear-gradient(180deg,rgba(8,14,10,.98),rgba(2,6,3,.995));border:1px solid rgba(0,255,65,.45);border-radius:18px;padding:34px 30px 26px;box-shadow:0 0 0 1px rgba(0,255,65,.08) inset,0 30px 100px rgba(0,0,0,.88),0 0 80px rgba(0,255,65,.22),0 0 160px rgba(0,255,65,.08);animation:cgIn .65s cubic-bezier(.16,1,.3,1);transform-origin:center}
+.cg-modal::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:reportLine 3s ease-in-out infinite;border-top-left-radius:18px;border-top-right-radius:18px}
+.cg-modal::after{content:'';position:absolute;top:-150px;left:50%;transform:translateX(-50%);width:520px;height:520px;background:radial-gradient(circle,rgba(0,255,65,.18) 0%,transparent 60%);pointer-events:none;animation:cgAura 7s ease-in-out infinite alternate;opacity:.6;filter:blur(12px);z-index:-1}
+@keyframes cgAura{0%{opacity:.4;transform:translateX(-50%) scale(.95)}100%{opacity:.75;transform:translateX(-50%) scale(1.05)}}
+.cg-modal.shake{animation:cgShake .5s cubic-bezier(.36,.07,.19,.97);border-color:rgba(239,68,68,.7)}
+.cg-modal.shake::before{background:linear-gradient(90deg,transparent,#ef4444,transparent)}
+@keyframes cgIn{0%{opacity:0;transform:translateY(24px) scale(.93);filter:blur(8px)}60%{opacity:1;transform:translateY(-3px) scale(1.01);filter:blur(0)}100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0)}}
+@keyframes cgShake{0%,100%{transform:translateX(0)}10%{transform:translateX(-9px)}20%{transform:translateX(8px)}30%{transform:translateX(-7px)}40%{transform:translateX(6px)}50%{transform:translateX(-4px)}60%{transform:translateX(3px)}70%{transform:translateX(-2px)}80%{transform:translateX(1px)}}
+
+.cg-corner{position:absolute;width:24px;height:24px;border:1.5px solid var(--accent);pointer-events:none;filter:drop-shadow(0 0 6px var(--accent-glow));opacity:.85}
+.cg-corner.tl{top:14px;left:14px;border-right:none;border-bottom:none}
+.cg-corner.tr{top:14px;right:14px;border-left:none;border-bottom:none}
+.cg-corner.bl{bottom:14px;left:14px;border-right:none;border-top:none}
+.cg-corner.br{bottom:14px;right:14px;border-left:none;border-top:none}
+
+.cg-brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:18px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:9.5px;letter-spacing:3px;color:var(--accent);text-transform:uppercase;opacity:.75;text-shadow:0 0 6px var(--accent-glow)}
+.cg-brand .cg-brand-line{flex:1;height:1px;background:linear-gradient(90deg,transparent,rgba(0,255,65,.3),transparent);max-width:80px}
+
+.cg-crest{position:relative;display:flex;align-items:center;justify-content:center;width:108px;height:108px;margin:0 auto 18px}
+.cg-crest::before,.cg-crest::after{content:'';position:absolute;inset:0;border-radius:50%;border:1.5px solid rgba(0,255,65,.55);border-top-color:transparent;border-right-color:transparent;animation:cgRing 3.5s linear infinite;filter:drop-shadow(0 0 6px var(--accent-glow))}
+.cg-crest::after{inset:10px;border-color:rgba(0,255,65,.35);border-bottom-color:transparent;border-left-color:transparent;animation:cgRing 5s linear infinite reverse}
+@keyframes cgRing{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+.cg-crest .cg-crest-bg{position:absolute;inset:18px;border-radius:50%;background:radial-gradient(circle,rgba(0,255,65,.18),rgba(0,30,10,.6) 70%,transparent);animation:cgCrestPulse 2.4s ease-in-out infinite}
+@keyframes cgCrestPulse{0%,100%{opacity:.7;transform:scale(1)}50%{opacity:1;transform:scale(1.04)}}
+.cg-lock{position:relative;font-size:44px;line-height:1;filter:drop-shadow(0 0 14px var(--accent-glow)) drop-shadow(0 0 28px var(--accent-glow));z-index:2;animation:cgLockBob 3s ease-in-out infinite}
+@keyframes cgLockBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+
+.cg-tag{display:inline-flex;align-items:center;gap:7px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:9px;letter-spacing:2.5px;color:var(--accent);text-transform:uppercase;padding:4px 11px;border:1px solid rgba(0,255,65,.3);border-radius:20px;background:rgba(0,255,65,.05);margin:0 auto 14px;text-shadow:0 0 8px var(--accent-glow)}
+.cg-tag-dot{width:5px;height:5px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:cgBlink 1.4s ease-in-out infinite}
+.cg-tag-wrap{display:flex;justify-content:center}
+@keyframes cgBlink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.cg-title{text-align:center;font-size:22px;font-weight:800;letter-spacing:.2px;color:#F8FAFC;text-shadow:0 0 18px rgba(0,255,65,.18);margin-bottom:6px;font-family:inherit}
+.cg-title .cg-title-accent{color:var(--accent);text-shadow:0 0 12px var(--accent-glow)}
+.cg-sub{text-align:center;font-size:12px;color:var(--text-dim);line-height:1.55;margin-bottom:22px;letter-spacing:.2px;max-width:320px;margin-left:auto;margin-right:auto}
+
+.cg-pin-wrap{position:relative;margin-bottom:14px}
+.cg-pin-row{display:flex;justify-content:center;gap:10px;margin-bottom:10px}
+.cg-pin-cell{width:54px;height:62px;border:1.5px solid rgba(0,255,65,.32);border-radius:10px;background:linear-gradient(180deg,rgba(0,28,10,.6),rgba(0,12,4,.8));display:flex;align-items:center;justify-content:center;font-family:'SF Mono',monospace;font-size:24px;color:var(--accent);text-shadow:0 0 10px var(--accent-glow);position:relative;transition:all .25s;overflow:hidden}
+.cg-pin-cell::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at center,rgba(0,255,65,.15),transparent 70%);opacity:0;transition:opacity .3s}
+.cg-pin-cell.active{border-color:var(--accent);box-shadow:0 0 0 3px rgba(0,255,65,.1),0 0 18px rgba(0,255,65,.35);background:linear-gradient(180deg,rgba(0,42,14,.7),rgba(0,18,6,.85))}
+.cg-pin-cell.active::before{opacity:1}
+.cg-pin-cell.filled{border-color:var(--accent);box-shadow:0 0 14px rgba(0,255,65,.3) inset}
+.cg-pin-cell.active::after{content:'';position:absolute;bottom:8px;left:50%;transform:translateX(-50%);width:18px;height:2px;background:var(--accent);box-shadow:0 0 6px var(--accent);animation:cgCaret 1s steps(1) infinite}
+@keyframes cgCaret{0%,49%{opacity:1}50%,100%{opacity:0}}
+.cg-pin-input{position:absolute;inset:0;opacity:0;width:100%;height:100%;border:none;background:transparent;outline:none;font-size:24px;color:transparent;caret-color:transparent;cursor:pointer}
+.cg-modal.success .cg-pin-cell{border-color:#00cc77;box-shadow:0 0 18px rgba(0,204,119,.5);color:#00cc77;text-shadow:0 0 12px rgba(0,204,119,.7);background:linear-gradient(180deg,rgba(0,40,20,.8),rgba(0,18,8,.85))}
+.cg-modal.success .cg-crest::before,.cg-modal.success .cg-crest::after{border-color:#00cc77;animation-duration:.8s}
+.cg-modal.success .cg-lock{filter:drop-shadow(0 0 16px rgba(0,204,119,.7)) drop-shadow(0 0 32px rgba(0,204,119,.5))}
+
+.cg-status{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;letter-spacing:1.4px;text-align:center;text-transform:uppercase;color:var(--text-dim);min-height:14px;margin-bottom:14px;transition:color .3s}
+.cg-status.info{color:var(--accent);text-shadow:0 0 6px var(--accent-glow)}
+.cg-status.error{color:#ef4444;text-shadow:0 0 6px rgba(239,68,68,.5)}
+.cg-status.ok{color:#00cc77;text-shadow:0 0 8px rgba(0,204,119,.6)}
+.cg-status .cg-status-cursor{display:inline-block;width:6px;height:11px;background:currentColor;margin-left:5px;vertical-align:middle;animation:cgCaret 1s steps(1) infinite}
+
+.cg-hint{text-align:center;font-family:'SF Mono',monospace;font-size:9.5px;color:var(--text-dim);letter-spacing:1.2px;margin-bottom:18px;opacity:.6}
+.cg-hint code{padding:1px 6px;border:1px solid rgba(0,255,65,.25);border-radius:4px;color:var(--accent);background:rgba(0,255,65,.05);letter-spacing:1px;font-size:9.5px}
+
+.cg-actions{display:flex;gap:10px}
+.cg-btn{flex:1;padding:12px 16px;border-radius:11px;font-family:'SF Mono',monospace;font-size:11px;letter-spacing:1.6px;text-transform:uppercase;cursor:pointer;transition:all .25s;font-weight:700;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+.cg-btn.cancel{background:transparent;border:1px solid rgba(255,255,255,.12);color:var(--text-dim)}
+.cg-btn.cancel:hover{border-color:rgba(255,255,255,.25);color:#fff;background:rgba(255,255,255,.04)}
+.cg-btn.ok{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#000;box-shadow:0 6px 24px rgba(0,255,65,.32)}
+.cg-btn.ok:hover{filter:brightness(1.15);box-shadow:0 8px 32px rgba(0,255,65,.5),0 0 24px rgba(0,255,65,.45);transform:translateY(-1px)}
+.cg-btn.ok:active{transform:translateY(0)}
+.cg-btn.ok:disabled{opacity:.45;cursor:not-allowed;transform:none;box-shadow:none}
+
+.cg-particles{position:absolute;inset:0;pointer-events:none;z-index:3;overflow:hidden}
+.cg-particle{position:absolute;width:4px;height:4px;background:var(--accent);border-radius:50%;box-shadow:0 0 8px var(--accent);opacity:0}
+.cg-particle.go{animation:cgPartFly 1.4s ease-out forwards}
+@keyframes cgPartFly{0%{opacity:1;transform:translate(0,0) scale(1)}100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}}
+
+@keyframes cgFlash{0%{opacity:0}25%{opacity:.65}100%{opacity:0}}
+.cg-flash{position:fixed;inset:0;background:radial-gradient(circle,rgba(0,255,65,.45) 0%,transparent 55%);pointer-events:none;z-index:10000;animation:cgFlash 1s ease-out forwards}
+
+</style></head><body class="init">
+<div class="header"><div class="header-left"><div class="logo">✦</div><span class="brand">Connect AI</span><span class="brand-suffix" id="brandSuffix"></span></div><div class="header-right"><select id="modelSel"></select><button class="btn-icon" id="corporateBtn" title="1인 기업 모드 — 에이전트 팀이 자동으로 일합니다 (현재: OFF)" style="opacity:0.5">👔</button><button class="btn-icon" id="brainBtn" title="내 지식 관리">🧠</button><button class="btn-icon" id="newChatBtn" title="새 대화 시작">+</button><div class="more-wrap"><button class="btn-icon" id="moreBtn" title="더보기">…</button><div class="more-menu" id="moreMenu" hidden><button class="more-item" id="internetBtn">🌐 인터넷 검색</button><button class="more-item" id="thinkingBtn">🎬 Thinking 시각화</button><button class="more-item" id="settingsBtn">⚙️ 설정</button></div></div></div></div>
+<div class="thinking-bar" id="thinkingBar"></div>
+<div class="status-bar" id="statusBar">
+  <span class="status-item" id="statFolder" title="지식 폴더 — 클릭하면 폴더 열림"><span class="status-icon">📁</span><span id="statFolderText">지식 폴더 미설정</span></span>
+  <span class="sep">·</span>
+  <span class="status-item" id="statGit" title="GitHub 백업 — 클릭하면 동기화"><span class="status-icon">☁️</span><span id="statGitText">GitHub 미연결</span></span>
+  <span class="ag-mini">⚡ ANTIGRAVITY</span>
+</div>
+<div class="dash-board" id="dashBoard" style="display: flex; gap: 10px; padding: 10px 14px; background: var(--surface2); border-bottom: 1px solid var(--border); font-family: 'SF Mono', monospace; font-size: 11px;">
+  <div style="flex:1; text-align:center;"><div style="color:var(--text-dim); margin-bottom:4px;">지식 주입</div><div style="font-size:16px; color:var(--accent); font-weight:bold;" id="dashKnowledge">0</div></div>
+  <div style="flex:1; text-align:center;"><div style="color:var(--text-dim); margin-bottom:4px;">완료한 업무</div><div style="font-size:16px; color:var(--cyan); font-weight:bold;" id="dashTasks">0</div></div>
+</div>
+<div class="agent-board" id="agentBoard">
+  <button class="ab-head" id="abHead" type="button" title="팀 패널 접기/펼치기">
+    <span class="ab-chevron" id="abChevron" aria-hidden="true">▾</span>
+    <span class="ab-title"><span id="abCompanyName">1인 기업 OS</span> <span class="ab-sub" id="abSub">— Multi-Agent Team</span></span>
+    <span class="ab-mini-strip" id="abMiniStrip" aria-hidden="true"></span>
+    <span class="ab-folder" id="abFolder" title="🏢 오피스 드라이브 열람">📁 <span id="abFolderText">미설정</span></span>
+  </button>
+  <div class="ab-grid" id="abGrid"></div>
+  <svg class="ab-svg" id="abSvg" preserveAspectRatio="none"></svg>
+</div>
+
+<div class="main-view" id="mainView">
+<div class="corp-overlay" id="corpOverlay"><div class="corp-overlay-text">DISPATCHING AGENTS</div></div>
+<div class="chat" id="chat">
+<div id="welcomeRoot"></div></div>
+<div class="input-wrap"><div class="input-box">
+<div class="attach-preview" id="attachPreview"></div>
+<textarea id="input" rows="1" placeholder="무엇을 만들어 드릴까요?"></textarea>
+<div class="input-footer"><span class="input-hint">Enter 전송 · Shift+Enter 줄바꿈</span>
+<div class="input-btns"><button class="attach-btn" id="attachBtn" title="파일 첨부 (AI에게 보여주기)">+</button><button class="attach-btn" id="injectLocalBtn" title="첨부 파일을 내 지식에 영구 저장">⚡</button><button class="stop-btn" id="stopBtn" title="생성 중단">■</button><button class="send-btn" id="sendBtn" title="전송 (Enter)">↑</button></div></div></div>
+<input type="file" id="fileInput" multiple accept="image/*,audio/*,.txt,.md,.csv,.json,.js,.ts,.html,.css,.py,.java,.rs,.go,.yaml,.yml,.xml,.toml" hidden></div>
+</div>
+<script>
+window.onerror = function(msg, url, line, col, error) {
+  document.body.innerHTML += '<div style="position:absolute;z-index:9999;background:red;color:white;padding:10px;top:0;left:0;right:0">ERROR: ' + msg + ' at line ' + line + '</div>';
+};
+window.addEventListener('unhandledrejection', function(event) {
+  document.body.innerHTML += '<div style="position:absolute;z-index:9999;background:red;color:white;padding:10px;bottom:0;left:0;right:0">PROMISE REJECTION: ' + event.reason + '</div>';
+});
+try {
+const vscode=acquireVsCodeApi(),chat=document.getElementById('chat'),input=document.getElementById('input'),
+sendBtn=document.getElementById('sendBtn'),stopBtn=document.getElementById('stopBtn'),
+modelSel=document.getElementById('modelSel'),newChatBtn=document.getElementById('newChatBtn'),settingsBtn=document.getElementById('settingsBtn'),brainBtn=document.getElementById('brainBtn'),thinkingBtn=document.getElementById('thinkingBtn'),
+internetBtn=document.getElementById('internetBtn'),attachBtn=document.getElementById('attachBtn'),injectLocalBtn=document.getElementById('injectLocalBtn'),fileInput=document.getElementById('fileInput'),attachPreview=document.getElementById('attachPreview'),
+thinkingBar=document.getElementById('thinkingBar'),corporateBtn=document.getElementById('corporateBtn'),agentBoard=document.getElementById('agentBoard'),abGrid=document.getElementById('abGrid'),abSvg=document.getElementById('abSvg'),abFolder=document.getElementById('abFolder'),abCompanyName=document.getElementById('abCompanyName'),abFolderText=document.getElementById('abFolderText'),brandSuffix=document.getElementById('brandSuffix');
+let loader=null,sending=false,pendingFiles=[],internetEnabled=false,corporateMode=false,officeOpen=false,corporateUnlocked=false;
+/* Smart auto-scroll: only stick to the bottom if the user is already near it.
+   If they scrolled up to read earlier messages, leave their view alone. */
+function scrollChatToBottomIfNear(){
+  if (!chat) return;
+  const nearBottom = (chat.scrollHeight - chat.scrollTop - chat.clientHeight) < 120;
+  if (nearBottom) chat.scrollTo({ top: chat.scrollHeight });
+}
+let agentMap={},agentCardEls={},agentStreamEls={};
+let companyState={configured:false,name:'',dir:'',folderExists:false};
+let _setupCompletionAnnounced=false;
+function welcomeHtml(){
+  return '<div class="welcome"><div class="welcome-logo">✦</div>'
+    + '<div class="ag-badge">⚡ Built for Antigravity</div>'
+    + '<div class="welcome-title">안녕하세요! 무엇을 도와드릴까요?</div>'
+    + '<div class="welcome-sub">내 지식과 연결된 100% 로컬 AI 워크스페이스.<br>인터넷 없이, API 비용 없이, 내 PC에서 바로 실행됩니다.</div>'
+    + '<div id="onboardRoot"></div>'
+    + '</div>';
+}
+
+let onboardingCardShown = false;
+let onboardingStep = 1;
+let onboardingState = null;
+
+function renderOnboarding(){
+  const root = document.getElementById('onboardRoot');
+  if (!root || !onboardingState || onboardingState.dismissed) return;
+  const s = onboardingState.steps;
+  const totalDone = (s.engine.done?1:0) + (s.brain.done?1:0) + (s.github.done?1:0);
+  /* Determine current step: first not-done, capped at 4 (success state) */
+  let cur = onboardingStep;
+  if (cur === 1 && s.engine.done) cur = 2;
+  if (cur === 2 && s.brain.done) cur = 3;
+  if (cur === 3 && (s.github.done || onboardingState.githubSkipped)) cur = 4;
+  onboardingStep = cur;
+  const dot = (n) => '<div class="onboard-dot '+(n<cur?'done':n===cur?'active':'')+'"></div>';
+  let stepHtml = '';
+  if (cur === 1) {
+    const detected = s.engine.detected;
+    stepHtml =
+      '<div class="onboard-step-label">STEP 1 OF 4 · AI 엔진</div>'
+    + '<div class="onboard-step-title">🤖 AI 엔진 연결</div>'
+    + '<div class="onboard-step-body">'
+    +   '<strong>Ollama</strong>(<code>ollama.com</code>)와 <strong>LM Studio</strong>(<code>lmstudio.ai</code>) — '
+    +   '<u>둘 다 깔아보고 내 PC에서 더 빠르게 도는 쪽을 선택하세요</u>. '
+    +   '같은 모델도 시스템·드라이버에 따라 속도가 크게 다릅니다.<br>'
+    +   '<br>모델 하나 로드해두고 아래 버튼 누르면 자동 감지됩니다.'
+    +   (detected ? '<div class="onboard-result">✅ 감지됨: '+escapeHtml(detected)+(s.engine.model?' · '+escapeHtml(s.engine.model):'')+'</div>' : '')
+    + '</div>'
+    + '<div class="onboard-actions">'
+    +   '<button class="onboard-btn" id="ob-detect">🔍 자동 감지</button>'
+    +   '<button class="onboard-btn secondary" id="ob-skip-engine">건너뛰기</button>'
+    + '</div>';
+  } else if (cur === 2) {
+    stepHtml =
+      '<div class="onboard-step-label">STEP 2 OF 4 · 두뇌 폴더</div>'
+    + '<div class="onboard-step-title">🧠 내 지식이 살 곳을 정해주세요</div>'
+    + '<div class="onboard-step-body">'
+    +   '여기에 모든 게 모입니다:<br>'
+    +   '• 마크다운 지식 (.md)<br>'
+    +   '• 회사 폴더 (에이전트 메모리·정체성)<br>'
+    +   '• 대화 로그 (날짜별 누적)<br>'
+    +   '<br>👉 <strong>회사 폴더와 같은 위치</strong>로 자동 통합되니 한 번만 정하면 끝.'
+    +   (s.brain.path ? '<div class="onboard-result">📁 현재: <code>'+escapeHtml(s.brain.path)+'</code></div>' : '')
+    + '</div>'
+    + '<div class="onboard-actions">'
+    +   '<button class="onboard-btn" id="ob-pick-brain">📁 폴더 선택</button>'
+    +   '<button class="onboard-btn secondary" id="ob-skip-brain">기본값 사용</button>'
+    + '</div>';
+  } else if (cur === 3) {
+    stepHtml =
+      '<div class="onboard-step-label">STEP 3 OF 4 · GitHub 동기화 (선택)</div>'
+    + '<div class="onboard-step-title">☁️ 지식을 깃허브에 백업할까요?</div>'
+    + '<div class="onboard-step-body">'
+    +   '두뇌 폴더가 자동으로 git push 됩니다 — PC가 망가져도 안전.<br>'
+    +   '다른 디바이스에서도 같은 지식·회사 상태 사용 가능.<br>'
+    +   '<br>나중에 설정해도 됩니다.'
+    +   (s.github.url ? '<div class="onboard-result">🔗 연결됨: <code>'+escapeHtml(s.github.url)+'</code></div>' : '')
+    + '</div>'
+    + '<input class="onboard-input" id="ob-repo-url" placeholder="https://github.com/사용자/my-brain.git" value="'+(s.github.url||'')+'" />'
+    + '<div id="ob-repo-result"></div>'
+    + '<div class="onboard-actions" style="margin-top:8px">'
+    +   '<button class="onboard-btn" id="ob-save-repo">💾 저장</button>'
+    +   '<button class="onboard-btn secondary" id="ob-skip-github">건너뛰기</button>'
+    + '</div>';
+  } else { /* cur === 4: success */
+    stepHtml =
+      '<div class="onboard-step-label">완료 ✨</div>'
+    + '<div class="onboard-step-title">🎉 셋업 끝! 던져만 주세요</div>'
+    + '<div class="onboard-step-body">'
+    +   '한 줄 명령으로 시작:<br>'
+    +   '• <code>이 코드 설명해줘</code><br>'
+    +   '• <code>유튜브 영상 5개 기획 (👔 기업 모드)</code><br>'
+    +   '• <code>오늘 일과 텔레그램으로 보고 (👔 기업 모드)</code>'
+    + '</div>'
+    + '<div class="onboard-actions">'
+    +   '<button class="onboard-btn" id="ob-finish">시작하기 ✦</button>'
+    + '</div>';
+  }
+  root.innerHTML =
+      '<div class="onboard-card">'
+    +   '<div class="onboard-head">'
+    +     '<div class="onboard-title">🚀 1분 셋업</div>'
+    +     '<button class="onboard-skip" id="ob-dismiss">✕ 나중에</button>'
+    +   '</div>'
+    +   '<div class="onboard-progress">'+dot(1)+dot(2)+dot(3)+dot(4)+'</div>'
+    +   stepHtml
+    + '</div>';
+  /* Wire button events */
+  const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener('click', fn); };
+  wire('ob-detect', () => vscode.postMessage({ type: 'detectEngine' }));
+  wire('ob-skip-engine', () => { onboardingStep = 2; renderOnboarding(); });
+  wire('ob-pick-brain', () => vscode.postMessage({ type: 'pickBrainFolder' }));
+  wire('ob-skip-brain', () => { onboardingStep = 3; renderOnboarding(); });
+  wire('ob-save-repo', () => {
+    const inp = document.getElementById('ob-repo-url');
+    vscode.postMessage({ type: 'setSecondBrainRepo', value: inp ? inp.value : '' });
+  });
+  wire('ob-skip-github', () => { if (onboardingState) onboardingState.githubSkipped = true; onboardingStep = 4; renderOnboarding(); });
+  wire('ob-finish', () => {
+    vscode.postMessage({ type: 'dismissOnboarding' });
+    if (onboardingState) onboardingState.dismissed = true;
+    const root2 = document.getElementById('onboardRoot');
+    if (root2) root2.innerHTML = '';
+  });
+  wire('ob-dismiss', () => {
+    vscode.postMessage({ type: 'dismissOnboarding' });
+    if (onboardingState) onboardingState.dismissed = true;
+    const root2 = document.getElementById('onboardRoot');
+    if (root2) root2.innerHTML = '';
+  });
+}
+
+internetBtn.addEventListener('click', ()=>{
+  internetEnabled=!internetEnabled;
+  internetBtn.style.opacity=internetEnabled?'1':'0.4';
+  internetBtn.style.filter=internetEnabled?'none':'grayscale(1)';
+  internetBtn.title='Internet & Time Sync: ' + (internetEnabled?'ON':'OFF') + ' (Click to toggle)';
+  const msg = document.createElement('div');
+  msg.className='msg';
+  msg.innerHTML='<div class="msg-body" style="color:#00bdff;font-size:12px;opacity:0.8;">🌐 인터넷 및 시간 동기화 모드가 ' + (internetEnabled?'ON':'OFF') + ' 되었습니다.</div>';
+  chat.appendChild(msg);
+  scrollChatToBottomIfNear();
+});
+
+/* Syntax Highlighting (lightweight) */
+function highlight(code,lang){
+  let h=esc(code);
+  h=h.replace(new RegExp("(\\\\/\\\\/[^\\\\n]*)", "g"),'<span class=\"cm\">$1</span>');
+  h=h.replace(new RegExp("(#[^\\\\n]*)", "g"),'<span class=\"cm\">$1</span>');
+  h=h.replace(new RegExp("(\\\\/\\\\*[\\\\s\\\\S]*?\\\\*\\\\/)", "g"),'<span class=\"cm\">$1</span>');
+  h=h.replace(/(&quot;[^&]*?&quot;|&#x27;[^&]*?&#x27;)/g,'<span class=\"str\">$1</span>');
+  h=h.replace(new RegExp("\\\\b(function|const|let|var|return|if|else|for|while|class|import|export|from|default|async|await|try|catch|throw|new|this|def|self|print|lambda|yield|with|as|raise|except|finally)\\\\b", "g"),'<span class=\"kw\">$1</span>');
+  h=h.replace(new RegExp("\\\\b(\\\\d+\\\\.?\\\\d*)\\\\b", "g"),'<span class=\"num\">$1</span>');
+  h=h.replace(new RegExp("\\\\b(True|False|None|true|false|null|undefined|NaN)\\\\b", "g"),'<span class=\"num\">$1</span>');
+  h=h.replace(new RegExp("\\\\b(String|Number|Boolean|Array|Object|Map|Set|Promise|void|int|float|str|list|dict|tuple)\\\\b", "g"),'<span class=\"type\">$1</span>');
+  h=h.replace(/([=!+*/%|&^~?:-]+)/g,'<span class=\"op\">$1</span>');
+  return h;
+}
+
+/* Clipboard Paste (Ctrl+V images) */
+input.addEventListener('paste',(e)=>{
+  const items=e.clipboardData&&e.clipboardData.items;
+  if(!items)return;
+  for(const item of items){
+    if(item.type.startsWith('image/')){
+      e.preventDefault();
+      const file=item.getAsFile();
+      if(!file)return;
+      const reader=new FileReader();
+      reader.onload=()=>{
+        const base64=reader.result.split(',')[1];
+        pendingFiles.push({name:'clipboard-image.png',type:file.type,data:base64});
+        renderPreview();
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+  }
+});
+vscode.postMessage({type:'getModels'});
+vscode.postMessage({type:'onboardingState'});
+vscode.postMessage({type:'probeIDEModels'});
+vscode.postMessage({type:'corporateInit'});
+setTimeout(()=>vscode.postMessage({type:'ready'}),300);
+// Initial welcome render
+const _wr=document.getElementById('welcomeRoot'); if(_wr) _wr.outerHTML=welcomeHtml();
+input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px'});
+function getTime(){return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}
+function esc(s){const d=document.createElement('div');d.innerText=s;return d.innerHTML}
+function fmt(t){
+  if(t.lastIndexOf('<create_file') > t.lastIndexOf('</create_file>')) t += '</create_file>';
+  if(t.lastIndexOf('<edit_file') > t.lastIndexOf('</edit_file>')) t += '</edit_file>';
+  if(t.lastIndexOf('<run_command') > t.lastIndexOf('</run_command>')) t += '</run_command>';
+  if((t.match(/\x60\x60\x60/g)||[]).length % 2 !== 0) t += '\\\\n\x60\x60\x60';
+
+  const blocks = [];
+  function pushB(h){ blocks.push(h); return '__B' + (blocks.length-1) + '__'; }
+  t=t.replace(/<create_file\\s+path="([^"]+)">([\\s\\S]*?)<\\/create_file>/g,(_,p,c)=>pushB('<div class="file-badge">📁 '+esc(p)+' — 자동 생성됨</div><div class="code-wrap"><pre><code>'+esc(c)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>'));
+  t=t.replace(/<edit_file\\s+path="([^"]+)">([\\s\\S]*?)<\\/edit_file>/g,(_,p,c)=>pushB('<div class="edit-badge">✏️ '+esc(p)+' — 편집됨</div><div class="code-wrap"><pre><code>'+esc(c)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>'));
+  t=t.replace(/<run_command>([\\s\\S]*?)<\\/run_command>/g,(_,c)=>pushB('<div class="cmd-badge">▶ '+esc(c)+'</div>'));
+  t=t.replace(/\x60\x60\x60(\\w*)\\n([\\s\\S]*?)\x60\x60\x60/g,(_,lang,c)=>{const l=lang||'code';return pushB('<div class="code-wrap"><span class="code-lang">'+esc(l)+'</span><pre><code>'+highlight(c,l)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>');});
+  t=t.replace(/\x60([^\x60]+)\x60/g,(_,c)=>pushB('<code>'+esc(c)+'</code>'));
+  t=esc(t);
+  t=t.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>');
+  t=t.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>');
+  t=t.replace(/__B(\\d+)__/g, (_,i)=>blocks[i]);
+  return t;
+}
+function copyCode(btn){const code=btn.parentElement.querySelector('code');if(!code)return;navigator.clipboard.writeText(code.innerText).then(()=>{btn.textContent='✓ Copied';btn.classList.add('copied');setTimeout(()=>{btn.textContent='Copy';btn.classList.remove('copied')},1500)})}
+function addMsg(text,role){
+  const isUser=role==='user',isErr=role==='error';
+  const el=document.createElement('div');el.className='msg'+(isUser?' msg-user':'')+(isErr?' msg-error':'');
+  const head=document.createElement('div');head.className='msg-head';
+  head.innerHTML=(isUser?'<div class="av av-user">👤</div><span>You</span>':'<div class="av av-ai">✦</div><span>Connect AI</span>')+'<span class="msg-time">'+getTime()+'</span>';
+  const body=document.createElement('div');body.className='msg-body';
+  if(isUser){body.innerText=text}else{body.innerHTML=fmt(text)}
+  el.appendChild(head);el.appendChild(body);chat.appendChild(el);scrollChatToBottomIfNear();
+}
+function escapeHtml(s){return String(s||'').replace(/[&<>\"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]))}
+function showInjectCard(title,relPath){
+  const safeT=escapeHtml(title||'');const safeP=escapeHtml(relPath||'');
+  const el=document.createElement('div');el.className='msg inject-card';
+  el.innerHTML='<div class="inject-banner"><div class="inject-sweep"></div>'+
+    '<div class="inject-header">✦ NEURAL INJECTION • KNOWLEDGE PACK RECEIVED</div>'+
+    '<div class="inject-bar"><div class="inject-bar-fill"></div></div>'+
+    '<div class="inject-title">'+safeT+'.md</div>'+
+    '<div class="inject-path">📁 '+safeP+'</div>'+
+    '<div class="inject-quote">I know '+safeT+'.</div>'+
+    '</div>';
+  chat.appendChild(el);scrollChatToBottomIfNear();
+}
+const LOADING_PHASES=[
+  '📂 프로젝트 파일 살펴보는 중...',
+  '🧠 관련 정보 모으는 중...',
+  '🤔 답변 구성하는 중...',
+  '✍️ 답변 작성하는 중...'
+];
+let _loaderTimer=null;
+function showLoader(){
+  loader=document.createElement('div');loader.className='msg';
+  loader.innerHTML='<div class="msg-head"><div class="av av-ai">✦</div><span>Connect AI</span><span class="msg-time">'+getTime()+'</span></div><div class="loading-wrap"><div class="loading-dots"><span></span><span></span><span></span></div><span class="loading-text" id="loadingTextEl">'+LOADING_PHASES[0]+'</span></div>';
+  chat.appendChild(loader);scrollChatToBottomIfNear();thinkingBar.classList.add('active');
+  // 단계별 메시지 순차 전환 (사용자가 진행 상황을 인지할 수 있도록)
+  let phase=0;
+  if(_loaderTimer) clearInterval(_loaderTimer);
+  _loaderTimer=setInterval(()=>{
+    phase=(phase+1)%LOADING_PHASES.length;
+    const el=document.getElementById('loadingTextEl');
+    if(el) el.textContent=LOADING_PHASES[phase];
+  },2500);
+}
+function hideLoader(){if(_loaderTimer){clearInterval(_loaderTimer);_loaderTimer=null;}if(loader&&loader.parentNode)loader.parentNode.removeChild(loader);loader=null;thinkingBar.classList.remove('active')}
+function setSending(v){sending=v;sendBtn.disabled=v;stopBtn.classList.toggle('visible',v);input.disabled=v;if(!v){input.focus();thinkingBar.classList.remove('active')}}
+function send(opts){
+  const bypassCorporate=!!(opts&&opts.bypassCorporate);
+  const corp=corporateMode&&!bypassCorporate;
+  const text=input.value.trim();
+  if((!text&&pendingFiles.length===0)||sending)return;
+  document.body.classList.remove('init');
+  const w=document.querySelector('.welcome');if(w)w.remove();
+  document.querySelectorAll('.quick-actions').forEach(e=>e.remove());
+  const displayText=text+(pendingFiles.length>0?'\\\\n\�\� '+pendingFiles.map(f=>f.name).join(', '):'');
+  /* corporate 모드인데 아직 셋업 안 끝났으면 명령 차단 */
+  if(corp && !companyState.configured){
+    setSending(false);
+    addCorpBanner('⚠️ 회사 설정을 먼저 완료해주세요. (위 카드에서 선택)');
+    if(!companyState.folderExists)showOnboardingCard();else showInterviewCard();
+    return;
+  }
+  addMsg(displayText,'user');
+  input.value='';input.style.height='auto';setSending(true);
+  if(corp && pendingFiles.length===0){
+    /* 카드 보드가 시각화 담당 — 일반 로더 안 띄움 */
+  } else {
+    showLoader();
+  }
+  if(pendingFiles.length>0){
+    vscode.postMessage({type:'promptWithFile',value:text||'이 파일을 분석해주세요.',model:modelSel.value,files:pendingFiles,internet:internetEnabled});
+    pendingFiles=[];attachPreview.innerHTML='';attachPreview.classList.remove('visible');
+  } else {
+    vscode.postMessage({type:'prompt',value:text,model:modelSel.value,internet:internetEnabled,corporate:corp});
+  }
+}
+
+/* Attachment Logic */
+attachBtn.addEventListener('click',()=>fileInput.click());
+injectLocalBtn.addEventListener('click',()=>{
+  if(pendingFiles.length===0){
+    alert('첨부된 파일이 없습니다. + 버튼을 눌러 연동할 문서를 먼저 추가해주세요.');
+    return;
+  }
+  vscode.postMessage({type:'injectLocalBrain', files:pendingFiles});
+  pendingFiles=[];
+  renderPreview();
+});
+fileInput.addEventListener('change',()=>{
+  const files=Array.from(fileInput.files);
+  files.forEach(file=>{
+    const reader=new FileReader();
+    reader.onload=()=>{
+      const base64=reader.result.split(',')[1];
+      pendingFiles.push({name:file.name,type:file.type,data:base64});
+      renderPreview();
+    };
+    reader.readAsDataURL(file);
+  });
+  fileInput.value='';
+});
+function renderPreview(){
+  attachPreview.innerHTML='';
+  if(pendingFiles.length===0){attachPreview.classList.remove('visible');return;}
+  attachPreview.classList.add('visible');
+  pendingFiles.forEach((f,i)=>{
+    const chip=document.createElement('div');chip.className='attach-chip';
+    const isImg=f.type.startsWith('image/');
+    if(isImg){
+      const thumb=document.createElement('img');thumb.className='attach-thumb';thumb.src='data:'+f.type+';base64,'+f.data;chip.appendChild(thumb);
+    } else {
+      const icon=document.createElement('span');icon.className='chip-icon';icon.textContent=f.type.startsWith('audio/')?'🎧':'📄';chip.appendChild(icon);
+    }
+    const nm=document.createElement('span');nm.className='chip-name';nm.textContent=f.name;chip.appendChild(nm);
+    const rm=document.createElement('span');rm.className='chip-remove';rm.textContent='✕';
+    rm.addEventListener('click',()=>{pendingFiles.splice(i,1);renderPreview();});
+    chip.appendChild(rm);
+    attachPreview.appendChild(chip);
+  });
+}
+document.addEventListener('click',e=>{if(e.target.classList.contains('qa-btn')){const p=e.target.getAttribute('data-prompt');if(p){input.value=p;send()}}});
+sendBtn.addEventListener('click',send);
+input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+newChatBtn.addEventListener('click',()=>vscode.postMessage({type:'newChat'}));
+settingsBtn.addEventListener('click',()=>{vscode.postMessage({type:'openSettings'});closeMoreMenu();});
+const moreBtn=document.getElementById('moreBtn');
+const moreMenu=document.getElementById('moreMenu');
+function closeMoreMenu(){if(moreMenu)moreMenu.hidden=true;}
+moreBtn && moreBtn.addEventListener('click',(e)=>{
+  e.stopPropagation();
+  if(moreMenu)moreMenu.hidden=!moreMenu.hidden;
+});
+document.addEventListener('click',(e)=>{
+  if(moreMenu && !moreMenu.hidden && !moreMenu.contains(e.target) && e.target!==moreBtn){
+    closeMoreMenu();
+  }
+});
+internetBtn && internetBtn.addEventListener && internetBtn.addEventListener('click',()=>closeMoreMenu(),{once:false});
+thinkingBtn && thinkingBtn.addEventListener && thinkingBtn.addEventListener('click',()=>closeMoreMenu(),{once:false});
+brainBtn.addEventListener('click',()=>vscode.postMessage({type:'syncBrain'}));
+let thinkingModeOn=false;
+thinkingBtn.addEventListener('click',()=>vscode.postMessage({type:'toggleThinking'}));
+const statFolder=document.getElementById('statFolder'),statFolderText=document.getElementById('statFolderText');
+const statGit=document.getElementById('statGit'),statGitText=document.getElementById('statGitText');
+statFolder.addEventListener('click',()=>vscode.postMessage({type:'statusFolderClick'}));
+statGit.addEventListener('click',()=>vscode.postMessage({type:'statusGitClick'}));
+function updateStatus(s){
+  // s = { folderPath, fileCount, githubUrl, lastSync, syncing }
+  if(!s) return;
+  statFolder.classList.remove('warn','ok','syncing');
+  statGit.classList.remove('warn','ok','syncing');
+  if(!s.folderPath){
+    statFolder.classList.add('warn');
+    statFolderText.textContent='지식 폴더 선택하기';
+  } else {
+    statFolder.classList.add('ok');
+    statFolderText.textContent=(s.fileCount||0)+'개 지식';
+    statFolder.title='지식 폴더: '+s.folderPath+' (클릭하면 열림)';
+  }
+  if(s.syncing){
+    statGit.classList.add('syncing');
+    statGitText.textContent='동기화 중...';
+  } else if(!s.githubUrl){
+    statGit.classList.add('warn');
+    statGitText.textContent='GitHub 백업 설정';
+  } else {
+    statGit.classList.add('ok');
+    statGitText.textContent = s.lastSync ? s.lastSync : 'GitHub 연결됨';
+    statGit.title = s.githubUrl+' (클릭하면 URL 확인/변경 + 지금 동기화)';
+  }
+}
+vscode.postMessage({type:'requestStatus'});
+setInterval(()=>vscode.postMessage({type:'requestStatus'}), 30000);
+stopBtn.addEventListener('click',()=>{vscode.postMessage({type:'stopGeneration'});hideLoader();setSending(false);if(streamBody){streamBody.classList.remove('stream-active')}streamEl=null;streamBody=null;});
+
+/* ===== 1인 기업 모드 ===== */
+function applyCorporateMode(on){
+  corporateMode=on;
+  document.body.classList.toggle('corp-on',on);
+  corporateBtn.style.opacity=on?'1':'0.5';
+  corporateBtn.style.background=on?'linear-gradient(135deg,var(--accent),var(--accent2))':'';
+  corporateBtn.title='1인 기업 모드 — '+(on?'ON':'OFF (클릭해서 켜기)');
+  input.placeholder=on?'한 줄 명령을 내리세요. 팀이 알아서 일합니다.':'무엇을 만들어 드릴까요?';
+  /* Tell extension so autonomous corp activity is gated out of the sidebar
+     while OFF. Office panel + conversation log keep recording either way. */
+  try{vscode.postMessage({type:'corpModeToggle',on:!!on});}catch{}
+}
+
+/* Any corp UI append must drop body.init — otherwise .chat is flex:0 0 auto
+   with overflow:visible (welcome layout), the cards pile up unbounded, and
+   the input bar gets pushed off the bottom of the viewport. */
+function leaveInitState(){
+  document.body.classList.remove('init');
+  const w=document.querySelector('.welcome');if(w)w.remove();
+  document.querySelectorAll('.quick-actions').forEach(e=>e.remove());
+}
+
+function showCorpGate(onUnlock){
+  const old=document.getElementById('corpGateBackdrop');if(old)old.remove();
+  const PIN_LEN = 4;
+  const bd=document.createElement('div');bd.id='corpGateBackdrop';bd.className='cg-backdrop';
+  /* Inline styles outrank any host CSS quirk that drops position:fixed back
+     into body's flex column flow (we saw it appear bottom-left on some
+     Electron variants). */
+  bd.style.cssText = 'position:fixed !important; top:0 !important; left:0 !important; right:0 !important; bottom:0 !important; width:100vw !important; height:100vh !important; z-index:99999 !important; display:flex !important; align-items:center; justify-content:center; margin:0; padding:24px; box-sizing:border-box';
+  let pinCells = '';
+  for(let i=0;i<PIN_LEN;i++) pinCells += '<div class="cg-pin-cell" data-i="' + i + '"></div>';
+  bd.innerHTML='<div class="cg-modal" id="cgModal">'
+    +'<span class="cg-corner tl"></span><span class="cg-corner tr"></span>'
+    +'<span class="cg-corner bl"></span><span class="cg-corner br"></span>'
+    +'<div class="cg-brand"><span class="cg-brand-line"></span>CONNECT · ENTERPRISE OS<span class="cg-brand-line"></span></div>'
+    +'<div class="cg-crest"><div class="cg-crest-bg"></div><div class="cg-lock">🔒</div></div>'
+    +'<div class="cg-tag-wrap"><div class="cg-tag"><span class="cg-tag-dot"></span>BETA · CLEARANCE REQUIRED</div></div>'
+    +'<div class="cg-title"><span class="cg-title-accent">ENTERPRISE</span> MODE</div>'
+    +'<div class="cg-sub">에이전트 팀과 가상 사무실을 활성화하려면 4자리 액세스 코드를 입력하세요.</div>'
+    +'<div class="cg-pin-wrap">'
+    +  '<div class="cg-pin-row">' + pinCells + '</div>'
+    +  '<input id="corpGateInput" class="cg-pin-input" type="password" inputmode="numeric" maxlength="' + PIN_LEN + '" autocomplete="off" pattern="[0-9]*">'
+    +'</div>'
+    +'<div id="corpGateStatus" class="cg-status info">▸ AWAITING ACCESS CODE<span class="cg-status-cursor"></span></div>'
+    +'<div class="cg-hint">테스트 코드: <code>0101</code></div>'
+    +'<div class="cg-actions">'
+    +  '<button class="cg-btn cancel" id="corpGateCancel">[ESC] 취소</button>'
+    +  '<button class="cg-btn ok" id="corpGateOk" disabled>UNLOCK ▸</button>'
+    +'</div>'
+    +'</div>';
+  document.body.appendChild(bd);
+  const inp = document.getElementById('corpGateInput');
+  const status = document.getElementById('corpGateStatus');
+  const okBtn = document.getElementById('corpGateOk');
+  const modal = document.getElementById('cgModal');
+  const cells = modal.querySelectorAll('.cg-pin-cell');
+  setTimeout(()=>inp.focus(), 160);
+
+  function setStatus(text, kind){
+    status.className = 'cg-status' + (kind ? ' ' + kind : '');
+    status.innerHTML = text + (kind === 'info' || !kind ? '<span class="cg-status-cursor"></span>' : '');
+  }
+  function renderPin(){
+    const v = (inp.value || '').replace(/[^0-9]/g, '').slice(0, PIN_LEN);
+    inp.value = v;
+    cells.forEach((c, i) => {
+      c.classList.remove('active', 'filled');
+      if (v[i] !== undefined) {
+        c.classList.add('filled');
+        c.textContent = '●';
+      } else {
+        c.textContent = '';
+        if (i === v.length) c.classList.add('active');
+      }
+    });
+    okBtn.disabled = v.length !== PIN_LEN;
+    if (status.classList.contains('error')) {
+      setStatus('▸ ENTER ' + PIN_LEN + '-DIGIT CODE', 'info');
+    }
+  }
+  function close(){
+    bd.style.transition = 'opacity .3s';
+    bd.style.opacity = '0';
+    setTimeout(()=>bd.remove(), 320);
+  }
+  function burst(){
+    /* Particle ring from modal center + screen flash */
+    const layer = document.createElement('div');
+    layer.className = 'cg-particles';
+    modal.appendChild(layer);
+    const N = 22;
+    for (let i = 0; i < N; i++){
+      const p = document.createElement('span');
+      p.className = 'cg-particle';
+      const angle = (i / N) * Math.PI * 2;
+      const dist = 130 + Math.random() * 120;
+      p.style.left = '50%';
+      p.style.top  = '50%';
+      p.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(0) + 'px');
+      p.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(0) + 'px');
+      if (i % 4 === 0){ p.style.background = '#00cc77'; p.style.boxShadow = '0 0 8px #00cc77'; }
+      p.style.animationDelay = (Math.random() * 0.12).toFixed(2) + 's';
+      layer.appendChild(p);
+      requestAnimationFrame(()=>p.classList.add('go'));
+    }
+    setTimeout(()=>layer.remove(), 1700);
+    const flash = document.createElement('div');
+    flash.className = 'cg-flash';
+    document.body.appendChild(flash);
+    setTimeout(()=>flash.remove(), 1100);
+  }
+  function submit(){
+    if (inp.value.length !== PIN_LEN){
+      setStatus('▸ ' + PIN_LEN + '자리 코드를 입력하세요', 'error');
+      inp.focus();
+      return;
+    }
+    okBtn.disabled = true;
+    setStatus('▸ VERIFYING…', 'info');
+    /* Brief verification feel before either failing or unlocking */
+    setTimeout(() => {
+      if (inp.value === '0101'){
+        corporateUnlocked = true;
+        modal.classList.add('success');
+        setStatus('✓ ACCESS GRANTED — WELCOME', 'ok');
+        burst();
+        setTimeout(() => { close(); onUnlock(); }, 760);
+      } else {
+        setStatus('// ACCESS DENIED — INVALID KEY', 'error');
+        modal.classList.remove('shake');
+        void modal.offsetWidth;
+        modal.classList.add('shake');
+        inp.value = '';
+        renderPin();
+        setTimeout(()=>inp.focus(), 80);
+      }
+    }, 380);
+  }
+  okBtn.addEventListener('click', submit);
+  document.getElementById('corpGateCancel').addEventListener('click', close);
+  inp.addEventListener('input', () => {
+    renderPin();
+    /* Auto-submit on full PIN entry — friendlier than forcing the button */
+    if ((inp.value || '').length === PIN_LEN){
+      setTimeout(submit, 80);
+    }
+  });
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter'){ e.preventDefault(); submit(); }
+    else if (e.key === 'Escape'){ close(); }
+  });
+  /* Click anywhere on the cell row → focus the hidden input */
+  modal.querySelector('.cg-pin-row').addEventListener('click', () => inp.focus());
+  bd.addEventListener('click', e => { if (e.target === bd) close(); });
+  renderPin();
+}
+
+function runCorporateClick(){
+  /* 회사 폴더가 아직 없거나 정체성이 비어있으면 사이드바에서 셋업 먼저 */
+  if(!companyState.folderExists){
+    applyCorporateMode(true);
+    addCorpBanner('👔 처음이시군요. 회사 폴더를 어디에 만들까요?');
+    showOnboardingCard();
+    return;
+  }
+  if(!companyState.configured){
+    applyCorporateMode(true);
+    addCorpBanner('👔 회사 폴더는 있지만 정체성이 비어있어요. 빠르게 3가지만 알려주세요.');
+    showInterviewCard();
+    return;
+  }
+  /* 셋업 완료 → 가상 사무실 토글 (열려있으면 닫고, 닫혀있으면 엶) */
+  if (officeOpen) {
+    vscode.postMessage({type:'closeOffice'});
+  } else {
+    applyCorporateMode(true);
+    vscode.postMessage({type:'toggleOffice'});
+  }
+}
+
+corporateBtn.addEventListener('click',()=>{
+  if(!corporateUnlocked){showCorpGate(runCorporateClick);return;}
+  runCorporateClick();
+});
+abFolder.addEventListener('click',(e)=>{e.stopPropagation();vscode.postMessage({type:'openCompanyFolder'});});
+
+
+function addCorpBanner(text){
+  leaveInitState();
+  const m=document.createElement('div');m.className='msg';
+  m.innerHTML='<div class="msg-body" style="color:#F8FAFC;font-size:12px;opacity:0.9;background:rgba(0,255,65,0.06);border:1px solid rgba(0,255,65,0.25);border-radius:10px;padding:8px 12px;margin-left:29px;font-family:\\'SF Mono\\',monospace;letter-spacing:0.3px;">'+esc(text)+'</div>';
+  chat.appendChild(m);scrollChatToBottomIfNear();
+}
+
+/* ===== Agent panel — clicking any card opens this ===== */
+/* YouTube has the full feature set; the other 9 show a friendly
+   "개발 준비 중" placeholder so users know it's intentional, not broken. */
+const AGENT_LIVE = {youtube: true};
+let _agentPanelOpen = false;
+let _agentPanelLoadHandler = null;
+let _toolConfigLoadHandler = null;
+let _currentPanelAgent = null;
+
+function showAgentPanel(agent){
+  if(_agentPanelOpen)return;
+  _agentPanelOpen = true;
+  _currentPanelAgent = agent;
+  const bd = document.createElement('div');
+  bd.className = 'ap-backdrop';
+  bd.style.setProperty('--ag-color', agent.color);
+  bd.style.setProperty('--ag-color-glow', agent.color + '33');
+  const live = !!AGENT_LIVE[agent.id];
+
+  /* Portrait — high-res custom image gets smooth rendering, pixel sprite
+     gets crisp pixelated rendering. Locked agents are silhouetted. */
+  const portraitClasses = ['ap-portrait'];
+  if (agent.portraitIsCustom) portraitClasses.push('ap-portrait-custom');
+  if (!live) portraitClasses.push('ap-portrait-locked');
+  const portraitPos = agent.portraitIsCustom ? 'center' : 'center top';
+  const portraitInner = agent.portrait
+    ? '<div class="'+portraitClasses.join(' ')+'" style="background-image:url(\\''+agent.portrait+'\\');background-size:cover;background-position:'+portraitPos+'"></div>'
+    : '<div class="'+portraitClasses.join(' ')+' ap-portrait-emoji">'+agent.emoji+'</div>';
+  const portraitHtml = '<div class="ap-portrait-wrap">'+portraitInner+'</div>';
+
+  const statusPill = live
+    ? '<div class="ap-status-pill">ACTIVE</div>'
+    : '';
+
+  const headHtml = '<button class="ap-close" id="apClose" aria-label="닫기">×</button>'
+    + '<div class="ap-head">'
+    + portraitHtml
+    + '<div class="ap-title">'
+    +   '<div class="ap-name">'+esc(agent.name)+'</div>'
+    +   '<div class="ap-role"><span class="ap-role-emoji">'+agent.emoji+'</span>'+esc(agent.role||'')+'</div>'
+    +   statusPill
+    + '</div>'
+    + '</div>';
+
+  let bodyHtml;
+  if(live){
+    bodyHtml = '<div class="ap-body">'
+      /* Mission (goal) — editable per agent. Autosaves on blur. */
+      + '<div class="ap-section">'
+      +   '<div class="ap-section-label">Mission <span class="ap-mission-sub">— 자유롭게 수정하세요. 자동 저장돼요.</span><span class="ap-saved-pill" id="apSavedPill">저장됨</span></div>'
+      +   '<textarea class="ap-goal" id="apGoal" placeholder="이 에이전트가 무엇을 향해 일하길 원하시나요? (예: 채널 구독자 1만 도달, 매주 영상 기획서 3개)"></textarea>'
+      + '</div>'
+      /* Skills (tools) */
+      + '<div class="ap-section" id="apToolsSection" style="display:none">'
+      +   '<div class="ap-section-label">Skills <span class="ap-section-count" id="apToolsCount"></span></div>'
+      +   '<div class="ap-tools" id="apTools"></div>'
+      + '</div>'
+      /* Auto-cycle toggle */
+      + '<button class="ap-toggle-row" id="apToggleRow" type="button">'
+      +   '<div class="ap-toggle-text">'
+      +     '<div class="ap-toggle-title">🌞 24시간 업무 (전체)</div>'
+      +     '<div class="ap-toggle-sub">자리 비울 때 모든 에이전트가 자기 미션대로 한 스텝씩 일합니다</div>'
+      +   '</div>'
+      +   '<span class="ap-toggle" id="apAutoToggle"></span>'
+      + '</button>'
+      /* Toast */
+      + '<div class="ap-toast" id="apToast"></div>'
+      /* Primary action */
+      + '<button class="ap-primary" id="apSaveRun">▶ 지금 한 스텝 실행</button>'
+      /* Footer link */
+      + '<div class="ap-footer"><button class="ap-footer-link" id="apOpenFolder">🗄️ 에이전트 책상 보기</button></div>'
+      + '</div>';
+  } else {
+    /* Locked state — purely informational. No folder, no settings, no actions.
+       Mirrors a "character not unlocked yet" feel from RPG character menus. */
+    bodyHtml = '<div class="ap-locked-body">'
+      + '<div class="ap-locked-banner"><span class="ap-locked-banner-dot"></span>Coming Soon</div>'
+      + '<div class="ap-locked-msg">곧 합류합니다</div>'
+      + '<div class="ap-locked-sub">'+esc(agent.name)+' 에이전트의 전용 설정과 도구는 다음 업데이트에서 풀려요.</div>'
+      + '<div class="ap-locked-tip">💡 먼저 <strong>📺 유튜브 에이전트</strong>를 세팅해보세요 — 채널 그로스 도구가 준비돼있어요.</div>'
+      + '</div>';
+  }
+
+  bd.innerHTML = '<div class="ap-modal">'+headHtml+bodyHtml+'</div>';
+  document.body.appendChild(bd);
+
+  function close(){
+    _agentPanelOpen = false;
+    _currentPanelAgent = null;
+    _agentPanelLoadHandler = null;
+    bd.style.transition='opacity .2s';bd.style.opacity='0';
+    setTimeout(()=>bd.remove(),200);
+    document.removeEventListener('keydown',escHandler);
+  }
+  function escHandler(e){if(e.key==='Escape' && !document.querySelector('.tc-backdrop'))close();}
+  document.addEventListener('keydown',escHandler);
+  bd.addEventListener('click',e=>{if(e.target===bd)close();});
+  document.getElementById('apClose').addEventListener('click',close);
+
+  const folderBtn = document.getElementById('apOpenFolder');
+  if(folderBtn)folderBtn.addEventListener('click',()=>{
+    vscode.postMessage({type:'openCompanyFolder',sub:'_agents/'+agent.id});
+  });
+
+  if(!live)return;
+
+  const goalEl = document.getElementById('apGoal');
+  const toastEl = document.getElementById('apToast');
+  const toggleEl = document.getElementById('apAutoToggle');
+  const toggleRow = document.getElementById('apToggleRow');
+  const saveRunBtn = document.getElementById('apSaveRun');
+  const toolsSection = document.getElementById('apToolsSection');
+  const toolsList = document.getElementById('apTools');
+  const toolsCount = document.getElementById('apToolsCount');
+
+  function showToast(text){
+    toastEl.textContent = text;
+    toastEl.classList.add('show');
+    setTimeout(()=>toastEl.classList.remove('show'),1800);
+  }
+
+  function renderTools(tools){
+    if(!tools || tools.length===0){
+      toolsSection.style.display='none';
+      return;
+    }
+    toolsSection.style.display='';
+    toolsCount.textContent = '('+tools.length+')';
+    toolsList.innerHTML = '';
+    tools.forEach(t=>{
+      const row = document.createElement('div');
+      row.className = 'ap-tool';
+      const emoji = (t.displayName.match(/^[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]/u)||['🛠️'])[0];
+      const cleanName = t.displayName.replace(/^[\\u{1F300}-\\u{1FAFF}\\u{2600}-\\u{27BF}]\\s*/u,'');
+      row.innerHTML = '<div class="ap-tool-emoji">'+emoji+'</div>'
+        + '<div class="ap-tool-meta"><div class="ap-tool-name">'+esc(cleanName)+'</div><div class="ap-tool-desc">'+esc(t.description||'')+'</div></div>'
+        + '<div class="ap-tool-actions">'
+        +   '<button class="ap-tool-btn" data-act="config" title="설정 (API 키 등)">⚙️</button>'
+        +   '<button class="ap-tool-btn" data-act="run" title="실행">▶</button>'
+        + '</div>';
+      row.querySelector('[data-act="config"]').addEventListener('click',e=>{
+        e.stopPropagation();
+        showToolConfig(agent, t);
+      });
+      row.querySelector('[data-act="run"]').addEventListener('click',e=>{
+        e.stopPropagation();
+        vscode.postMessage({type:'runTool', agent: agent.id, tool: t.name});
+        showToast('🛠️ '+cleanName+' 실행 요청을 보냈어요.');
+      });
+      toolsList.appendChild(row);
+    });
+  }
+
+  /* Mission autosave — saves on blur and on debounced typing pause so the
+     user doesn't need a save button. The pill flashes briefly to confirm. */
+  const savedPill = document.getElementById('apSavedPill');
+  let _lastSavedGoal = '';
+  let _saveDebounce = null;
+  function flashSaved(){
+    if(!savedPill)return;
+    savedPill.classList.add('show');
+    setTimeout(()=>savedPill.classList.remove('show'), 1500);
+  }
+  function persistGoalIfChanged(){
+    const v = goalEl.value;
+    if(v === _lastSavedGoal)return;
+    _lastSavedGoal = v;
+    vscode.postMessage({type:'saveAgentGoal', agent: agent.id, goal: v});
+    flashSaved();
+  }
+  goalEl.addEventListener('input', ()=>{
+    if(_saveDebounce)clearTimeout(_saveDebounce);
+    _saveDebounce = setTimeout(persistGoalIfChanged, 700);
+  });
+  goalEl.addEventListener('blur', ()=>{
+    if(_saveDebounce){clearTimeout(_saveDebounce);_saveDebounce=null;}
+    persistGoalIfChanged();
+  });
+
+  /* Request agent config + tools list */
+  vscode.postMessage({type:'loadAgentConfig', agent: agent.id});
+  _agentPanelLoadHandler = (msg)=>{
+    if(msg.agent !== agent.id)return;
+    goalEl.value = msg.goal || '';
+    _lastSavedGoal = msg.goal || '';
+    toggleEl.classList.toggle('on', !!msg.autoOn);
+    renderTools(msg.tools || []);
+  };
+
+  toggleRow.addEventListener('click',()=>{
+    const on = !toggleEl.classList.contains('on');
+    toggleEl.classList.toggle('on', on);
+    vscode.postMessage({type:'toggleAutoCycle', on});
+    showToast(on ? '✓ 24시간 업무 ON — 모든 에이전트가 자기 미션대로 일합니다' : '⏸ 24시간 업무 OFF');
+  });
+
+  saveRunBtn.addEventListener('click',()=>{
+    /* Persist any pending edit before kicking off the step. */
+    persistGoalIfChanged();
+    vscode.postMessage({type:'runAgentStep', agent: agent.id});
+    showToast('✓ 에이전트가 작업을 시작합니다.');
+    setTimeout(close, 700);
+  });
+}
+
+/* ===== Tool config modal — opens above agent panel ===== */
+function showToolConfig(agent, tool){
+  const bd = document.createElement('div');
+  bd.className = 'tc-backdrop';
+  const helpHtml = tool.name === 'trend_sniper'
+    ? '<div class="tc-help">💡 <strong>API 키 발급</strong>: <code>console.cloud.google.com</code> → 프로젝트 생성 → <code>YouTube Data API v3</code> 사용 설정 → 사용자 인증 정보 → API 키 만들기. 무료 할당량 충분합니다.</div>'
+    : '';
+  bd.innerHTML = '<div class="tc-modal">'
+    + '<div class="tc-head">'
+    +   '<div class="tc-title"><div class="tc-tool-name">'+esc(tool.displayName)+'</div><div class="tc-tool-desc">'+esc(tool.description||'')+'</div></div>'
+    +   '<button class="ap-close" id="tcClose" aria-label="닫기">×</button>'
+    + '</div>'
+    + '<div class="tc-body" id="tcBody"></div>'
+    + helpHtml
+    + '<div class="tc-actions">'
+    +   '<button class="tc-btn secondary" id="tcOpenFile">📝 파일로 열기</button>'
+    +   '<button class="tc-btn" id="tcSave">💾 저장</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+
+  function close(){
+    bd.style.transition='opacity .15s';bd.style.opacity='0';
+    setTimeout(()=>bd.remove(),150);
+    _toolConfigLoadHandler = null;
+  }
+  document.getElementById('tcClose').addEventListener('click',close);
+  bd.addEventListener('click',e=>{if(e.target===bd)close();});
+
+  const body = document.getElementById('tcBody');
+  function renderFields(schema){
+    body.innerHTML = '';
+    schema.forEach(field=>{
+      const wrap = document.createElement('div');
+      wrap.className = 'tc-field';
+      const labelHelp = field.type==='password'?'비밀로 저장됨':field.type==='list'?'한 줄에 하나씩':'';
+      let inputHtml;
+      if(field.type === 'list'){
+        const txt = Array.isArray(field.value) ? field.value.join('\\n') : '';
+        inputHtml = '<textarea class="tc-list" data-key="'+esc(field.key)+'">'+esc(txt)+'</textarea>';
+      } else if(field.type === 'password'){
+        inputHtml = '<input type="password" class="tc-input password" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'" placeholder="여기에 입력하세요">';
+      } else if(field.type === 'number'){
+        inputHtml = '<input type="number" class="tc-input" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'">';
+      } else {
+        inputHtml = '<input type="text" class="tc-input" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'">';
+      }
+      wrap.innerHTML = '<label class="tc-label">'+esc(field.label)+(labelHelp?'<span class="tc-label-help">'+labelHelp+'</span>':'')+'</label>' + inputHtml;
+      body.appendChild(wrap);
+    });
+  }
+
+  /* Load fresh schema from extension (in case tool .json was edited externally) */
+  vscode.postMessage({type:'loadToolConfig', agent: agent.id, tool: tool.name});
+  _toolConfigLoadHandler = (msg)=>{
+    if(msg.agent !== agent.id || msg.tool !== tool.name)return;
+    renderFields(msg.schema || tool.configSchema || []);
+  };
+  /* Show what we already have, in case the load message races */
+  renderFields(tool.configSchema || []);
+
+  document.getElementById('tcOpenFile').addEventListener('click',()=>{
+    vscode.postMessage({type:'openToolFile', agent: agent.id, tool: tool.name, kind:'config'});
+    close();
+  });
+  document.getElementById('tcSave').addEventListener('click',()=>{
+    const inputs = body.querySelectorAll('[data-key]');
+    const values = {};
+    inputs.forEach(el=>{
+      const key = el.getAttribute('data-key');
+      if(el.classList.contains('tc-list')){
+        values[key] = el.value.split('\\n').map(s=>s.trim()).filter(Boolean);
+      } else if(el.type === 'number'){
+        const n = parseFloat(el.value);
+        values[key] = Number.isFinite(n) ? n : 0;
+      } else {
+        values[key] = el.value;
+      }
+    });
+    vscode.postMessage({type:'saveToolConfig', agent: agent.id, tool: tool.name, config: values});
+    /* Reload agent config so panel shows updated tool */
+    vscode.postMessage({type:'loadAgentConfig', agent: agent.id});
+    close();
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOT SEQUENCE — replaces the inline onboard/interview chat cards with a
+   cinematic full-overlay flow. Three stages:
+     stage 1 (folder)    → bootRenderHero
+     stage 2 (interview) → bootRenderWizard (sub-steps 0..2)
+     stage 3 (team)      → bootRenderTeamReveal
+   Each stage replaces the .boot-stage contents with smooth transitions.
+   Falls back gracefully — if the overlay errors, the original cards are
+   never touched (we deleted them to keep the UI consistent). */
+let _boot = null; /* { backdrop, stage, mode } */
+function bootEnsure(){
+  if(_boot && _boot.backdrop && document.body.contains(_boot.backdrop)) return _boot;
+  const bd = document.createElement('div');
+  bd.className = 'boot-backdrop';
+  /* Inline styles outrank any host CSS that drops position:fixed back into
+     body's flex column flow (we saw it pin to bottom-left on some hosts). */
+  bd.style.cssText = 'position:fixed !important; top:0 !important; left:0 !important; right:0 !important; bottom:0 !important; width:100vw !important; height:100vh !important; z-index:99997 !important; display:flex !important; align-items:center; justify-content:center; margin:0; padding:24px; box-sizing:border-box';
+  bd.innerHTML =
+    '<div class="boot-stage" id="bootStage">'
+    + '<span class="boot-corner tl"></span><span class="boot-corner tr"></span>'
+    + '<span class="boot-corner bl"></span><span class="boot-corner br"></span>'
+    + '<button class="boot-close" id="bootClose">[ESC] 닫기</button>'
+    + '<div id="bootContent"></div>'
+    + '</div>';
+  document.body.appendChild(bd);
+  _boot = { backdrop: bd, stage: bd.querySelector('#bootStage'), content: bd.querySelector('#bootContent') };
+  document.getElementById('bootClose').addEventListener('click', bootClose);
+  function esc(e){ if(e.key==='Escape') bootClose(); }
+  bd.addEventListener('keydown', esc);
+  document.addEventListener('keydown', esc);
+  _boot._esc = esc;
+  return _boot;
+}
+function bootClose(){
+  if(!_boot) return;
+  _boot.backdrop.classList.add('closing');
+  document.removeEventListener('keydown', _boot._esc);
+  setTimeout(()=>{ if(_boot){ _boot.backdrop.remove(); _boot = null; } }, 320);
+}
+function bootSetContent(html){
+  const b = bootEnsure();
+  b.content.innerHTML = html;
+}
+function bootBurstParticles(){
+  /* Quick celebratory burst from center of stage. CSS-driven, no libs. */
+  if(!_boot) return;
+  const layer = document.createElement('div');
+  layer.className = 'boot-particles';
+  _boot.stage.appendChild(layer);
+  const N = 26;
+  for(let i=0;i<N;i++){
+    const p = document.createElement('span');
+    p.className = 'boot-particle';
+    const angle = (i / N) * Math.PI * 2;
+    const dist = 140 + Math.random() * 140;
+    p.style.left = '50%';
+    p.style.top  = '50%';
+    p.style.setProperty('--dx', (Math.cos(angle) * dist).toFixed(0) + 'px');
+    p.style.setProperty('--dy', (Math.sin(angle) * dist).toFixed(0) + 'px');
+    p.style.background = (i % 3 === 0) ? '#FFB266' : 'var(--accent)';
+    p.style.boxShadow  = '0 0 8px ' + (i % 3 === 0 ? '#FFB266' : 'var(--accent)');
+    p.style.animationDelay = (Math.random() * 0.15).toFixed(2) + 's';
+    layer.appendChild(p);
+    requestAnimationFrame(()=>p.classList.add('go'));
+  }
+  setTimeout(()=>layer.remove(), 1800);
+  /* Full-screen flash too */
+  const flash = document.createElement('div');
+  flash.className = 'boot-flash';
+  document.body.appendChild(flash);
+  setTimeout(()=>flash.remove(), 1100);
+}
+
+/* ── STAGE 1: hero / folder choice ─────────────────────────────────────── */
+function showOnboardingCard(){
+  bootEnsure();
+  bootSetContent(
+    '<div class="boot-head">'
+    +   '<div class="boot-tag"><span class="boot-tag-dot"></span>SYSTEM BOOT · STAGE 1 / 3</div>'
+    +   '<div class="boot-h1">당신의 <span class="accent">AI 1인 기업</span>을<br>시작합니다</div>'
+    +   '<div class="boot-sub">앞으로 모든 에이전트가 함께 일하게 될 회사 폴더를 먼저 정하세요. 메모리·산출물·의사결정 로그가 전부 여기 쌓입니다 — GitHub 백업으로 다른 PC에서도 이어갈 수 있어요.</div>'
+    + '</div>'
+    + '<div class="boot-body">'
+    +   '<div class="boot-options">'
+    +     '<button class="boot-opt recommended" data-choice="default">'
+    +       '<span class="bo-icon">🏠</span>'
+    +       '<span class="bo-text"><span class="bo-title">디폴트 위치에 만들기 <span class="bo-recpill">권장</span></span><span class="bo-desc">~/.connect-ai-brain/Company/ — 기존 두뇌 폴더 안. 두뇌랑 같이 동기화됩니다.</span></span>'
+    +       '<span class="bo-arrow">→</span>'
+    +     '</button>'
+    +     '<button class="boot-opt" data-choice="pick">'
+    +       '<span class="bo-icon">📂</span>'
+    +       '<span class="bo-text"><span class="bo-title">직접 폴더 선택</span><span class="bo-desc">원하는 위치를 골라서 그 안에 Company/를 만듭니다.</span></span>'
+    +       '<span class="bo-arrow">→</span>'
+    +     '</button>'
+    +     '<button class="boot-opt" data-choice="import">'
+    +       '<span class="bo-icon">📥</span>'
+    +       '<span class="bo-text"><span class="bo-title">다른 PC에서 가져오기</span><span class="bo-desc">기존 회사 폴더의 GitHub URL로 복원합니다.</span></span>'
+    +       '<span class="bo-arrow">→</span>'
+    +     '</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div class="boot-foot"><span class="boot-foot-hint">ESC = 나중에</span><span class="boot-spacer"></span></div>'
+  );
+  _boot.content.querySelectorAll('.boot-opt').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const choice = btn.getAttribute('data-choice');
+      vscode.postMessage({ type:'companySetup', choice });
+      /* Don't close yet — server will follow up with corporateState that
+         either sends us into the wizard (if folder ready) or back here. */
+    });
+  });
+}
+
+/* ── STAGE 2: wizard interview (3 steps) ──────────────────────────────── */
+const _BOOT_WIZ = {
+  name:'', oneLiner:'', audience:'', goalYear:'', goalMonth:'', needs:'',
+};
+function showInterviewCard(){
+  bootEnsure();
+  bootRenderWizard(0);
+}
+const _BOOT_STEPS = [
+  { tag:'STAGE 2 / 3 · STEP 1', h1:'당신의 <span class="accent">정체성</span>을 알려주세요',
+    sub:'CEO와 모든 에이전트가 이 정보를 보고 일합니다. 비워둬도 OK — 나중에 "👔 회사명" 뱃지에서 언제든 수정할 수 있어요.',
+    fields:[
+      { key:'name',     emoji:'🏢', label:'회사·브랜드 이름', placeholder:'예: 제이코프 / 1인 크리에이터' },
+      { key:'oneLiner', emoji:'💬', label:'한 줄로 뭐 하시는 분이세요?', placeholder:'예: 자기계발 콘텐츠 만드는 1인 크리에이터' },
+      { key:'audience', emoji:'🎯', label:'누구를 위해 만드세요?', placeholder:'예: 30대 직장인, 자격증 준비생', help:'타깃 청중' },
+    ]},
+  { tag:'STAGE 2 / 3 · STEP 2', h1:'<span class="accent">목표</span>를 정합니다',
+    sub:'에이전트들이 매 사이클 이 목표를 보고 다음 한 스텝을 결정합니다. 추상적인 것보다 결과로 측정 가능한 형태가 좋아요.',
+    fields:[
+      { key:'goalYear',  emoji:'🚀', label:'올해 핵심 목표 1개', placeholder:'예: 유튜브 구독자 1만 도달' },
+      { key:'goalMonth', emoji:'📅', label:'이번 달 안에 끝낼 목표 1개', placeholder:'예: 영상 4편 업로드 + 댓글 패턴 정리' },
+    ]},
+  { tag:'STAGE 2 / 3 · STEP 3', h1:'지금 <span class="accent">가장 필요한 것</span>은?',
+    sub:'시간 / 돈 / 사람 / 툴 / 지식 — 무엇이든. CEO가 이 정보를 보고 어떤 에이전트에게 어떤 작업을 분배할지 우선순위를 정합니다.',
+    fields:[
+      { key:'needs', emoji:'🆘', textarea:true, label:'필요한 것을 자유롭게', placeholder:'예: 썸네일 디자인에 시간이 너무 오래 걸려서 자동화가 필요합니다. 그리고 매주 3편을 안정적으로 업로드할 콘텐츠 파이프라인이 부족해요.' },
+    ]},
+];
+function _bootProgressHtml(active){
+  let html = '<div class="boot-progress">';
+  for(let i=0;i<_BOOT_STEPS.length;i++){
+    const cls = i < active ? 'done' : (i === active ? 'active' : '');
+    html += '<div class="boot-progress-step ' + cls + '"><span class="bp-num">' + (i+1) + '</span>'
+         + '<span>' + (i===0?'정체성':(i===1?'목표':'필요')) + '</span></div>';
+    if(i < _BOOT_STEPS.length - 1){
+      html += '<div class="boot-progress-line ' + (i < active ? 'done' : '') + '"></div>';
+    }
+  }
+  html += '</div>';
+  return html;
+}
+function _bootFieldHtml(f){
+  const help = f.help ? '<span class="boot-field-help">' + f.help + '</span>' : '';
+  if(f.textarea){
+    return '<div class="boot-field">'
+         + '<div class="boot-field-label">' + f.emoji + ' ' + f.label + help + '</div>'
+         + '<textarea class="boot-textarea" id="bw_' + f.key + '" placeholder="' + f.placeholder + '"></textarea>'
+         + '</div>';
+  }
+  return '<div class="boot-field">'
+       + '<div class="boot-field-label">' + f.emoji + ' ' + f.label + help + '</div>'
+       + '<input class="boot-input" id="bw_' + f.key + '" placeholder="' + f.placeholder + '">'
+       + '</div>';
+}
+function bootRenderWizard(idx){
+  const step = _BOOT_STEPS[idx];
+  bootEnsure();
+  let body = '<div class="boot-wstep enter">';
+  for(const f of step.fields) body += _bootFieldHtml(f);
+  body += '</div>';
+  const isLast = idx === _BOOT_STEPS.length - 1;
+  const prevBtn = idx > 0
+    ? '<button class="boot-btn ghost" id="bwPrev">← 이전</button>'
+    : '<button class="boot-btn ghost" id="bwSkip">전체 건너뛰기</button>';
+  const nextBtn = isLast
+    ? '<button class="boot-btn primary" id="bwNext">✨ 회사 출범 →</button>'
+    : '<button class="boot-btn primary" id="bwNext">계속 →</button>';
+  bootSetContent(
+    '<div class="boot-head">'
+    +   '<div class="boot-tag"><span class="boot-tag-dot"></span>' + step.tag + '</div>'
+    +   '<div class="boot-h1">' + step.h1 + '</div>'
+    +   '<div class="boot-sub">' + step.sub + '</div>'
+    + '</div>'
+    + _bootProgressHtml(idx)
+    + '<div class="boot-body">' + body + '</div>'
+    + '<div class="boot-foot">'
+    +   prevBtn
+    +   '<span class="boot-spacer"></span>'
+    +   '<span class="boot-foot-hint">Enter = 다음</span>'
+    +   nextBtn
+    + '</div>'
+  );
+  /* Restore previously typed values for this step */
+  for(const f of step.fields){
+    const el = document.getElementById('bw_' + f.key);
+    if(el) el.value = _BOOT_WIZ[f.key] || '';
+  }
+  setTimeout(()=>{ const first = document.getElementById('bw_' + step.fields[0].key); if(first) first.focus(); }, 80);
+
+  function captureStep(){
+    for(const f of step.fields){
+      const el = document.getElementById('bw_' + f.key);
+      if(el) _BOOT_WIZ[f.key] = (el.value || '').trim();
+    }
+  }
+  function goNext(){
+    captureStep();
+    if(isLast){
+      vscode.postMessage({ type:'companyInterview', answers: Object.assign({}, _BOOT_WIZ) });
+      bootRenderTeamReveal();
+      return;
+    }
+    /* Animate exit then render next */
+    const wstep = _boot.content.querySelector('.boot-wstep');
+    if(wstep){
+      wstep.classList.remove('enter');
+      wstep.classList.add('exit');
+      setTimeout(()=>bootRenderWizard(idx+1), 220);
+    } else {
+      bootRenderWizard(idx+1);
+    }
+  }
+  function goPrev(){
+    captureStep();
+    bootRenderWizard(idx-1);
+  }
+  const nextEl = document.getElementById('bwNext'); if(nextEl) nextEl.addEventListener('click', goNext);
+  const prevEl = document.getElementById('bwPrev'); if(prevEl) prevEl.addEventListener('click', goPrev);
+  const skipEl = document.getElementById('bwSkip');
+  if(skipEl) skipEl.addEventListener('click', ()=>{
+    vscode.postMessage({ type:'companyInterview', answers:{} });
+    bootRenderTeamReveal();
+  });
+  /* Enter advances. Shift+Enter newline in textareas. */
+  step.fields.forEach(f=>{
+    const el = document.getElementById('bw_' + f.key);
+    if(!el) return;
+    el.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter' && !e.shiftKey && !f.textarea){ e.preventDefault(); goNext(); }
+    });
+  });
+}
+
+/* ── STAGE 3: team reveal celebration ─────────────────────────────────── */
+function bootRenderTeamReveal(){
+  bootEnsure();
+  const companyName = (companyState && companyState.name) ? companyState.name : (_BOOT_WIZ.name || '당신의 회사');
+  /* Pull the agents we already know about from agentMap (populated by
+     corporateReady). If empty (early init), ask host to send them. */
+  let agents = Object.values(agentMap || {});
+  if(!agents.length){
+    /* Defer briefly — agentMap usually fills within ms after corporateReady. */
+    setTimeout(bootRenderTeamReveal, 200);
+    return;
+  }
+  /* CEO first, then the rest in role order. */
+  agents = agents.slice().sort((a,b)=>{
+    if(a.id==='ceo') return -1;
+    if(b.id==='ceo') return 1;
+    return 0;
+  });
+  let cards = '';
+  for(let i=0;i<agents.length;i++){
+    const a = agents[i];
+    const live = a.id === 'youtube' || a.id === 'ceo';
+    const tag = live
+      ? '<span class="btc-active">● Active</span>'
+      : '<span class="btc-pending">Coming Soon</span>';
+    cards += '<div class="boot-team-card" data-i="' + i + '" style="--ag-color:' + a.color + ';--ag-color-glow:' + a.color + '55">'
+          +   '<span class="btc-emoji">' + a.emoji + '</span>'
+          +   '<span class="btc-name">' + esc(a.name) + '</span>'
+          +   '<span class="btc-role">' + esc(a.role || '') + '</span>'
+          +   tag
+          + '</div>';
+  }
+  bootSetContent(
+    '<div class="boot-head">'
+    +   '<div class="boot-tag"><span class="boot-tag-dot"></span>STAGE 3 / 3 · TEAM ASSEMBLY</div>'
+    +   '<div class="boot-h1"><span class="accent">' + esc(companyName) + '</span>의<br>팀이 자리를 잡았습니다</div>'
+    +   '<div class="boot-sub">CEO가 회사 목표를 읽고 적절한 에이전트에게 작업을 분배합니다. 24시간 업무 모드를 켜두면 자리를 비울 때도 자동으로 일해요.</div>'
+    + '</div>'
+    + '<div class="boot-body">'
+    +   '<div class="boot-team-status" id="bootTeamStatus">팀 합류 중…</div>'
+    +   '<div class="boot-team-grid" id="bootTeamGrid">' + cards + '</div>'
+    + '</div>'
+    + '<div class="boot-foot">'
+    +   '<button class="boot-btn ghost" id="bootSkipReveal">건너뛰기</button>'
+    +   '<span class="boot-spacer"></span>'
+    +   '<button class="boot-btn primary" id="bootEnterOffice" disabled>🏢 사무실 입장 →</button>'
+    + '</div>'
+  );
+  const grid = document.getElementById('bootTeamGrid');
+  const statusEl = document.getElementById('bootTeamStatus');
+  const enterBtn = document.getElementById('bootEnterOffice');
+  const cardsEls = grid ? grid.querySelectorAll('.boot-team-card') : [];
+  /* Stagger reveal */
+  cardsEls.forEach((c, i)=>{
+    setTimeout(()=>{
+      c.classList.add('in');
+      if(statusEl){
+        statusEl.textContent = (i + 1) + ' / ' + cardsEls.length + ' 합류 — ' + agents[i].emoji + ' ' + agents[i].name;
+      }
+    }, 220 + i * 140);
+  });
+  /* Once everyone is in, fire celebration + enable enter button */
+  setTimeout(()=>{
+    if(statusEl) statusEl.textContent = '✨ 팀 합류 완료';
+    if(enterBtn) enterBtn.disabled = false;
+    bootBurstParticles();
+  }, 220 + cardsEls.length * 140 + 250);
+
+  document.getElementById('bootSkipReveal').addEventListener('click', ()=>{
+    bootClose();
+    /* Open office immediately */
+    vscode.postMessage({ type:'toggleOffice' });
+  });
+  enterBtn.addEventListener('click', ()=>{
+    bootClose();
+    vscode.postMessage({ type:'toggleOffice' });
+  });
+}
+
+/* ── Mid-stream company setup editor ────────────────────────────────────
+   Same fields as the first-time interview + advanced (audience/tone/taboos).
+   Loads current values from disk via loadCompanyConfig, saves via
+   saveCompanyConfig. Trigger: brand-suffix badge click. */
+let _companyEditOpen = false;
+let _companyEditLoadHandler = null;
+function showCompanyEditCard(){
+  if(_companyEditOpen)return;
+  _companyEditOpen = true;
+  const bd = document.createElement('div');
+  bd.className = 'cs-backdrop';
+  bd.innerHTML =
+    '<div class="cs-modal" role="dialog" aria-modal="true">'
+    + '<div class="cs-head">'
+    +   '<span class="cs-head-emoji">🏢</span>'
+    +   '<div>'
+    +     '<div class="cs-head-title">회사 설정 편집</div>'
+    +     '<div class="cs-head-sub">언제든 수정 가능 — 모든 에이전트가 다음 사이클부터 새 값을 봅니다</div>'
+    +   '</div>'
+    +   '<button class="cs-close" id="csClose" aria-label="닫기">×</button>'
+    + '</div>'
+    + '<div class="cs-body">'
+    +   '<div class="cs-section"><div class="cs-section-label">회사·브랜드 이름</div><input class="cs-input" id="csName" placeholder="예: 제이코프 / 1인 크리에이터"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">한 줄 소개</div><input class="cs-input" id="csOneLiner" placeholder="예: 자기계발 콘텐츠 만드는 1인 크리에이터"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">타깃 청중 <span class="cs-section-help">누구를 위해 만드나요</span></div><input class="cs-input" id="csAudience" placeholder="예: 30대 직장인, 자격증 준비생"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">🎯 올해 핵심 목표</div><input class="cs-input" id="csGoalYear" placeholder="예: 유튜브 구독자 1만"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">📅 이번 달 목표</div><input class="cs-input" id="csGoalMonth" placeholder="예: 영상 4편 + 댓글 패턴 정리"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">🆘 지금 가장 필요한 것 <span class="cs-section-help">시간 / 돈 / 사람 / 툴 / 지식</span></div><textarea class="cs-textarea" id="csNeeds" placeholder="예: 썸네일 디자인 시간이 너무 오래 걸림 → 자동화 필요"></textarea></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">브랜드 톤 <span class="cs-section-help">선택 — 어떤 말투로 말할지</span></div><input class="cs-input" id="csTone" placeholder="예: 직설적, 데이터 기반, 친근함"></div>'
+    +   '<div class="cs-section"><div class="cs-section-label">금기 <span class="cs-section-help">선택 — 절대 하지 말아야 할 것</span></div><input class="cs-input" id="csTaboos" placeholder="예: 클릭베이트 제목, 정치 주제"></div>'
+    + '</div>'
+    + '<div class="cs-saved" id="csSaved">✓ 저장됨</div>'
+    + '<div class="cs-actions">'
+    +   '<button class="cs-btn secondary" id="csOpenFolder">🗂️ 회사 공용 드라이브</button>'
+    +   '<button class="cs-btn" id="csSaveBtn">💾 저장</button>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(bd);
+
+  function close(){
+    _companyEditOpen = false;
+    _companyEditLoadHandler = null;
+    bd.style.transition = 'opacity .2s'; bd.style.opacity = '0';
+    setTimeout(()=>bd.remove(), 200);
+    document.removeEventListener('keydown', escHandler);
+  }
+  function escHandler(ev){ if(ev.key==='Escape')close(); }
+  document.addEventListener('keydown', escHandler);
+  bd.addEventListener('click', ev => { if(ev.target===bd)close(); });
+  document.getElementById('csClose').addEventListener('click', close);
+  document.getElementById('csOpenFolder').addEventListener('click', () => {
+    vscode.postMessage({ type:'openCompanyFolder', sub:'_shared' });
+  });
+
+  /* Load current values from disk */
+  vscode.postMessage({ type:'loadCompanyConfig' });
+  _companyEditLoadHandler = (msg) => {
+    const c = msg.config || {};
+    const set = (id,v) => { const el = document.getElementById(id); if(el)el.value = v || ''; };
+    set('csName', c.name);
+    set('csOneLiner', c.oneLiner);
+    set('csAudience', c.audience);
+    set('csGoalYear', c.goalYear);
+    set('csGoalMonth', c.goalMonth);
+    set('csNeeds', c.needs);
+    set('csTone', c.tone);
+    set('csTaboos', c.taboos);
+    setTimeout(()=>{ const f = document.getElementById('csName'); if(f)f.focus(); }, 50);
+  };
+
+  document.getElementById('csSaveBtn').addEventListener('click', () => {
+    const v = id => (document.getElementById(id).value || '').trim();
+    vscode.postMessage({ type:'saveCompanyConfig', config: {
+      name: v('csName'),
+      oneLiner: v('csOneLiner'),
+      audience: v('csAudience'),
+      goalYear: v('csGoalYear'),
+      goalMonth: v('csGoalMonth'),
+      needs: v('csNeeds'),
+      tone: v('csTone'),
+      taboos: v('csTaboos'),
+    }});
+    const saved = document.getElementById('csSaved');
+    saved.classList.add('show');
+    setTimeout(()=>saved.classList.remove('show'), 1400);
+    setTimeout(close, 600);
+  });
+}
+
+function applyCompanyState(s){
+  if(!s)return;
+  companyState.configured=!!s.configured;
+  companyState.name=s.companyName||'';
+  companyState.dir=s.companyDir||'';
+  companyState.folderExists=!!s.folderExists;
+  /* Company configured → onboarding is implicitly done. Auto-dismiss any
+     lingering 4-step onboarding card so the welcome screen is clean. */
+  if(companyState.configured && onboardingState && !onboardingState.dismissed){
+    onboardingState.dismissed=true;
+    const root=document.getElementById('onboardRoot');if(root)root.innerHTML='';
+    try{vscode.postMessage({type:'dismissOnboarding'});}catch{}
+  }
+  /* 헤더 — 기업 모드일 때 회사명 OR "1인 기업" fallback 뱃지 */
+  if(brandSuffix){
+    if(companyState.name){
+      brandSuffix.textContent='👔 '+companyState.name;
+      brandSuffix.classList.add('has-name');
+    } else {
+      brandSuffix.textContent='👔 1인 기업';
+      brandSuffix.classList.remove('has-name');
+    }
+  }
+  /* 에이전트 보드 헤더 */
+  if(abCompanyName)abCompanyName.textContent=companyState.name||'1인 기업 OS';
+  if(abFolderText)abFolderText.textContent=companyState.dir||'미설정';
+}
+abFolder.addEventListener('click',(e)=>{e.stopPropagation();vscode.postMessage({type:'openCompanyFolder'});});
+
+/* Brand badge → opens the company-edit modal so users can change name /
+   goals / needs without touching markdown files. Also opens via clicking
+   the team-board company name. */
+if(brandSuffix){
+  brandSuffix.title='클릭해서 회사 설정 편집';
+  brandSuffix.addEventListener('click',(e)=>{e.stopPropagation();showCompanyEditCard();});
+}
+if(abCompanyName){
+  abCompanyName.style.cursor='pointer';
+  abCompanyName.title='클릭해서 회사 설정 편집';
+  abCompanyName.addEventListener('click',(e)=>{e.stopPropagation();showCompanyEditCard();});
+}
+
+/* Agent board collapse toggle — keeps the chat clean while letting users
+   peek at team status. Default: collapsed. State persists via localStorage. */
+(function(){
+  const board=document.getElementById('agentBoard');
+  const head=document.getElementById('abHead');
+  if(!board||!head)return;
+  const KEY='cailab.agentBoardCollapsed';
+  let collapsed;
+  try{collapsed=localStorage.getItem(KEY);}catch{collapsed=null;}
+  if(collapsed===null)collapsed='1';
+  board.classList.toggle('collapsed', collapsed==='1');
+  head.addEventListener('click',()=>{
+    const nowCollapsed=!board.classList.contains('collapsed');
+    board.classList.toggle('collapsed', nowCollapsed);
+    try{localStorage.setItem(KEY, nowCollapsed?'1':'0');}catch{}
+  });
+})();
+
+/* Mini emoji dots — visible in collapsed mode, mirror full cards' state. */
+let agentMiniDotEls={};
+function renderAgentBoard(agents,companyDir){
+  agentMap={};agentCardEls={};agentMiniDotEls={};
+  abGrid.innerHTML='';
+  const miniStrip=document.getElementById('abMiniStrip');
+  if(miniStrip)miniStrip.innerHTML='';
+  if(companyDir){const t=document.getElementById('abFolderText');if(t)t.textContent=companyDir;}
+  agents.forEach(a=>{
+    agentMap[a.id]=a;
+    const card=document.createElement('div');
+    card.className='ab-card idle';
+    card.style.setProperty('--ag-color',a.color);
+    card.style.setProperty('--ag-color-glow',a.color+'33');
+    card.dataset.agent=a.id;
+    const statusText = AGENT_LIVE[a.id] ? 'IDLE' : '곧 합류';
+    card.innerHTML='<span class="ab-led"></span><div class="ab-emoji">'+a.emoji+'</div><div class="ab-name">'+a.name+'</div><div class="ab-status">'+statusText+'</div>';
+    card.addEventListener('click',()=>{
+      showAgentPanel(a);
+    });
+    abGrid.appendChild(card);
+    agentCardEls[a.id]=card;
+    /* Mini dot for the collapsed strip — clickable and stops the header
+       collapse from firing. */
+    if(miniStrip){
+      const dot=document.createElement('span');
+      dot.className='ab-mini-dot idle';
+      dot.style.setProperty('--ag-color',a.color);
+      dot.style.setProperty('--ag-color-glow',a.color+'66');
+      dot.dataset.agent=a.id;
+      dot.title=a.emoji+' '+a.name;
+      dot.textContent=a.emoji;
+      dot.addEventListener('click',(e)=>{
+        e.stopPropagation();
+        showAgentPanel(a);
+      });
+      miniStrip.appendChild(dot);
+      agentMiniDotEls[a.id]=dot;
+    }
+  });
+}
+
+function setCardState(agent,state,task){
+  const c=agentCardEls[agent];if(!c)return;
+  c.classList.remove('idle','thinking','working','done');
+  c.classList.add(state);
+  const s=c.querySelector('.ab-status');
+  if(s){
+    if(state==='idle')s.textContent=AGENT_LIVE[agent] ? 'IDLE' : '곧 합류';
+    else if(state==='thinking')s.textContent='THINKING';
+    else if(state==='working')s.textContent='WORKING';
+    else if(state==='done')s.textContent='DONE';
+  }
+  const dot=agentMiniDotEls[agent];
+  if(dot){
+    dot.classList.remove('idle','thinking','working','done');
+    dot.classList.add(state);
+  }
+  /* 작업 라벨 toast */
+  const old=c.querySelector('.ab-task-toast');if(old)old.remove();
+  if(task && (state==='working'||state==='thinking')){
+    const t=document.createElement('div');t.className='ab-task-toast';t.textContent=task;
+    c.appendChild(t);
+    setTimeout(()=>{if(t.parentNode)t.style.opacity='0.0';setTimeout(()=>t.remove(),400);},2400);
+  }
+}
+
+function resetAllAgentCards(){
+  Object.keys(agentCardEls).forEach(id=>setCardState(id,'idle'));
+  if(abSvg)abSvg.innerHTML='';
+}
+
+function drawDispatchBeams(taskAgentIds){
+  if(!abSvg||!agentCardEls.ceo)return;
+  abSvg.innerHTML='';
+  const board=abGrid.getBoundingClientRect();
+  const ceoR=agentCardEls.ceo.getBoundingClientRect();
+  const cx=ceoR.left+ceoR.width/2-board.left;
+  const cy=ceoR.top+ceoR.height/2-board.top;
+  const w=abGrid.clientWidth,h=abGrid.clientHeight;
+  abSvg.setAttribute('viewBox','0 0 '+w+' '+h);
+  abSvg.setAttribute('width',w);abSvg.setAttribute('height',h);
+  taskAgentIds.forEach((id,i)=>{
+    const card=agentCardEls[id];if(!card||id==='ceo')return;
+    const r=card.getBoundingClientRect();
+    const tx=r.left+r.width/2-board.left;
+    const ty=r.top+r.height/2-board.top;
+    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+    /* curved beam */
+    const mx=(cx+tx)/2,my=(cy+ty)/2-12;
+    path.setAttribute('d','M '+cx+' '+cy+' Q '+mx+' '+my+' '+tx+' '+ty);
+    path.setAttribute('class','ab-beam dispatching');
+    const a=agentMap[id];if(a){path.style.stroke=a.color;path.style.filter='drop-shadow(0 0 6px '+a.color+')';}
+    path.style.animationDelay=(i*0.08)+'s';
+    abSvg.appendChild(path);
+  });
+}
+
+function startAgentMsg(agent,task){
+  const a=agentMap[agent];if(!a)return;
+  leaveInitState();
+  if(agentStreamEls[agent]){endAgentMsg(agent);}
+  const el=document.createElement('div');el.className='msg msg-agent streaming';
+  el.style.setProperty('--ag-color',a.color);
+  el.style.setProperty('--ag-color-glow',a.color+'40');
+  const head=document.createElement('div');head.className='msg-head';
+  const safeTask=esc(task||'').slice(0,80);
+  head.innerHTML='<div class="av">'+a.emoji+'</div><span class="ag-tag">'+a.name+'</span><span class="ag-task">'+safeTask+'</span><span class="ag-elapsed" id="ge-'+agent+'-'+Date.now()+'">0:00</span>';
+  const elapsedEl=head.querySelector('.ag-elapsed');
+  const body=document.createElement('div');body.className='msg-body';
+  el.appendChild(head);el.appendChild(body);chat.appendChild(el);scrollChatToBottomIfNear();
+  const startedAt=Date.now();
+  const tick=setInterval(()=>{
+    if(!el.parentNode){clearInterval(tick);return;}
+    const s=Math.floor((Date.now()-startedAt)/1000);
+    if(elapsedEl)elapsedEl.textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');
+  },1000);
+  agentStreamEls[agent]={el:el,body:body,raw:'',tick:tick};
+}
+
+function appendAgentChunk(agent,value){
+  let s=agentStreamEls[agent];
+  if(!s){startAgentMsg(agent,'');s=agentStreamEls[agent];}
+  if(!s)return;
+  s.raw=(s.raw||'')+value;
+  s.body.innerHTML=fmt(s.raw);
+  scrollChatToBottomIfNear();
+}
+
+function endAgentMsg(agent){
+  const s=agentStreamEls[agent];if(!s)return;
+  s.el.classList.remove('streaming');
+  if(s.tick)clearInterval(s.tick);
+  delete agentStreamEls[agent];
+}
+
+function showBriefCard(brief,tasks){
+  leaveInitState();
+  const el=document.createElement('div');el.className='brief-card';
+  let tasksHtml='';
+  tasks.forEach((t,i)=>{
+    const a=agentMap[t.agent];if(!a)return;
+    tasksHtml+='<div class="brief-task" style="--ag-color:'+a.color+';animation-delay:'+(0.1+i*0.08)+'s"><span class="bt-emoji">'+a.emoji+'</span><span class="bt-name">'+a.name+'</span><span class="bt-text">'+esc(t.task)+'</span></div>';
+  });
+  el.innerHTML='<div class="brief-head">🧭 CEO · 작업 분배</div><div class="brief-text">'+esc(brief)+'</div><div class="brief-tasks">'+tasksHtml+'</div>';
+  chat.appendChild(el);scrollChatToBottomIfNear();
+}
+
+function showReportCard(brief,report,sessionPath,sessionRel){
+  leaveInitState();
+  const el=document.createElement('div');el.className='report-card';
+  el.innerHTML='<div class="report-head"><span>📝 CEO · 종합 보고서</span><span class="rh-tag">SESSION COMPLETE</span></div><div class="report-body">'+fmt(report)+'</div><div class="report-foot"><span>📁 '+esc(sessionPath||'')+'</span><span class="rf-link" data-sub="'+esc(sessionRel||'')+'">업무 일지 열람 →</span></div>';
+  const link=el.querySelector('.rf-link');
+  if(link)link.addEventListener('click',()=>vscode.postMessage({type:'openCompanyFolder',sub:link.dataset.sub.replace(/^Company\\//,'')}));
+  chat.appendChild(el);scrollChatToBottomIfNear();
+}
+
+let streamEl=null,streamBody=null;
+window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
+  case 'response':hideLoader();setSending(false);addMsg(msg.value,'ai');break;
+  case 'companyMetrics': {
+    const elK = document.getElementById('dashKnowledge');
+    const elT = document.getElementById('dashTasks');
+    if (elK) elK.textContent = msg.metrics.knowledgeInjected || 0;
+    if (elT) elT.textContent = msg.metrics.tasksCompleted || 0;
+    break;
+  }
+  case 'brainInject':showInjectCard(msg.title,msg.relPath);break;
+  case 'onboardingState':{
+    onboardingState = msg;
+    if (!msg.dismissed) renderOnboarding();
+    break;
+  }
+  case 'ideModelsProbed':{
+    /* Diagnostic: tell user what host-IDE models are reachable via vscode.lm.
+       Logged to console + a one-time inline notice if any external model exists. */
+    try {
+      console.log('[Connect AI] vscode.lm probe — models:', msg.models, 'error:', msg.error);
+      if (msg.error) {
+        console.log('[Connect AI] IDE 모델 probe 실패:', msg.error);
+      } else if (Array.isArray(msg.models) && msg.models.length > 0) {
+        const summary = msg.models.map(m => '• ' + (m.vendor||'?') + ' / ' + (m.family||'?') + ' (' + m.id + ')').join('\\n');
+        const el = document.createElement('div'); el.className='msg';
+        el.innerHTML = '<div class="msg-body" style="color:#22D3EE;font-size:12px;line-height:1.6;background:rgba(34,211,238,.05);border:1px solid rgba(34,211,238,.3);padding:10px 12px;border-radius:8px"><strong>🌐 IDE가 익스텐션에 노출하는 모델 ' + msg.models.length + '개:</strong><br>' + summary.replace(/\\n/g, '<br>') + '<br><br><span style="color:var(--text-dim);font-size:11px">→ 통합하면 Gemini/Claude 등 호스트 모델을 모델 드롭다운에 추가할 수 있습니다 (개발자에게 요청 필요)</span></div>';
+        chat.appendChild(el); scrollChatToBottomIfNear();
+      } else {
+        console.log('[Connect AI] IDE 모델 probe — 노출되는 모델 없음. Antigravity가 vscode.lm으로 모델을 안 열어주는 것으로 추정.');
+      }
+    } catch {}
+    break;
+  }
+  case 'engineDetected':{
+    if (onboardingState) {
+      onboardingState.steps.engine.done = !!msg.engine && !!msg.model;
+      onboardingState.steps.engine.detected = msg.engine || '';
+      onboardingState.steps.engine.model = msg.model || '';
+      if (onboardingState.steps.engine.done) onboardingStep = 2;
+      renderOnboarding();
+    }
+    break;
+  }
+  case 'brainFolderPicked':{
+    if (onboardingState) {
+      onboardingState.steps.brain.done = !!msg.path;
+      onboardingState.steps.brain.path = msg.path || '';
+      if (onboardingState.steps.brain.done) onboardingStep = 3;
+      renderOnboarding();
+    }
+    break;
+  }
+  case 'githubRepoResult':{
+    const r = document.getElementById('ob-repo-result');
+    if (r) {
+      if (msg.ok) {
+        r.innerHTML = '<div class="onboard-result">✅ 저장됨'+(msg.url?': <code>'+msg.url+'</code>':' (빈 값으로 클리어)')+'</div>';
+        if (onboardingState) {
+          onboardingState.steps.github.done = !!msg.url;
+          onboardingState.steps.github.url = msg.url || '';
+          setTimeout(() => { onboardingStep = 4; renderOnboarding(); }, 700);
+        }
+      } else {
+        r.innerHTML = '<div class="onboard-result error">⚠️ '+msg.error+'</div>';
+      }
+    }
+    break;
+  }
+  case 'officeStateChanged':{
+    officeOpen=!!msg.open;
+    /* Tie corp mode visual to office state — closing the office turns the button OFF visually too */
+    corporateMode=officeOpen;
+    /* Keep extension's sidebar-broadcast gate in sync with the office toggle.
+       Otherwise opening/closing the office leaves _sidebarCorpModeOn stale. */
+    try{vscode.postMessage({type:'corpModeToggle',on:officeOpen});}catch{}
+    document.body.classList.toggle('office-open',officeOpen);
+    document.body.classList.toggle('corp-on',officeOpen);
+    if(corporateBtn){
+      corporateBtn.style.opacity=officeOpen?'1':'0.5';
+      corporateBtn.style.background=officeOpen?'linear-gradient(135deg,var(--accent),var(--accent2))':'';
+      corporateBtn.title=officeOpen?'1인 기업 모드 — 사무실 열림 (클릭해서 닫기)':'1인 기업 모드 — OFF (클릭해서 사무실 열기)';
+    }
+    if(input)input.placeholder=officeOpen?'한 줄 명령을 내리세요. 팀이 알아서 일합니다.':'무엇을 만들어 드릴까요?';
+    break;
+  }
+  case 'error':hideLoader();setSending(false);addMsg(msg.value,'error');break;
+  case 'streamStart':{
+    hideLoader();
+    streamEl=document.createElement('div');streamEl.className='msg';
+    const h=document.createElement('div');h.className='msg-head';
+    h.innerHTML='<div class="av av-ai">✦</div><span>Connect AI</span><span class="msg-time">'+getTime()+'</span>';
+    streamBody=document.createElement('div');streamBody.className='msg-body stream-active';
+    streamEl.appendChild(h);streamEl.appendChild(streamBody);chat.appendChild(streamEl);scrollChatToBottomIfNear();
+    break;}
+  case 'streamChunk':{
+    if(streamBody){streamBody.innerHTML=fmt(streamBody._raw=(streamBody._raw||'')+msg.value);scrollChatToBottomIfNear();}
+    break;}
+  case 'streamEnd':{
+    if(streamBody)streamBody.classList.remove('stream-active');
+    /* Add regenerate button */
+    if(streamEl){
+      const rb=document.createElement('button');rb.className='regen-btn';rb.innerHTML='<span style="font-size:13px;line-height:1">↻</span> 재생성';
+      rb.addEventListener('click',()=>{rb.remove();vscode.postMessage({type:'regenerate'});showLoader();setSending(true);});
+      streamEl.appendChild(rb);
+    }
+    setSending(false);streamEl=null;streamBody=null;
+    break;}
+  case 'modelsList':modelSel.innerHTML='';msg.value.forEach(m=>{const o=document.createElement('option');o.value=m;o.textContent=m;modelSel.appendChild(o)});break;
+  case 'thinkingModeState':
+    thinkingModeOn = !!msg.value;
+    thinkingBtn.style.opacity = thinkingModeOn ? '1' : '0.5';
+    thinkingBtn.style.background = thinkingModeOn ? 'linear-gradient(135deg,var(--accent),var(--accent2))' : '';
+    thinkingBtn.title = thinkingModeOn ? 'Thinking Mode: ON (클릭으로 끄기)' : 'Thinking Mode — AI가 어떻게 생각하는지 시각화';
+    break;
+  case 'statusUpdate':
+    updateStatus(msg.value);
+    break;
+  case 'attachCitations': {
+    // Find the most recent AI message and append citation chips
+    const msgs = chat.querySelectorAll('.msg');
+    const last = msgs[msgs.length-1];
+    if (last && msg.sources && msg.sources.length > 0) {
+      const wrap = document.createElement('div');
+      wrap.className = 'citations';
+      wrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;margin-left:29px;font-size:11px;color:var(--text-dim);align-items:center';
+      const label = document.createElement('span');
+      label.textContent = '📚 출처:';
+      label.style.cssText = 'opacity:0.7';
+      wrap.appendChild(label);
+      msg.sources.forEach(src => {
+        const chip = document.createElement('button');
+        chip.textContent = src.length > 28 ? src.slice(0, 26) + '…' : src;
+        chip.title = src;
+        chip.style.cssText = 'background:rgba(0,255,102,0.08);border:1px solid rgba(0,255,102,0.25);color:var(--accent);padding:3px 10px;border-radius:12px;font-size:10px;cursor:pointer;font-family:inherit;transition:all 0.2s';
+        chip.onmouseover = () => { chip.style.background='rgba(0,255,102,0.18)'; chip.style.transform='translateY(-1px)'; };
+        chip.onmouseout = () => { chip.style.background='rgba(0,255,102,0.08)'; chip.style.transform='translateY(0)'; };
+        chip.onclick = () => vscode.postMessage({ type: 'highlightBrainNote', note: src });
+        wrap.appendChild(chip);
+      });
+      last.appendChild(wrap);
+      scrollChatToBottomIfNear();
+    }
+    break;
+  }
+  case 'clearChat':
+    document.body.classList.add('init');
+    chat.innerHTML=welcomeHtml();
+    break;
+  case 'restoreMessages':
+    chat.innerHTML='';
+    if(msg.value&&msg.value.length>0){
+      document.body.classList.remove('init');
+      msg.value.forEach(m=>addMsg(m.text,m.role));
+    } else {
+      document.body.classList.add('init');
+      chat.innerHTML=welcomeHtml();
+    }
+    break;
+  case 'focusInput':input.focus();break;
+  case 'injectPrompt':input.value=msg.value;input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px';send({bypassCorporate:true});break;
+  case 'corporateReady':
+    renderAgentBoard(msg.agents||[],msg.companyDir||'');
+    applyCompanyState(msg);
+    break;
+  case 'corporateState':
+    applyCompanyState(msg);
+    if(msg.note){addCorpBanner(msg.note);}
+    /* 폴더는 막 만들어졌고 정체성이 비어있으면 바로 인터뷰 */
+    if(corporateMode && companyState.folderExists && !companyState.configured){
+      setTimeout(showInterviewCard,200);
+    }
+    /* Setup-complete banner — fire once per session, not on every state echo */
+    if(corporateMode && companyState.configured && !_setupCompletionAnnounced){
+      _setupCompletionAnnounced=true;
+      addCorpBanner('✅ '+(companyState.name||'회사')+' 설정 완료. 명령을 내려보세요.');
+    }
+    break;
+  case 'agentConfigLoaded':
+    if(_agentPanelLoadHandler)_agentPanelLoadHandler(msg);
+    break;
+  case 'toolConfigLoaded':
+    if(_toolConfigLoadHandler)_toolConfigLoadHandler(msg);
+    break;
+  case 'companyConfigLoaded':
+    if(_companyEditLoadHandler)_companyEditLoadHandler(msg);
+    break;
+  case 'companyConfigSaved':
+    /* Save toast already shown locally; refresh badges via the
+       upcoming corporateState echo. */
+    break;
+  case 'agentDispatch':{
+    hideLoader();
+    document.body.classList.add('corp-dispatching');
+    const taskIds=(msg.tasks||[]).map(t=>t.agent);
+    showBriefCard(msg.brief||'',msg.tasks||[]);
+    /* 모든 selected agent를 thinking 상태로 점등 */
+    taskIds.forEach(id=>setCardState(id,'thinking'));
+    /* SVG 빛줄기 */
+    setTimeout(()=>drawDispatchBeams(['ceo'].concat(taskIds)),60);
+    setTimeout(()=>{document.body.classList.remove('corp-dispatching');if(abSvg)abSvg.innerHTML='';},1700);
+    break;
+  }
+  case 'agentStart':{
+    hideLoader();
+    setCardState(msg.agent,'working',msg.task);
+    /* CEO는 카드 펄스만, specialist는 채팅 메시지도 시작 */
+    if(msg.agent!=='ceo'){startAgentMsg(msg.agent,msg.task||'');}
+    break;
+  }
+  case 'agentChunk':{
+    appendAgentChunk(msg.agent,msg.value||'');
+    break;
+  }
+  case 'agentEnd':{
+    setCardState(msg.agent,'done');
+    endAgentMsg(msg.agent);
+    break;
+  }
+  case 'corporateReport':{
+    showReportCard(msg.brief||'',msg.report||'',msg.sessionPath||'',msg.sessionRel||'');
+    setSending(false);
+    /* 잠시 후 모든 카드 idle로 복귀 */
+    setTimeout(()=>{Object.keys(agentCardEls).forEach(id=>setCardState(id,'idle'));},2200);
+    break;
+  }
+  case 'agentConfer':{
+    /* Confer turns belong to the office panel + conversation log only.
+       Pile of these in the sidebar chat is noise — break here. */
+    break;
+  }
+  case 'decisionsLearned':{
+    const decs=msg.decisions||[];
+    if(decs.length===0)break;
+    leaveInitState();
+    const el=document.createElement('div');el.className='msg';
+    el.innerHTML='<div class="brief-card" style="--ag-color:#A78BFA;border-color:rgba(167,139,250,.4);background:linear-gradient(135deg,rgba(167,139,250,.06),rgba(167,139,250,.02));box-shadow:0 0 14px rgba(167,139,250,.15)">'
+      +'<div class="brief-head" style="color:#A78BFA">🧠 자가학습 — decisions.md에 누적됨</div>'
+      +'<div style="font-size:12px;color:var(--text-bright);line-height:1.7">'+decs.map(d=>'• '+esc(d)).join('<br>')+'</div>'
+      +'</div>';
+    chat.appendChild(el);scrollChatToBottomIfNear();
+    break;
+  }
+  case 'telegramSent':{
+    /* 사이드바에서는 작은 banner */
+    addCorpBanner && addCorpBanner('📱 Secretary가 텔레그램으로 보고를 보냈어요.');
+    break;
+  }
+} });
+} catch(err) {
+  document.body.innerHTML = '<div style="color:#ff4444;padding:20px;background:#111;height:100%;font-size:14px;overflow:auto;"><h2>⚠️ WEBVIEW JS CRASH</h2><pre>' + err.name + ': ' + err.message + '\\n' + err.stack + '</pre></div>';
+}
+</script></body></html>

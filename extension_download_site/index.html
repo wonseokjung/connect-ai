@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download Connect AI Lab</title>
+    <meta name="description" content="Download the latest Connect AI Lab VS Code extension.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="background-elements">
+        <div class="glow-orb orb-1"></div>
+        <div class="glow-orb orb-2"></div>
+    </div>
+    
+    <main class="container">
+        <div class="glass-card">
+            <div class="icon-wrapper">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 17L12 22L22 17" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M2 12L12 17L22 12" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    <defs>
+                        <linearGradient id="gradient" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse">
+                            <stop stop-color="#4F46E5"/>
+                            <stop offset="1" stop-color="#EC4899"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            
+            <h1>Connect AI Lab</h1>
+            <p class="version">Version 2.50.0</p>
+            
+            <p class="description">
+                Elevate your coding experience with the ultimate AI-powered assistant extension.
+                Automate tasks, analyze codebases, and build faster.
+            </p>
+            
+            <a href="connect-ai-lab-2.50.0.vsix" class="download-btn" download>
+                <span class="btn-text">Download Extension (.vsix)</span>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="7 10 12 15 17 10"></polyline>
+                    <line x1="12" y1="15" x2="12" y2="3"></line>
+                </svg>
+            </a>
+            
+            <div class="installation-guide">
+                <h3>Installation Instructions</h3>
+                <ol>
+                    <li>Download the <code>.vsix</code> file.</li>
+                    <li>Open Visual Studio Code.</li>
+                    <li>Go to the Extensions view (<code>Ctrl+Shift+X</code> / <code>Cmd+Shift+X</code>).</li>
+                    <li>Click the <strong>...</strong> menu at the top right.</li>
+                    <li>Select <strong>Install from VSIX...</strong> and choose the downloaded file.</li>
+                </ol>
+            </div>
+        </div>
+    </main>
+    <script src="script.js"></script>
+</body>
+</html>
