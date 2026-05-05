@@ -19944,9 +19944,12 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
             try {
                 const tools = listAgentTools(aid).filter(t => t.enabled && !_BUILTIN_TOOLS.has(t.name));
                 for (const t of tools) {
+                    /* v2.89.46 — listAgentTools가 t.name에서 .py 빼고 반환 ('my_videos_check').
+                       카탈로그에는 실행 가능한 파일명 형태로 저장 ('my_videos_check.py') —
+                       패턴의 tool 필드와 매칭 일관성 + python3 실행 시 그대로 인자 사용 가능. */
                     catalog.push({
                         agentId: aid,
-                        tool: t.name,
+                        tool: t.name + '.py',
                         description: (t.description || '').replace(/\n/g, ' ').slice(0, 120),
                         scriptPath: t.scriptPath,
                     });
@@ -20757,18 +20760,36 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                 return;
             }
             // 5) CEO 종합 보고서 (UI에는 chunk 안 흘리고 카드로만 표시)
-            // v2.89.41 — 단일 에이전트 dispatch면 CEO 보고서 스킵. 그 1명의 산출물이
-            // 곧 답변이라 CEO한테 한번 더 LLM 콜로 "보고서 써줘" 시킬 필요 X.
-            // LLM 호출 1회 절약 = 작은 모델은 3~5초, 큰 모델은 10~15초 단축.
+            // v2.89.41 — 단일 에이전트 dispatch면 CEO 보고서 스킵.
+            // v2.89.46 — 빈 산출물 감지: 모든 에이전트가 LLM 실패로 빈 답 반환했으면
+            //   CEO가 "기다리고 있습니다" 같은 placeholder 출력하지 않게 명시적 실패 보고.
             let finalReport = '';
-            if (plan.tasks.length <= 1) {
+            const nonEmptyOutputs = plan.tasks
+                .map(t => ({ agent: t.agent, out: (outputs[t.agent] || '').trim() }))
+                .filter(o => o.out.length > 30 && !/^⚠️.*호출 실패/.test(o.out));
+            if (nonEmptyOutputs.length === 0) {
+                /* 모든 에이전트가 빈 답 — CEO LLM 호출 무의미. 즉시 실패 보고로 종료. */
+                finalReport = `⚠️ **모든 에이전트의 LLM 호출이 실패했습니다.**\n\n` +
+                    `시도된 에이전트: ${plan.tasks.map(t => `${AGENTS[t.agent]?.emoji} ${AGENTS[t.agent]?.name}`).join(' · ')}\n\n` +
+                    `**가장 흔한 원인**:\n` +
+                    `- LM Studio에 모델 로드 실패 (메모리 부족) — 모델 오케스트레이션 모달에서 더 작은 모델 선택\n` +
+                    `- Ollama/LM Studio 서버 미실행\n` +
+                    `- Context Length 초과 (LM Studio 8192 이상 권장)\n\n` +
+                    `_각 에이전트의 정확한 에러는 위 카드들 참고. 모델 변경 후 재시도 추천._`;
+            } else if (plan.tasks.length <= 1) {
                 const onlyAgent = plan.tasks[0]?.agent;
                 const onlyOutput = onlyAgent ? (outputs[onlyAgent] || '') : '';
                 finalReport = onlyOutput.trim() || '_(에이전트 산출물 없음)_';
             } else {
                 post({ type: 'agentStart', agent: 'ceo', task: '종합 보고서 작성' });
                 _updateActiveDispatchStep(prompt, 'CEO 종합 보고서 작성 중');
-                const reportInput = `[원 명령]\n${prompt}\n\n[브리프]\n${plan.brief}\n\n[각 에이전트 산출물]\n${plan.tasks.map(t => `\n## ${AGENTS[t.agent]?.emoji} ${AGENTS[t.agent]?.name}\n${(outputs[t.agent] || '').slice(0, 2000)}`).join('\n')}`;
+                /* v2.89.46 — 산출물 없는 에이전트는 reportInput에서 제외 (CEO가 placeholder
+                   출력 위험 제거). 명시적으로 "X명 중 Y명만 답변 도착" 메타 정보 포함. */
+                const validTasks = plan.tasks.filter(t => nonEmptyOutputs.some(o => o.agent === t.agent));
+                const reportInput = `[원 명령]\n${prompt}\n\n[브리프]\n${plan.brief}\n\n` +
+                    `[응답 도착: ${validTasks.length}/${plan.tasks.length}명]\n\n` +
+                    `[유효한 에이전트 산출물]\n${validTasks.map(t => `\n## ${AGENTS[t.agent]?.emoji} ${AGENTS[t.agent]?.name}\n${(outputs[t.agent] || '').slice(0, 2000)}`).join('\n')}\n\n` +
+                    `규칙: 위 산출물 안의 실제 내용·숫자만 인용해 보고서 작성. "산출물을 기다리고 있습니다", "데이터가 제공되면" 같은 placeholder 표현 절대 금지 — 산출물은 이미 위에 있음.`;
                 try {
                     finalReport = await this._callAgentLLM(
                         `${_personalizePrompt(CEO_REPORT_PROMPT)}\n${readAgentSharedContext('ceo', { lean: true })}`,
@@ -20777,8 +20798,12 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                         'ceo',
                         false
                     );
+                    /* CEO가 그래도 placeholder 뱉으면 catch — 실제 내용으로 교체 */
+                    if (/산출물을\s*기다|데이터가\s*제공|once\s+the\s+output|when\s+the\s+output/i.test(finalReport)) {
+                        finalReport = `## ✅ 완료된 작업\n${validTasks.map(t => `- **${AGENTS[t.agent]?.emoji} ${AGENTS[t.agent]?.name}**: ${(outputs[t.agent] || '').slice(0, 200).replace(/\n/g, ' ')}...`).join('\n')}\n\n_(CEO LLM이 placeholder 응답 → 시스템이 자동으로 산출물 1줄씩 정리)_`;
+                    }
                 } catch (e: any) {
-                    finalReport = `⚠️ 종합 보고서 작성 실패: ${e.message}`;
+                    finalReport = `⚠️ 종합 보고서 작성 실패: ${e.message}\n\n각 에이전트 산출물:\n${validTasks.map(t => `\n## ${AGENTS[t.agent]?.emoji} ${AGENTS[t.agent]?.name}\n${(outputs[t.agent] || '').slice(0, 1000)}`).join('\n')}`;
                 }
                 post({ type: 'agentEnd', agent: 'ceo' });
             }
