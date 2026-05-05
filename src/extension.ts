@@ -21116,6 +21116,11 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                configured, but we still clear the mirror flag so a follow-up
                sidebar prompt doesn't accidentally inherit it. */
             this._telegramMirrorPending = false;
+            /* v2.89.52 — 입력 잠금 해제. _handlePrompt만 streamEnd 보내고 있어서
+               _handleCorporatePrompt(casual chat·shortcut·multi-agent 다 포함) 끝나면
+               webview는 여전히 "응답 중" 상태로 입력 막혀있었음. 사용자가 정지 버튼을
+               눌러야 풀리는 사고. 어떤 경로로 끝나든 finally에서 streamEnd 보장. */
+            try { this._view?.webview.postMessage({ type: 'streamEnd' }); } catch { /* ignore */ }
         }
     }
 
