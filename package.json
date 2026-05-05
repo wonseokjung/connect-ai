@@ -2,7 +2,7 @@
   "name": "connect-ai-lab",
   "displayName": "Connect AI — AI 1인 기업 · 나만의 에이전트 팀 · 제2의 두뇌",
   "description": "AI 1인 기업가를 위한 워크스페이스. 나만의 AI 에이전트 팀과 제2의 두뇌가 한 곳에서 — CEO + 전문 에이전트들이 내 지식·결정 로그·메모리를 컨텍스트로 24시간 미션 향해 자동으로 일합니다. 100% 로컬·오프라인·무료.",
-  "version": "2.89.52",
+  "version": "2.89.53",
   "publisher": "connectailab",
   "license": "MIT",
   "icon": "assets/icon.png",

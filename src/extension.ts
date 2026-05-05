@@ -21680,6 +21680,21 @@ select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--a
 .edit-badge{background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.2);border-radius:10px 10px 0 0;border-bottom:none;padding:8px 14px;font-size:11px;font-weight:700;color:var(--cyan);display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
 .cmd-badge{background:rgba(124,106,255,.05);border:1px solid rgba(124,106,255,.25);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:12px;color:var(--accent);font-family:'SF Mono','Menlo',monospace;display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
 .msg-error .msg-body{color:var(--red);text-shadow:0 0 20px rgba(255,82,82,.2)}
+/* v2.89.53 — chat markdown 렌더링 (heading/blockquote/list/table/hr) */
+.chat-h1{font-size:18px;font-weight:800;color:var(--text);margin:14px 0 8px;padding-bottom:6px;border-bottom:2px solid rgba(124,106,255,.25);letter-spacing:-.3px}
+.chat-h2{font-size:15px;font-weight:700;color:var(--text);margin:12px 0 6px;letter-spacing:-.2px}
+.chat-h3{font-size:13.5px;font-weight:700;color:var(--text);margin:10px 0 4px;letter-spacing:-.1px}
+.chat-bq{border-left:3px solid rgba(124,106,255,.55);background:rgba(124,106,255,.06);padding:8px 12px;margin:6px 0;border-radius:0 8px 8px 0;color:var(--text);font-size:12.5px;line-height:1.6}
+.chat-bq strong{color:var(--accent)}
+.chat-hr{border:none;height:1px;background:linear-gradient(90deg,transparent,rgba(124,106,255,.4),transparent);margin:14px 0}
+.chat-ul,.chat-ol{margin:6px 0 6px 18px;padding:0;color:var(--text);font-size:12.5px;line-height:1.65}
+.chat-ul li,.chat-ol li{margin:3px 0}
+.chat-ul li::marker{color:var(--accent)}
+.chat-ol li::marker{color:var(--accent);font-weight:700}
+.chat-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11.5px;background:rgba(0,0,0,.18)}
+.chat-table th{background:rgba(124,106,255,.12);color:var(--text);font-weight:700;padding:6px 8px;text-align:left;border:1px solid rgba(255,255,255,.08)}
+.chat-table td{padding:5px 8px;border:1px solid rgba(255,255,255,.06);color:var(--text);vertical-align:top}
+.chat-table tr:hover td{background:rgba(124,106,255,.04)}
 
 /* WELCOME */
 .welcome{text-align:center;padding:0 20px 20px;position:relative}
@@ -22833,22 +22848,85 @@ const _wr=document.getElementById('welcomeRoot'); if(_wr) _wr.outerHTML=welcomeH
 input.addEventListener('input',()=>{input.style.height='auto';input.style.height=Math.min(input.scrollHeight,150)+'px'});
 function getTime(){return new Date().toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'})}
 function esc(s){const d=document.createElement('div');d.innerText=s;return d.innerHTML}
+/* v2.89.53 — full markdown 렌더링. 이전엔 코드·볼드·링크만 다뤘고 ###/>/리스트/표는
+   raw text로 남아 \"### 텍스트\", \"> 텍스트\", \"| | |\" 그대로 보였음. 사용자
+   리포트 깨짐. 이제 헤딩·블록인용·리스트·표·구분선·이탤릭까지 처리. */
 function fmt(t){
   if(t.lastIndexOf('<create_file') > t.lastIndexOf('</create_file>')) t += '</create_file>';
   if(t.lastIndexOf('<edit_file') > t.lastIndexOf('</edit_file>')) t += '</edit_file>';
   if(t.lastIndexOf('<run_command') > t.lastIndexOf('</run_command>')) t += '</run_command>';
-  if((t.match(/\x60\x60\x60/g)||[]).length % 2 !== 0) t += '\\\\n\x60\x60\x60';
+  if((t.match(/\x60\x60\x60/g)||[]).length % 2 !== 0) t += '\\n\x60\x60\x60';
 
   const blocks = [];
   function pushB(h){ blocks.push(h); return '__B' + (blocks.length-1) + '__'; }
-  t=t.replace(/<create_file\\s+path="([^"]+)">([\\s\\S]*?)<\\/create_file>/g,(_,p,c)=>pushB('<div class="file-badge">📁 '+esc(p)+' — 자동 생성됨</div><div class="code-wrap"><pre><code>'+esc(c)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>'));
-  t=t.replace(/<edit_file\\s+path="([^"]+)">([\\s\\S]*?)<\\/edit_file>/g,(_,p,c)=>pushB('<div class="edit-badge">✏️ '+esc(p)+' — 편집됨</div><div class="code-wrap"><pre><code>'+esc(c)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>'));
-  t=t.replace(/<run_command>([\\s\\S]*?)<\\/run_command>/g,(_,c)=>pushB('<div class="cmd-badge">▶ '+esc(c)+'</div>'));
-  t=t.replace(/\x60\x60\x60(\\w*)\\n([\\s\\S]*?)\x60\x60\x60/g,(_,lang,c)=>{const l=lang||'code';return pushB('<div class="code-wrap"><span class="code-lang">'+esc(l)+'</span><pre><code>'+highlight(c,l)+'</code></pre><button class="copy-btn" onclick="copyCode(this)">Copy</button></div>');});
+  t=t.replace(/<create_file\\s+path=\"([^\"]+)\">([\\s\\S]*?)<\\/create_file>/g,(_,p,c)=>pushB('<div class=\"file-badge\">📁 '+esc(p)+' — 자동 생성됨</div><div class=\"code-wrap\"><pre><code>'+esc(c)+'</code></pre><button class=\"copy-btn\" onclick=\"copyCode(this)\">Copy</button></div>'));
+  t=t.replace(/<edit_file\\s+path=\"([^\"]+)\">([\\s\\S]*?)<\\/edit_file>/g,(_,p,c)=>pushB('<div class=\"edit-badge\">✏️ '+esc(p)+' — 편집됨</div><div class=\"code-wrap\"><pre><code>'+esc(c)+'</code></pre><button class=\"copy-btn\" onclick=\"copyCode(this)\">Copy</button></div>'));
+  t=t.replace(/<run_command>([\\s\\S]*?)<\\/run_command>/g,(_,c)=>pushB('<div class=\"cmd-badge\">▶ '+esc(c)+'</div>'));
+  t=t.replace(/\x60\x60\x60(\\w*)\\n([\\s\\S]*?)\x60\x60\x60/g,(_,lang,c)=>{const l=lang||'code';return pushB('<div class=\"code-wrap\"><span class=\"code-lang\">'+esc(l)+'</span><pre><code>'+highlight(c,l)+'</code></pre><button class=\"copy-btn\" onclick=\"copyCode(this)\">Copy</button></div>');});
   t=t.replace(/\x60([^\x60]+)\x60/g,(_,c)=>pushB('<code>'+esc(c)+'</code>'));
+
+  /* 표(table) 처리 — 코드 블록 placeholder 다음, escape 전에. 라인 매칭이라 단일 패스로. */
+  const tableRows = [];
+  function pushTable(html){ tableRows.push(html); return '__T' + (tableRows.length-1) + '__'; }
+  const lines = t.split('\\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    /* 표 시작: |...|...|  다음 줄에 |---|---|---| 또는 비슷한 구분자 */
+    if (/^\\s*\\|.+\\|\\s*$/.test(line) && i+1 < lines.length && /^\\s*\\|[\\s:|-]+\\|\\s*$/.test(lines[i+1])) {
+      const headerCells = line.trim().slice(1, -1).split('|').map(c => c.trim());
+      i += 2;
+      const bodyRows = [];
+      while (i < lines.length && /^\\s*\\|.+\\|\\s*$/.test(lines[i])) {
+        bodyRows.push(lines[i].trim().slice(1, -1).split('|').map(c => c.trim()));
+        i++;
+      }
+      let html = '<table class=\"chat-table\"><thead><tr>';
+      for (const h of headerCells) html += '<th>' + esc(h) + '</th>';
+      html += '</tr></thead><tbody>';
+      for (const row of bodyRows) {
+        html += '<tr>';
+        for (const c of row) html += '<td>' + esc(c) + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table>';
+      out.push(pushTable(html));
+      continue;
+    }
+    out.push(line);
+    i++;
+  }
+  t = out.join('\\n');
+
   t=esc(t);
+  /* 헤딩 — ### / ## / # (긴 것 먼저). esc 후에 처리하므로 # 그대로 매칭됨. */
+  t=t.replace(/^###\\s+(.+)$/gm, '<h3 class=\"chat-h3\">$1</h3>');
+  t=t.replace(/^##\\s+(.+)$/gm, '<h2 class=\"chat-h2\">$1</h2>');
+  t=t.replace(/^#\\s+(.+)$/gm, '<h1 class=\"chat-h1\">$1</h1>');
+  /* 블록인용 — 연속된 > 라인 묶기 */
+  t=t.replace(/(^&gt;.*(?:\\n&gt;.*)*)/gm, m => {
+    const inner = m.split('\\n').map(l => l.replace(/^&gt;\\s?/, '')).join('<br/>');
+    return '<blockquote class=\"chat-bq\">' + inner + '</blockquote>';
+  });
+  /* 수평선 ━━━ 또는 --- */
+  t=t.replace(/^(?:━{3,}|-{3,}|={3,})\\s*$/gm, '<hr class=\"chat-hr\"/>');
+  /* 순서 없는 리스트 */
+  t=t.replace(/(^[-*]\\s+.+(?:\\n[-*]\\s+.+)*)/gm, m => {
+    const items = m.split('\\n').map(l => l.replace(/^[-*]\\s+/, '')).filter(Boolean);
+    return '<ul class=\"chat-ul\">' + items.map(it => '<li>'+it+'</li>').join('') + '</ul>';
+  });
+  /* 순서 있는 리스트 */
+  t=t.replace(/(^\\d+\\.\\s+.+(?:\\n\\d+\\.\\s+.+)*)/gm, m => {
+    const items = m.split('\\n').map(l => l.replace(/^\\d+\\.\\s+/, '')).filter(Boolean);
+    return '<ol class=\"chat-ol\">' + items.map(it => '<li>'+it+'</li>').join('') + '</ol>';
+  });
+  /* 굵게·이탤릭·링크 — 텍스트 변형 */
   t=t.replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>');
-  t=t.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href="$2" target="_blank">$1</a>');
+  t=t.replace(/(?<![*\\w])_([^_\\n]+)_(?!\\w)/g, '<em>$1</em>');
+  t=t.replace(/\\[([^\\]]+)\\]\\(([^)]+)\\)/g, '<a href=\"$2\" target=\"_blank\">$1</a>');
+  /* 표·코드 placeholder 복원 */
+  t=t.replace(/__T(\\d+)__/g, (_,i)=>tableRows[i]);
   t=t.replace(/__B(\\d+)__/g, (_,i)=>blocks[i]);
   return t;
 }
