@@ -219,7 +219,8 @@ function runCommandCaptured(
     cmd: string,
     cwd: string,
     onChunk: (text: string) => void,
-    timeoutMs = 60000
+    timeoutMs = 60000,
+    captureStream: 'both' | 'stdout' = 'both'
 ): Promise<{ exitCode: number; output: string; timedOut: boolean }> {
     return new Promise((resolve) => {
         const child = spawn(cmd, {
@@ -237,7 +238,11 @@ function runCommandCaptured(
             onChunk(s);
         };
         child.stdout?.on('data', (d: Buffer) => append(d.toString()));
-        child.stderr?.on('data', (d: Buffer) => append(d.toString()));
+        /* v2.89.50 — captureStream='stdout' 일 때 stderr는 무시. 스크립트가 진행 메시지·
+           로그·DeprecationWarning을 stderr로 보내도 채팅창엔 안 새서 깔끔. */
+        if (captureStream === 'both') {
+            child.stderr?.on('data', (d: Buffer) => append(d.toString()));
+        }
         const killTimer = setTimeout(() => {
             timedOut = true;
             try { child.kill('SIGTERM'); } catch { /* already dead */ }
@@ -6191,7 +6196,7 @@ if __name__ == "__main__":
    참여율·제목 키워드·인기 댓글·구체 액션 추천까지 포함. */
 function _seedYouTubeMyVideosCheck(toolsDir: string) {
   const py = `#!/usr/bin/env python3
-"""Professional YouTube Channel Analysis — pro_v2.
+"""Professional YouTube Channel Analysis — pro_v3.
 
 채널 메타 · 영상별 상세 (조회수·좋아요율·댓글율·길이·요일) · 상위/하위 영상의 패턴 ·
 인기 댓글 샘플 · 발행 요일 분석 · 제목 키워드 · 우선순위 액션 추천. 모든 분석은
@@ -6477,29 +6482,38 @@ def main():
             comments_by_video[r["id"]] = []  # 댓글 비활성 영상이면 403
 
     # === 6. 종합 보고서 ===
+    # v2.89.50 — 시각적으로 더 멋진 레이아웃. 블록인용·이모지 평가·시각 분리선 활용.
+    sub_str = "비공개" if subs_hidden else f"{_fmt_num(sub_count)}명"
+    like_rating = "🟢 좋음" if avg_like_rate >= 2.0 else ("🟡 보통" if avg_like_rate >= 1.0 else "🔴 개선")
+    comment_rating = "🟢 좋음" if avg_comment_rate >= 0.5 else ("🟡 보통" if avg_comment_rate >= 0.2 else "🔴 개선")
     L = []
-    L.append(f"# 🎬 {ch_title} — 채널 종합 분석")
+    L.append(f"# 🎬 {ch_title}")
     L.append(f"_{time.strftime('%Y-%m-%d %H:%M')} · 최근 {lookback}일 분석 · 영상 {len(rows)}개_")
     L.append("")
-    # 채널 메타
-    L.append("## 📊 채널 개요")
-    L.append(f"- 핸들: \`{custom_url or handle or '-'}\`" + (f" · 가입: {published}" if published else "") + (f" · 운영 {age_years:.1f}년" if age_years > 0 else ""))
-    sub_str = "비공개" if subs_hidden else f"{_fmt_num(sub_count)}명"
-    L.append(f"- 구독자: **{sub_str}** · 누적 조회: **{_fmt_num(view_count_total)}** · 총 영상: **{video_count_total:,}개**")
-    L.append(f"- 영상당 누적 평균 조회수: **{_fmt_num(avg_views_per_video_alltime)}** (전체 영상 기준)")
-    if country:
-        L.append(f"- 국가: {country}")
+    # 채널 메타 — 인용 블록으로 한눈에
+    L.append(f"> **{sub_str}** 구독자 · **{_fmt_num(view_count_total)}** 누적 조회 · **{video_count_total:,}개** 영상" + (f" · **{age_years:.1f}년** 운영" if age_years > 0 else ""))
+    L.append(f"> 핸들 \`{custom_url or handle or '-'}\`" + (f" · 🌍 {country}" if country else "") + f" · 영상당 평균 **{_fmt_num(avg_views_per_video_alltime)}** 조회")
+    L.append("")
+    L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     L.append("")
 
-    # 최근 성과 요약
-    L.append(f"## 🚀 최근 {lookback}일 성과")
+    # 최근 성과 요약 — 카드 스타일
+    L.append(f"## 📊 최근 {lookback}일 성과 한눈에")
+    L.append("")
+    L.append("| 지표 | 값 | 평가 |")
+    L.append("|---|---|---|")
     pace = (len(rows) * 30 / lookback) if lookback > 0 else 0
-    L.append(f"- 업로드: {len(rows)}개 (월 환산 {pace:.1f}개)" + (f" · Shorts {shorts_count}개" if shorts_count else ""))
+    pace_rating = "🟢 활발" if pace >= 4 else ("🟡 보통" if pace >= 2 else "🔴 저조")
+    L.append(f"| 업로드 | {len(rows)}개 (월 {pace:.1f}개) | {pace_rating} |")
     if rows:
-        L.append(f"- 조회수: 중간값 **{_fmt_num(median_views)}** · 평균 **{_fmt_num(avg_views)}** · 최고 **{_fmt_num(rows_sorted[0]['views'])}** · 최저 **{_fmt_num(rows_sorted[-1]['views'])}**")
-    L.append(f"- 좋아요율: **{avg_like_rate:.2f}%** (영상당 평균 {_fmt_num(avg_likes)} 좋아요) · 업계 평균 2~5%")
-    L.append(f"- 댓글율: **{avg_comment_rate:.2f}%** (영상당 평균 {_fmt_num(avg_comments)} 댓글) · 업계 평균 0.3~1%")
-    L.append(f"- 평균 길이: **{_fmt_duration(avg_duration)}** · 평균 제목: **{avg_title_len}자**")
+        L.append(f"| 조회수 중간값 | **{_fmt_num(median_views)}** | 최고 {_fmt_num(rows_sorted[0]['views'])} · 최저 {_fmt_num(rows_sorted[-1]['views'])} |")
+    L.append(f"| 좋아요율 | **{avg_like_rate:.2f}%** | {like_rating} (업계 2~5%) |")
+    L.append(f"| 댓글율 | **{avg_comment_rate:.2f}%** | {comment_rating} (업계 0.3~1%) |")
+    L.append(f"| 평균 길이 | {_fmt_duration(avg_duration)} | 제목 평균 {avg_title_len}자 |")
+    if shorts_count:
+        L.append(f"| Shorts | {shorts_count}개 / {len(rows)} | - |")
+    L.append("")
+    L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
     L.append("")
 
     # 영상별 상세 표
@@ -6512,74 +6526,90 @@ def main():
         L.append(f"| {i}{marker} | {_fmt_num(r['views'])} | {_fmt_num(r['likes'])} ({r['like_rate']:.1f}%) | {_fmt_num(r['comments'])} ({r['comment_rate']:.1f}%) | {_fmt_duration(r['duration_sec'])} | {r['pub']}({r['weekday']}) | {title_short} |")
     L.append("")
 
-    # 상위 영상 심층 분석
-    L.append("## 🏆 상위 영상 — 무엇이 잘 됐나")
-    for r in top_videos:
-        L.append(f"### {_fmt_num(r['views'])}회 · {r['title']}")
-        # v2.89.49 — 채팅 sidebar markdown renderer가 ![](url) 이미지 안 잡아서 "!썸네일"로
-        # 깨짐. 썸네일 이미지를 클릭 가능 링크로 교체. 사용자가 클릭하면 브라우저에서 큰 사이즈.
-        L.append(f"- 🖼 [썸네일](https://i.ytimg.com/vi/{r['id']}/mqdefault.jpg) · 🔗 [영상 보기](https://youtu.be/{r['id']})")
-        L.append(f"- 좋아요 {_fmt_num(r['likes'])} ({r['like_rate']:.2f}%) · 댓글 {_fmt_num(r['comments'])} ({r['comment_rate']:.2f}%)")
-        L.append(f"- 길이 {_fmt_duration(r['duration_sec'])} · 발행 {r['pub']} {r['weekday']}요일 {r['hour']:02d}시")
+    # 상위 영상 심층 분석 — 카드 스타일 + 메달 이모지
+    L.append("## 🏆 TOP 3 — 무엇이 잘 됐나")
+    L.append("")
+    medals = ["🥇", "🥈", "🥉"]
+    for idx, r in enumerate(top_videos):
+        medal = medals[idx] if idx < 3 else "👍"
+        L.append(f"### {medal} {_fmt_num(r['views'])}회 · {r['title']}")
+        L.append("")
+        L.append(f"> 📅 {r['pub']} ({r['weekday']}요일 {r['hour']:02d}시) · ⏱ {_fmt_duration(r['duration_sec'])} · 👍 {r['like_rate']:.2f}% · 💬 {r['comment_rate']:.2f}%")
         if r['tags']:
-            L.append(f"- 태그: \`{', '.join(r['tags'][:6])}\`" + (' …' if len(r['tags']) > 6 else ''))
+            tag_str = ' '.join(f"\`{t}\`" for t in r['tags'][:5])
+            L.append(f"> 🏷 {tag_str}" + (' …' if len(r['tags']) > 5 else ''))
+        L.append(f"> 🔗 [영상 보기](https://youtu.be/{r['id']}) · 🖼 [썸네일](https://i.ytimg.com/vi/{r['id']}/mqdefault.jpg)")
         cs = comments_by_video.get(r["id"], [])
         if cs:
-            L.append(f"- 💬 인기 댓글 (좋아요 순):")
+            L.append("")
+            L.append("**💬 인기 댓글:**")
             for c in cs[:3]:
-                txt = c['text'].replace(chr(10), ' ').replace(chr(13), ' ')[:150]
-                L.append(f"  - **{c['author']}** (👍{c['likes']}): {txt}")
+                txt = c['text'].replace(chr(10), ' ').replace(chr(13), ' ')[:140]
+                L.append(f"> _{c['author']}_ (👍{c['likes']}): {txt}")
         L.append("")
 
-    # 하위 영상
+    # 하위 영상 — 시각적으로 부진 강조
     if bottom_videos:
+        L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
         L.append("## 🥶 하위 영상 — 개선 필요")
+        L.append("")
         for r in bottom_videos:
-            L.append(f"- **{_fmt_num(r['views'])}회** · {r['pub']}({r['weekday']}, {r['hour']:02d}시) · {_fmt_duration(r['duration_sec'])} · {r['title']}")
-            L.append(f"  - 🔗 https://youtu.be/{r['id']}")
+            gap_pct = int((1 - r['views'] / median_views) * 100) if median_views else 0
+            L.append(f"- **{_fmt_num(r['views'])}회** · 중간값 대비 **-{gap_pct}%** ↓")
+            L.append(f"  - {r['title']}")
+            L.append(f"  - 📅 {r['pub']}({r['weekday']}, {r['hour']:02d}시) · ⏱ {_fmt_duration(r['duration_sec'])} · 🔗 [영상](https://youtu.be/{r['id']})")
         L.append("")
 
     # 패턴
+    L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    L.append("")
     L.append("## 🔍 패턴 분석")
+    L.append("")
     if weekday_avg and len(weekday_avg) >= 2:
         best_day = max(weekday_avg.items(), key=lambda x: x[1])
         worst_day = min(weekday_avg.items(), key=lambda x: x[1])
-        L.append(f"- **최고 요일**: {best_day[0]}요일 (평균 {_fmt_num(best_day[1])}회)")
-        L.append(f"- **최저 요일**: {worst_day[0]}요일 (평균 {_fmt_num(worst_day[1])}회)")
+        ratio = best_day[1] / worst_day[1] if worst_day[1] else 1
+        L.append(f"- 📅 **최고 요일**: {best_day[0]}요일 (평균 {_fmt_num(best_day[1])}회) — 최저 대비 **{ratio:.1f}배**")
+        L.append(f"- 📅 **최저 요일**: {worst_day[0]}요일 (평균 {_fmt_num(worst_day[1])}회)")
     if top_keywords:
-        L.append(f"- **상위 영상 제목 키워드**: {', '.join('\`'+k+'\`' for k in top_keywords)}")
+        L.append(f"- 🔑 **상위 영상 키워드**: {' '.join('\`'+k+'\`' for k in top_keywords)}")
     if title_lengths:
-        L.append(f"- **제목 길이 분포**: 평균 {avg_title_len}자 · 최단 {min(title_lengths)}자 · 최장 {max(title_lengths)}자")
+        L.append(f"- 📝 **제목 길이**: 평균 {avg_title_len}자 (최단 {min(title_lengths)}자 · 최장 {max(title_lengths)}자)")
     if avg_duration > 0:
-        L.append(f"- **영상 길이 분포**: 평균 {_fmt_duration(avg_duration)}" + (f" · Shorts(60초 이하) {shorts_count}/{len(rows)}개" if shorts_count else ""))
+        L.append(f"- ⏱ **영상 길이**: 평균 {_fmt_duration(avg_duration)}" + (f" · Shorts(60초 이하) {shorts_count}/{len(rows)}개" if shorts_count else ""))
     L.append("")
 
-    # 액션 추천
-    L.append("## 🎯 다음 액션 (우선순위 순)")
+    # 액션 추천 — 카드 스타일
+    L.append("")
+    L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    L.append("")
+    L.append("## 🎯 다음 액션 (우선순위)")
+    L.append("")
     recs = []
     if bottom_videos:
         worst = bottom_videos[0]
-        recs.append(f"**부진 영상 살리기** — \`{worst['title'][:40]}\` ({_fmt_num(worst['views'])}회). 썸네일 A/B 또는 제목 리네이밍 시도.")
+        recs.append(("🔴", f"**부진 영상 살리기** — \`{worst['title'][:40]}\` ({_fmt_num(worst['views'])}회). 썸네일 A/B 또는 제목 리네이밍."))
     if top_videos:
         winner = top_videos[0]
-        recs.append(f"**떡상 패턴 복제** — \`{winner['title'][:40]}\` 가 가장 잘 됐음 ({_fmt_num(winner['views'])}회). 같은 후크/포맷으로 후속편.")
+        recs.append(("🔥", f"**떡상 패턴 복제** — \`{winner['title'][:40]}\` ({_fmt_num(winner['views'])}회). 같은 후크/포맷으로 후속편."))
     if weekday_avg and len(weekday_avg) >= 3:
         best_day = max(weekday_avg.items(), key=lambda x: x[1])[0]
-        recs.append(f"**발행 요일 최적화** — {best_day}요일 영상이 평균 가장 잘 됨. 다음 업로드 {best_day}요일 추천.")
+        recs.append(("📅", f"**발행 요일 최적화** — {best_day}요일 영상이 평균 가장 잘 됨. 다음 업로드 {best_day}요일 추천."))
     if avg_like_rate < 2.0 and avg_views > 100:
-        recs.append(f"**좋아요율 개선** — 현재 {avg_like_rate:.2f}% (업계 평균 2~5%). 영상 끝에 좋아요·구독 콜아웃 강화.")
+        recs.append(("👍", f"**좋아요율 개선** — 현재 {avg_like_rate:.2f}% (업계 2~5%). 영상 끝 콜아웃 강화."))
     if avg_comment_rate < 0.3 and avg_views > 100:
-        recs.append(f"**댓글 유도 강화** — 현재 {avg_comment_rate:.2f}% (업계 평균 0.3~1%). 영상 중간에 시청자 의견 묻는 질문 삽입.")
+        recs.append(("💬", f"**댓글 유도 강화** — 현재 {avg_comment_rate:.2f}% (업계 0.3~1%). 영상 중간 시청자 의견 질문 삽입."))
     if top_keywords:
-        recs.append(f"**제목 키워드 활용** — 상위 영상의 \`{', '.join(top_keywords[:3])}\` 키워드를 다음 제목에 통합.")
+        recs.append(("🔑", f"**제목 키워드 활용** — 상위 영상의 \`{', '.join(top_keywords[:3])}\` 키워드를 다음 제목에 통합."))
     if shorts_count == 0 and len(rows) >= 5:
-        recs.append(f"**Shorts 시도** — 최근 {lookback}일에 Shorts 0개. Shorts는 신규 시청자 유입 채널로 좋음.")
+        recs.append(("📱", f"**Shorts 시도** — 최근 {lookback}일에 Shorts 0개. 신규 유입 채널로 좋음."))
     if pace < 2:
-        recs.append(f"**업로드 빈도 점검** — 월 {pace:.1f}개 페이스. 알고리즘 친화적 페이스는 주 1회+.")
+        recs.append(("⏰", f"**업로드 빈도 점검** — 월 {pace:.1f}개 페이스. 알고리즘 친화적 페이스는 주 1회+."))
     if not recs:
-        recs.append("데이터 부족 — 더 많은 영상 업로드 후 재분석 권장")
-    for i, rec in enumerate(recs, 1):
-        L.append(f"{i}. {rec}")
+        recs.append(("ℹ️", "데이터 부족 — 더 많은 영상 업로드 후 재분석 권장"))
+    for i, (icon, rec) in enumerate(recs, 1):
+        L.append(f"**{i}. {icon} {rec}**" if i == 1 else f"{i}. {icon} {rec}")
     L.append("")
 
     # 시청자 반응 키워드 (상위 영상 댓글 기반)
@@ -6587,16 +6617,21 @@ def main():
     for cs in comments_by_video.values():
         all_comments.extend(c["text"] for c in cs)
     if all_comments:
-        L.append("## 💬 시청자 반응 키워드 (상위 영상 인기 댓글 기반)")
+        L.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        L.append("")
+        L.append("## 💬 시청자가 남긴 키워드")
+        L.append("")
         all_text = " ".join(all_comments)
         words = re.findall(r'[가-힣]{2,}|[a-zA-Z]{3,}', all_text)
-        words = [w for w in words if w.lower() not in stop_en and w not in stop_kr]
-        word_freq = Counter(words).most_common(10)
+        # URL 조각·도메인은 의미 없으니 제외
+        url_noise = {'https', 'http', 'youtu', 'www', 'com'}
+        words = [w for w in words if w.lower() not in stop_en and w not in stop_kr and w.lower() not in url_noise and not re.match(r'^[a-zA-Z0-9_]{8,}$', w)]
+        word_freq = Counter(words).most_common(8)
         if word_freq:
-            for w, c in word_freq:
-                L.append(f"- \`{w}\` ({c}회 언급)")
+            kw_line = ' · '.join(f"\`{w}\`({c})" for w, c in word_freq)
+            L.append(kw_line)
             L.append("")
-            L.append("> 이 키워드들이 시청자 머릿속에 남은 단어입니다. 다음 영상 제목·썸네일·후크에 활용하세요.")
+            L.append("> 시청자 머릿속에 남은 단어. 다음 영상 제목·썸네일·후크에 활용.")
         L.append("")
 
     summary = chr(10).join(L)
@@ -6622,10 +6657,10 @@ def main():
     tg_lines.append("")
     if recs:
         tg_lines.append("🎯 액션:")
-        for i, rec in enumerate(recs[:3], 1):
-            # 마크다운 ** 같은거 plain text라 그대로 보내도 OK
+        for i, (icon, rec) in enumerate(recs[:3], 1):
+            # 마크다운 ** 제거하고 plain text로
             clean = re.sub(r'\\*\\*|\`', '', rec.split(' — ')[0] if ' — ' in rec else rec)
-            tg_lines.append(f"{i}. {clean[:80]}")
+            tg_lines.append(f"{i}. {icon} {clean[:80]}")
     tg_lines.append("")
     tg_lines.append("(전체 분석은 IDE 채팅창 확인)")
     tg_text = chr(10).join(tg_lines)
@@ -6661,8 +6696,8 @@ if __name__ == "__main__":
   /* Force-upgrade the .py — older users on pre-telegram_v2 versions need
      the Secretary fallback so token doesn't have to be duplicated. */
   /* v2.89.43 — sentinel 'pro_v1' = 종합 분석 버전. 기존 사용자도 자동 업그레이드. */
-  /* sentinel pro_v2 — Telegram plain-text + stderr 분리 + 썸네일 링크 변경. 기존 설치자 자동 업그레이드. */
-  _seedFileForceUpgrade(path.join(toolsDir, 'my_videos_check.py'), py, 'pro_v2');
+  /* sentinel pro_v3 — 시각적 카드 레이아웃 + 평가 이모지 + URL 노이즈 필터. 기존 설치자 자동 업그레이드. */
+  _seedFileForceUpgrade(path.join(toolsDir, 'my_videos_check.py'), py, 'pro_v3');
   _seedFile(path.join(toolsDir, 'my_videos_check.json'), json);
   /* v2.89.20 — Force upgrade .md heading from old "내 영상 체크" to "내 유튜브 채널 분석"
      for existing users. Sentinel = the new heading text. */
@@ -20097,7 +20132,8 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         post({ type: 'response', value: `🔧 ${a.emoji} ${a.name}: \`${entry.tool}\` 실행 중...` });
         let r: { exitCode: number; output: string; timedOut: boolean };
         try {
-            r = await runCommandCaptured(`python3 ${JSON.stringify(entry.tool)}`, toolsDir, () => {}, 90000);
+            /* v2.89.50 — stdout만 캡쳐. stderr (진행 메시지·DeprecationWarning) 채팅에 안 끼게. */
+            r = await runCommandCaptured(`python3 ${JSON.stringify(entry.tool)}`, toolsDir, () => {}, 90000, 'stdout');
         } catch (e: any) {
             post({ type: 'agentEnd', agent: entry.agentId });
             post({ type: 'error', value: `⚠️ 도구 실행 에러: ${e?.message || e}` });
