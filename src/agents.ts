@@ -98,12 +98,13 @@ export const AGENTS: Record<string, AgentDef> = {
   },
   editor: {
     id: 'editor',
-    name: 'Editor',
-    role: 'Video & Content Editor',
-    emoji: '✂️',
+    name: '사운드',
+    role: 'Sound Director & Composer',
+    emoji: '🎵',
     color: '#F472B6',
-    specialty: '영상 편집 디렉션, 컷 구성, B-roll 제안, 자막·타이틀, 스크립트 다듬기, 콘텐츠 폴리싱',
-    tagline: '영상 편집 디렉션과 콘텐츠 폴리싱을 합니다'
+    specialty: '영상 BGM 자동 생성 (ACE-Step 로컬 모델), 사운드 디자인, 영상-음악 합성, 자막·타이틀 동기화, 오디오 후처리',
+    tagline: '영상에 어울리는 BGM을 직접 생성하고 영상에 합쳐줍니다',
+    persona: '음악·사운드 감각이 좋고 영상의 톤을 한 마디로 잡아냄. "이 영상은 [장르/분위기]가 어울릴 것 같아요" 식으로 제안. 생성한 BGM의 BPM·키·길이를 정확히 보고. 데이터 중심이지만 창작자 감수성도 있음. 이모티콘은 🎵·🎼·🎚 정도만.'
   },
   writer: {
     id: 'writer',

@@ -5495,8 +5495,55 @@ function _seedAgentToolsIfMissing(agentId: string) {
          remain), but listAgentTools hides it whenever the OAuth tool is
          present so they only see ONE calendar entry. */
       _seedSecretaryGoogleCalendarWrite(toolsDir);
+    } else if (agentId === 'editor') {
+      /* v2.89.68 — 사운드/음악 에이전트 도구. ACE-Step 1.5 로컬 음악 생성 모델 사용. */
+      const toolsDir = path.join(getCompanyDir(), '_agents', agentId, 'tools');
+      fs.mkdirSync(toolsDir, { recursive: true });
+      _seedEditorMusicStudioSetup(toolsDir);
+      _seedEditorMusicGenerate(toolsDir);
+      _seedEditorMusicToVideo(toolsDir);
     }
   } catch { /* ignore */ }
+}
+
+/* v2.89.68 — Editor (사운드) 에이전트 시드 함수들. assets/tool-seeds/editor/ 의 .py·.md 파일을
+   회사 폴더의 _agents/editor/tools/ 로 복사. sentinel은 'music_v1' — 향후 ACE-Step XL 지원
+   추가 시 'music_v2'로 올려서 자동 업그레이드. */
+function _seedEditorMusicStudioSetup(toolsDir: string) {
+  const py = _loadToolSeed('editor/music_studio_setup.py');
+  const md = _loadToolSeed('editor/music_studio_setup.md');
+  const json = JSON.stringify({}, null, 2);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_studio_setup.py'), py, 'music_v1');
+  _seedFile(path.join(toolsDir, 'music_studio_setup.json'), json);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_studio_setup.md'), md, 'music_v1');
+}
+
+function _seedEditorMusicGenerate(toolsDir: string) {
+  const py = _loadToolSeed('editor/music_generate.py');
+  const md = _loadToolSeed('editor/music_generate.md');
+  const json = JSON.stringify({
+    PROMPT: 'calm korean YouTube intro music, gentle piano, hopeful',
+    DURATION_SEC: 30,
+    GENRE: '',
+    OUTPUT_DIR: '',
+  }, null, 2);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.py'), py, 'music_v1');
+  _seedFile(path.join(toolsDir, 'music_generate.json'), json);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.md'), md, 'music_v1');
+}
+
+function _seedEditorMusicToVideo(toolsDir: string) {
+  const py = _loadToolSeed('editor/music_to_video.py');
+  const md = _loadToolSeed('editor/music_to_video.md');
+  const json = JSON.stringify({
+    VIDEO_PATH: '',
+    MUSIC_PATH: '',
+    BGM_VOLUME: 0.3,
+    OUTPUT_PATH: '',
+  }, null, 2);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_to_video.py'), py, 'music_v1');
+  _seedFile(path.join(toolsDir, 'music_to_video.json'), json);
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_to_video.md'), md, 'music_v1');
 }
 
 function _seedFile(p: string, content: string) {
