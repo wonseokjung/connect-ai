@@ -16922,9 +16922,18 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         isLMStudio: boolean,
         onToken: (token: string) => void,
     ): Promise<void> {
-        const IDLE_TIMEOUT_MS = 60_000; /* 1분간 청크 없으면 hang으로 간주 */
+        /* v2.89.75 — 2단계 timeout. 저사양 머신은 모델 첫 로드에 30-90초 걸려서 60초 단일
+           timeout이 첫 토큰 도착 전에 끊김 (사용자 "60초 벽" 컴플레인). 이제:
+           - FIRST_TOKEN_TIMEOUT (디폴트 240초): 모델 첫 토큰까지 기다리는 시간
+           - IDLE_TIMEOUT (디폴트 60초): 첫 토큰 이후 chunk 사이 대기 시간
+           둘 다 settings.json `connectAiLab.streamFirstTokenTimeoutSec`,
+           `connectAiLab.streamIdleTimeoutSec` 로 사용자 조정 가능. */
+        const cfg = vscode.workspace.getConfiguration('connectAiLab');
+        const FIRST_TOKEN_TIMEOUT_MS = (cfg.get<number>('streamFirstTokenTimeoutSec', 240) || 240) * 1000;
+        const IDLE_TIMEOUT_MS = (cfg.get<number>('streamIdleTimeoutSec', 60) || 60) * 1000;
         await new Promise<void>((resolve, reject) => {
             let buffer = '';
+            let firstTokenReceived = false;
             let lastChunkAt = Date.now();
             let settled = false;
             const finish = (err?: Error) => {
@@ -16935,8 +16944,16 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                 if (err) reject(err); else resolve();
             };
             const idleCheck = setInterval(() => {
-                if (Date.now() - lastChunkAt > IDLE_TIMEOUT_MS) {
-                    finish(new Error(`LLM 스트림 ${IDLE_TIMEOUT_MS / 1000}초간 응답 없음 (모델 hang 또는 네트워크 끊김)`));
+                const elapsed = Date.now() - lastChunkAt;
+                const limit = firstTokenReceived ? IDLE_TIMEOUT_MS : FIRST_TOKEN_TIMEOUT_MS;
+                if (elapsed > limit) {
+                    const stage = firstTokenReceived ? '응답 중' : '모델 로드 대기';
+                    const sec = Math.round(limit / 1000);
+                    finish(new Error(
+                        `LLM ${stage} ${sec}초 초과. 저사양 머신이면 ` +
+                        `settings.json에서 connectAiLab.streamFirstTokenTimeoutSec 값을 ` +
+                        `늘리거나 (예: 600), 더 작은 모델로 변경하세요 (gemma2:2b 1.6GB 등).`
+                    ));
                 }
             }, 5_000);
             const onAbort = () => finish(new Error('aborted'));
@@ -16955,7 +16972,10 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                         const token = isLMStudio
                             ? (json.choices?.[0]?.delta?.content || '')
                             : (json.message?.content || '');
-                        if (token) onToken(token);
+                        if (token) {
+                            firstTokenReceived = true;  /* v2.89.75 — 첫 토큰 도착 마킹 */
+                            onToken(token);
+                        }
                     } catch { /* skip malformed line */ }
                 }
             });

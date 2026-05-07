@@ -2,7 +2,7 @@
   "name": "connect-ai-lab",
   "displayName": "Connect AI — AI 1인 기업 · 나만의 에이전트 팀 · 제2의 두뇌",
   "description": "AI 1인 기업가를 위한 워크스페이스. 나만의 AI 에이전트 팀과 제2의 두뇌가 한 곳에서 — CEO + 전문 에이전트들이 내 지식·결정 로그·메모리를 컨텍스트로 24시간 미션 향해 자동으로 일합니다. 100% 로컬·오프라인·무료.",
-  "version": "2.89.74",
+  "version": "2.89.75",
   "publisher": "connectailab",
   "license": "MIT",
   "icon": "assets/icon.png",
@@ -222,6 +222,16 @@
           "type": "number",
           "default": 300,
           "description": "⏱ AI 응답 대기 시간 (초, 기본 300초 = 5분)"
+        },
+        "connectAiLab.streamFirstTokenTimeoutSec": {
+          "type": "number",
+          "default": 240,
+          "description": "🐢 모델 첫 토큰까지 기다리는 시간 (초). 저사양 머신은 모델 로드에 시간 걸려서 60초 안에 첫 응답 못 옴. 기본 240초(4분). 600초(10분)까지 늘려도 OK."
+        },
+        "connectAiLab.streamIdleTimeoutSec": {
+          "type": "number",
+          "default": 60,
+          "description": "💤 첫 응답 이후 토큰 사이 최대 idle 시간 (초). 한 번 응답 시작하면 보통 빠르게 흘러서 60초면 충분. 모델 hang 감지용."
         },
         "connectAiLab.localBrainPath": {
           "type": "string",
