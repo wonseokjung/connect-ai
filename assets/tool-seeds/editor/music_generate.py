@@ -41,23 +41,37 @@ def _generate_musicgen(setup, prompt, duration_sec, output_path):
     # duration → max_new_tokens 환산
     max_tokens = max(64, int(duration_sec * 50))
 
+    # v2.89.76 — outer f-string이 prompt!r 치환할 때 quote 충돌하던 문제 수정.
+    # 변수에 먼저 담은 뒤 inner f-string에서 {{변수}} 형태로 참조 (literal { 이스케이프).
+    wav_path = output_path.replace('.mp3', '.wav')
     script = f"""
-import torch, scipy.io.wavfile, sys, os
-from transformers import MusicgenForConditionalGeneration, AutoProcessor
+import os, sys
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+import logging, warnings
+logging.getLogger('transformers').setLevel(logging.ERROR)
+warnings.filterwarnings('ignore')
+import torch, scipy.io.wavfile
+
+PROMPT = {prompt!r}
+HF_ID = {hf_id!r}
+WAV_PATH = {wav_path!r}
+DURATION_SEC = {duration_sec}
+MAX_TOKENS = {max_tokens}
+
 print('🔧 모델 로드 중...', file=sys.stderr, flush=True)
-processor = AutoProcessor.from_pretrained({hf_id!r})
-model = MusicgenForConditionalGeneration.from_pretrained({hf_id!r})
+from transformers import MusicgenForConditionalGeneration, AutoProcessor
+processor = AutoProcessor.from_pretrained(HF_ID)
+model = MusicgenForConditionalGeneration.from_pretrained(HF_ID)
 device = 'mps' if torch.backends.mps.is_available() else ('cuda' if torch.cuda.is_available() else 'cpu')
 model = model.to(device)
-print(f'🎵 디바이스: {{device}}', file=sys.stderr, flush=True)
-print(f'🎼 생성 중... (프롬프트: {prompt!r}, {duration_sec}초)', file=sys.stderr, flush=True)
-inputs = processor(text=[{prompt!r}], padding=True, return_tensors='pt').to(device)
-audio = model.generate(**inputs, max_new_tokens={max_tokens})
+print('🎵 디바이스: ' + str(device), file=sys.stderr, flush=True)
+print('🎼 생성 중... (' + str(DURATION_SEC) + '초)', file=sys.stderr, flush=True)
+inputs = processor(text=[PROMPT], padding=True, return_tensors='pt').to(device)
+audio = model.generate(**inputs, max_new_tokens=MAX_TOKENS)
 audio_np = audio[0, 0].cpu().numpy()
 sr = model.config.audio_encoder.sampling_rate
-wav_path = {output_path.replace('.mp3', '.wav')!r}
-scipy.io.wavfile.write(wav_path, sr, audio_np)
-print(f'✅ wav: {{wav_path}}', file=sys.stderr, flush=True)
+scipy.io.wavfile.write(WAV_PATH, sr, audio_np)
+print('✅ wav: ' + WAV_PATH, file=sys.stderr, flush=True)
 """
     proc = subprocess.run([venv_python, "-c", script], capture_output=True, text=True)
     if proc.stderr.strip():

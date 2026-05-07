@@ -5573,9 +5573,9 @@ function _seedEditorMusicGenerate(toolsDir: string) {
     GENRE: '',
     OUTPUT_DIR: '',
   }, null, 2);
-  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.py'), py, 'music_v3');
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.py'), py, 'music_v4');
   _seedFile(path.join(toolsDir, 'music_generate.json'), json);
-  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.md'), md, 'music_v3');
+  _seedFileForceUpgrade(path.join(toolsDir, 'music_generate.md'), md, 'music_v4');
 }
 
 function _seedEditorMusicToVideo(toolsDir: string) {
