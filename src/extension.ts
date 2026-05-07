@@ -5259,11 +5259,20 @@ interface AgentTool {
 interface ToolField {
   key: string;
   label: string;
-  type: 'password' | 'text' | 'list' | 'number';
+  type: 'password' | 'text' | 'list' | 'number' | 'select';
   value: any;
+  /** v2.89.72 — select 타입일 때 드롭다운 옵션 목록. JSON config의 `_schema[KEY].options`에서. */
+  options?: { value: string; label: string }[];
+  /** v2.89.72 — select/text/number 공통 — 사용자한테 보여줄 placeholder/도움말. `_schema[KEY].hint`. */
+  hint?: string;
 }
 
-function _inferToolFieldType(key: string, value: any): ToolField['type'] {
+function _inferToolFieldType(key: string, value: any, schema?: any): ToolField['type'] {
+  // v2.89.72 — _schema에서 명시적 type 지정이 있으면 우선
+  if (schema && schema[key] && schema[key].type) {
+    const t = schema[key].type;
+    if (['password', 'text', 'list', 'number', 'select'].includes(t)) return t;
+  }
   if (Array.isArray(value)) return 'list';
   if (typeof value === 'number') return 'number';
   // any key with KEY/SECRET/TOKEN/PASS → password
@@ -5303,14 +5312,27 @@ function listAgentTools(agentId: string): AgentTool[] {
     const descMatch = readme.split('\n').find(l => l.trim() && !l.startsWith('#'));
     const description = (descMatch || '').slice(0, 200);
     // _injectedAt 등 메타 키는 사용자에게 노출되는 설정 폼에선 숨김 — 출처 추적용 내부 필드.
+    // v2.89.72 — _schema 메타 필드로 select 옵션·hint·label override 가능.
+    const schema = (config && typeof config._schema === 'object') ? config._schema : null;
     const configSchema: ToolField[] = Object.entries(config)
       .filter(([key]) => !key.startsWith('_'))
-      .map(([key, value]) => ({
-        key,
-        label: key.replace(/_/g, ' '),
-        type: _inferToolFieldType(key, value),
-        value,
-      }));
+      .map(([key, value]) => {
+        const t = _inferToolFieldType(key, value, schema);
+        const fieldMeta = schema && schema[key] ? schema[key] : null;
+        const field: ToolField = {
+          key,
+          label: (fieldMeta && fieldMeta.label) || key.replace(/_/g, ' '),
+          type: t,
+          value,
+        };
+        if (t === 'select' && fieldMeta && Array.isArray(fieldMeta.options)) {
+          field.options = fieldMeta.options.map((o: any) =>
+            typeof o === 'string' ? { value: o, label: o } : { value: o.value, label: o.label || o.value }
+          );
+        }
+        if (fieldMeta && fieldMeta.hint) field.hint = fieldMeta.hint;
+        return field;
+      });
     const injectedAt = typeof config._injectedAt === 'string' ? config._injectedAt : undefined;
     const injectedFrom = typeof config._injectedFrom === 'string' ? config._injectedFrom : undefined;
     /* enabled defaults TRUE — explicit `_enabled: false` opts out, missing
@@ -5512,9 +5534,30 @@ function _seedAgentToolsIfMissing(agentId: string) {
 function _seedEditorMusicStudioSetup(toolsDir: string) {
   const py = _loadToolSeed('editor/music_studio_setup.py');
   const md = _loadToolSeed('editor/music_studio_setup.md');
+  /* v2.89.72 — _schema 메타로 MODEL을 드롭다운으로 노출. 사용자가 텍스트 입력 안 하고 클릭으로 선택. */
   const json = JSON.stringify({
-    MODEL: '',  // 빈 값 = RAM 기반 자동 추천 (small/medium)
-    INSTALL_DIR: '',  // 빈 값 = ~/connect-ai-music/
+    MODEL: '',
+    INSTALL_DIR: '',
+    _schema: {
+      MODEL: {
+        type: 'select',
+        label: '🎵 음악 모델',
+        hint: '비워두면 RAM 기반 자동 추천 (small 또는 medium)',
+        options: [
+          { value: '', label: '(자동 추천 — RAM 기반)' },
+          { value: 'musicgen-small',  label: '⚡ MusicGen Small  (300MB · 4GB+ RAM · 빠름)' },
+          { value: 'musicgen-medium', label: '⚖️ MusicGen Medium (1.5GB · 8GB+ RAM · 균형)' },
+          { value: 'musicgen-large',  label: '🎼 MusicGen Large  (3.3GB · 16GB+ RAM · 좋음)' },
+          { value: 'acestep-base',    label: '🎹 ACE-Step Base   (10GB · 16GB+ Mac · 우수)' },
+          { value: 'acestep-xl',      label: '🎻 ACE-Step XL     (15GB · 32GB+ 머신 · 최고)' },
+        ],
+      },
+      INSTALL_DIR: {
+        type: 'text',
+        label: '📁 설치 위치',
+        hint: '비워두면 ~/connect-ai-music/. 외장 디스크 등 변경 가능',
+      },
+    },
   }, null, 2);
   _seedFileForceUpgrade(path.join(toolsDir, 'music_studio_setup.py'), py, 'music_v2');
   _seedFile(path.join(toolsDir, 'music_studio_setup.json'), json);
@@ -5585,11 +5628,37 @@ function _seedYouTubeTrendSniper(toolsDir: string) {
 /* v2.89.70 sentinel — Auto Planner에 첫 실행 검증 + blocking 명확 안내 추가. 자동 업그레이드. */
 function _seedYouTubeAutoPlanner(toolsDir: string) {
   const py = _loadToolSeed('youtube/auto_planner.py');
-  /* v2.89.71 — 24시간 자율 모드 디폴트. TOTAL_RUN_HOURS: 0 = 무한 반복 (사용자가 멈출 때까지).
-     INTERVAL_HOURS 6 = 하루 4번 = YouTube API 일일 quota(10000 unit) 안전권. */
+  /* v2.89.72 — 사용자가 드롭다운으로 모드 선택. INTERVAL과 TOTAL 둘 다 select. */
   const json = JSON.stringify({
     INTERVAL_HOURS: 6,
     TOTAL_RUN_HOURS: 0,
+    _schema: {
+      INTERVAL_HOURS: {
+        type: 'select',
+        label: '⏰ 실행 간격',
+        hint: 'YouTube API 일일 quota 한도(10,000 unit) 고려. 6시간이 안전권.',
+        options: [
+          { value: 1,  label: '1시간 — 너무 빠름, quota 초과 위험' },
+          { value: 2,  label: '2시간 — 빠른 모니터링 (12회/일)' },
+          { value: 3,  label: '3시간 — 활발 (8회/일)' },
+          { value: 6,  label: '⭐ 6시간 — 권장 (4회/일, 안전)' },
+          { value: 12, label: '12시간 — 보수적 (2회/일)' },
+          { value: 24, label: '24시간 — 일일 1회' },
+        ],
+      },
+      TOTAL_RUN_HOURS: {
+        type: 'select',
+        label: '🌙 가동 모드',
+        hint: '0(무한) = 24시간 자율 모드. 양수 = 그 시간만 돌고 종료 (테스트용).',
+        options: [
+          { value: 0,  label: '⭐ 0 (무한) — 24시간 자율, 사용자가 멈출 때까지' },
+          { value: 8,  label: '8시간 — 하룻밤 동안 (테스트용)' },
+          { value: 24, label: '24시간 — 하루 동안' },
+          { value: 72, label: '72시간 — 3일 동안' },
+          { value: 168, label: '168시간 — 1주일 동안' },
+        ],
+      },
+    },
   }, null, 2);
   const md = _loadToolSeed('youtube/auto_planner.md');
   /* v2.89.71 sentinel — 24시간 자율 모드 (TOTAL_RUN_HOURS=0 무한). 자동 업그레이드. */

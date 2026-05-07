@@ -2543,7 +2543,9 @@ function showToolConfig(agent, tool){
     schema.forEach(field=>{
       const wrap = document.createElement('div');
       wrap.className = 'tc-field';
-      const labelHelp = field.type==='password'?'비밀로 저장됨':field.type==='list'?'한 줄에 하나씩':'';
+      // v2.89.72 — labelHelp가 type별 + hint(있으면) 둘 다
+      const typeHelp = field.type==='password'?'비밀로 저장됨':field.type==='list'?'한 줄에 하나씩':field.type==='select'?'드롭다운에서 선택':'';
+      const labelHelp = field.hint ? field.hint : typeHelp;
       let inputHtml;
       if(field.type === 'list'){
         const txt = Array.isArray(field.value) ? field.value.join('\n') : '';
@@ -2552,10 +2554,23 @@ function showToolConfig(agent, tool){
         inputHtml = '<input type="password" class="tc-input password" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'" placeholder="여기에 입력하세요">';
       } else if(field.type === 'number'){
         inputHtml = '<input type="number" class="tc-input" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'">';
+      } else if(field.type === 'select'){
+        // v2.89.72 — 드롭다운. options에서 매칭되는 값 selected, 아니면 첫번째.
+        const opts = field.options || [];
+        const currentVal = String(field.value || '');
+        const optsHtml = opts.map(o => {
+          const v = esc(String(o.value||''));
+          const l = esc(String(o.label||o.value||''));
+          const sel = (currentVal === o.value) ? ' selected' : '';
+          return '<option value="'+v+'"'+sel+'>'+l+'</option>';
+        }).join('');
+        // 빈 값 옵션 추가 (사용자가 지우고 싶을 때 + auto-recommend 표시)
+        const emptyOpt = (currentVal === '') ? '<option value="" selected>(자동 추천)</option>' : '<option value="">(자동 추천)</option>';
+        inputHtml = '<select class="tc-input tc-select" data-key="'+esc(field.key)+'">'+emptyOpt+optsHtml+'</select>';
       } else {
         inputHtml = '<input type="text" class="tc-input" data-key="'+esc(field.key)+'" value="'+esc(String(field.value||''))+'">';
       }
-      wrap.innerHTML = '<label class="tc-label">'+esc(field.label)+(labelHelp?'<span class="tc-label-help">'+labelHelp+'</span>':'')+'</label>' + inputHtml;
+      wrap.innerHTML = '<label class="tc-label">'+esc(field.label)+(labelHelp?'<span class="tc-label-help">'+esc(labelHelp)+'</span>':'')+'</label>' + inputHtml;
       body.appendChild(wrap);
     });
   }
@@ -2583,6 +2598,14 @@ function showToolConfig(agent, tool){
       } else if(el.type === 'number'){
         const n = parseFloat(el.value);
         values[key] = Number.isFinite(n) ? n : 0;
+      } else if(el.classList.contains('tc-select')){
+        // v2.89.72 — select 값이 순수 숫자면 number로 저장 (INTERVAL_HOURS 등). 아니면 string.
+        const v = el.value;
+        if(v !== '' && /^-?\d+(\.\d+)?$/.test(v)){
+          values[key] = parseFloat(v);
+        } else {
+          values[key] = v;
+        }
       } else {
         values[key] = el.value;
       }
