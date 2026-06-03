@@ -47,7 +47,7 @@
         {
           "target": "dmg",
           "arch": [
-            "arm64"
+            "universal"
           ]
         }
       ],
@@ -61,7 +61,7 @@
       }
     },
     "dmg": {
-      "artifactName": "Connect-AI-${version}-mac-arm64.dmg"
+      "artifactName": "Connect-AI-${version}-mac-universal.dmg"
     },
     "win": {
       "target": [
