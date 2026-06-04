@@ -881,8 +881,9 @@ connect.onTermShow?.(() => showTerm(true));   // 에이전트가 서버/명령 �
 // 🔌 EZERAI 브레인팩 주입 → 매트릭스 FX + 작업실 파일트리 새로고침
 connect.onBridgeInject?.((d: any) => {
   const emoji: any = { knowledge: '🧠', skill: '🐍', template: '📦', design: '🎨' };
-  playInjection(`${emoji[d.kind] || '🔌'} EZERAI → ${d.kind === 'knowledge' ? '두뇌' : '작업실'}`, [d.label || '브레인팩 주입']);
+  playInjection(`${emoji[d.kind] || '🔌'} EZERAI → ${d.kind === 'knowledge' ? '두뇌' : '작업실'}`, [d.label || '브레인팩 주입'], (CAT_META[d.category] || CAT_META.general).color);
   if (d.kind !== 'knowledge') { showFiles(true); setTimeout(() => loadTree(true), 400); }   // 스킬/템플릿/디자인 = 파일 생김
+  if (!$('brainPanel').classList.contains('hidden')) setTimeout(() => renderBrain(), 300);    // 두뇌 패널 열려있으면 실시간 갱신
 });
 // 시작: 파일 탐색기 상시 표시(트리 로드), 터미널은 접힌 상태(⌨️로 펴기)
 showFiles(true);
@@ -922,7 +923,7 @@ function openAgentDetail(id: string) {
 $('voffice').addEventListener('click', (e) => { const el = (e.target as HTMLElement).closest('.vo-agent'); if (el) openAgentDetail(el.id.replace('vo-', '')); });
 
 // ── 🧠 지식 네트워크 (두뇌) ───────────────────────────
-$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBrain(); });
+$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBridge(); await renderBrain(); });
 $('brainAddBtn').addEventListener('click', addKnowledge);
 // 단기(GitHub)/장기(HuggingFace) 연결 상태 표시
 async function refreshMem() {
@@ -948,7 +949,8 @@ $('ghPushBtn').addEventListener('click', async () => {
 $('ghPullBtn').addEventListener('click', async () => {
   $('ghStatus').textContent = '⬇ GitHub에서 불러오는 중…';
   const r = await connect.githubPull();
-  $('ghStatus').textContent = r.ok ? `✅ ${r.added}개 새로 가져옴 (총 ${r.total}개)` : `⚠️ ${r.error}`;
+  if (r.ok) { const extra = r.scanned ? ` · 파일 ${r.scanned}개 스캔${r.skipped ? `, 잡파일 ${r.skipped}개 제외` : ''}${r.capped ? ' (상한 도달)' : ''}` : ''; $('ghStatus').textContent = `✅ ${r.added}개 새로 가져옴 (총 ${r.total}개)${extra}`; }
+  else $('ghStatus').textContent = `⚠️ ${r.error}`;
   if (r.ok && r.added) { playInjection('GitHub → 두뇌 동기화', [`${r.added}개 지식 주입`]); await renderBrain(); }
 });
 // 🧬 장기 = HuggingFace
@@ -973,74 +975,160 @@ $('hfTrainBtn').addEventListener('click', async () => {
   } else { $('hfStatus').textContent = `⚠️ ${r.error}`; }
 });
 $('brainInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter') addKnowledge(); });
+// 입력하는 동안 어느 분야 두뇌로 갈지 실시간 미리보기 (디바운스)
+let catHintTimer = 0; let pendingCat = '';
+$('brainInput').addEventListener('input', () => {
+  const t = ($('brainInput') as HTMLInputElement).value.trim();
+  const hint = $('catHint'); if (!t) { hint.textContent = ''; pendingCat = ''; return; }
+  clearTimeout(catHintTimer);
+  catHintTimer = window.setTimeout(async () => {
+    try { const c = await connect.brainClassify(t); const m = CAT_META[c.id] || CAT_META.general; pendingCat = c.id; hint.textContent = `${m.emoji} ${m.label}`; (hint as HTMLElement).style.cssText = `color:${m.color};border-color:${m.color}55;background:${m.color}1a`; } catch { /* */ }
+  }, 250);
+});
 async function addKnowledge() {
   const i = $('brainInput') as HTMLInputElement; const t = i.value.trim(); if (!t) return;
-  i.value = ''; playInjection('단기 기억 주입', [t]); await connect.brainAdd(t); await renderBrain();
+  const cat = pendingCat || undefined;
+  const m = cat ? (CAT_META[cat] || CAT_META.general) : CAT_META.general;
+  i.value = ''; $('catHint').textContent = ''; pendingCat = '';
+  playInjection(`${m.emoji} ${m.label} 두뇌 주입`, [t], m.color); await connect.brainAdd(t, cat); await renderBrain();
 }
-// 🧠 매트릭스 지식 주입 FX — 지식이 두뇌로 다운로드되는 연출
+// 🧠 매트릭스 브레인 인젝션 FX — 지식이 분야 두뇌로 다운로드되는 연출(분야 색으로 물듦)
 let injectRaf = 0;
-function playInjection(label: string, lines: string[] = []) {
+const hexToRgb = (h: string) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); const n = m ? parseInt(m[1], 16) : 0x00ff41; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+const PROTOCOL = ['> 인젝션 프로토콜 시작…', '> 페이로드 직렬화…', '> 신경망 채널 동기화…', '> 두뇌 가중치 전송…', '> ✓ 주입 완료'];
+function playInjection(label: string, lines: string[] = [], color = '#00ff41') {
   const fx = $('injectFx'); const canvas = $('injectRain') as HTMLCanvasElement;
   fx.classList.remove('hidden', 'out');
+  fx.style.setProperty('--fx', color);   // HUD 글로우·바·코어를 분야 색으로
+  const [r, g, b] = hexToRgb(color);
+  $('ihText').textContent = lines.join('\n').slice(0, 280);
+  $('ihLog').innerHTML = ''; let shown = 0;
   const ctx = canvas.getContext('2d'); if (!ctx) { setTimeout(() => fx.classList.add('hidden'), 1200); return; }
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = canvas.clientWidth * dpr; canvas.height = canvas.clientHeight * dpr;
-  const fontSize = 16 * dpr; const cols = Math.max(1, Math.floor(canvas.width / fontSize));
+  const W = canvas.width = canvas.clientWidth * dpr, H = canvas.height = canvas.clientHeight * dpr;
+  const cx = W / 2, cy = H * 0.42, maxR = Math.hypot(Math.max(cx, W - cx), Math.max(cy, H - cy));   // 수렴 중심 = 두뇌 코어 위치
+  const fontSize = 15 * dpr;
+  const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃ0123◆◇⬢⬡01';
+  const gl = () => glyphs[Math.floor(Math.random() * glyphs.length)];
+  // 🌌 지식 입자 — 화면 밖에서 두뇌 코어로 빨려 들어옴(꼬리 달린 데이터 스트림)
+  const spawn = () => ({ a: Math.random() * Math.PI * 2, r: maxR * (0.65 + Math.random() * 0.45), sp: (1.5 + Math.random() * 2.8) * dpr, g: gl() });
+  const P = Array.from({ length: 90 }, spawn);
+  // 배경 매트릭스(옅게)
+  const cols = Math.max(1, Math.floor(W / (fontSize * 1.7)));
   const drops = new Array(cols).fill(0).map(() => Math.random() * -40);
-  const glyphs = 'ｱｲｳｴｵｶｷｸｹｺｻｼｽｾｿﾀﾁﾂﾃ0123ｱｴ◆◇⬢$';
   brainEnergy(1);
-  $('ihText').textContent = lines.join('\n').slice(0, 280);
-  const t0 = performance.now(), DUR = 2200;
+  const t0 = performance.now(), DUR = 2800;
   cancelAnimationFrame(injectRaf);
   const tick = (now: number) => {
     const p = Math.min(1, (now - t0) / DUR);
     ($('ihFill') as HTMLElement).style.width = (p * 100) + '%';
-    $('ihSub').textContent = p < 1 ? `${label} … ${Math.floor(p * 100)}%` : '✓ 주입 완료';
-    ctx.fillStyle = 'rgba(0,8,3,0.16)'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+    $('ihSub').textContent = p < 1 ? `${label} … ${Math.floor(p * 100)}%` : '✓ 두뇌에 주입 완료';
+    const want = Math.min(PROTOCOL.length, Math.floor(p * PROTOCOL.length) + 1);
+    while (shown < want) { const d = document.createElement('div'); d.className = 'ih-line'; d.textContent = PROTOCOL[shown]; $('ihLog').appendChild(d); shown++; }
+    ctx.fillStyle = 'rgba(0,5,7,0.24)'; ctx.fillRect(0, 0, W, H);
+    // 배경 매트릭스 비 (희미)
     ctx.font = fontSize + 'px monospace';
-    for (let k = 0; k < cols; k++) {
-      const ch = glyphs[Math.floor(Math.random() * glyphs.length)];
-      const x = k * fontSize, y = drops[k] * fontSize;
-      ctx.fillStyle = Math.random() < 0.04 ? '#e6fff0' : 'rgba(0,255,65,0.85)';
-      ctx.fillText(ch, x, y);
-      if (y > canvas.height && Math.random() > 0.975) drops[k] = 0;
-      drops[k] += 0.6 + (1 - p) * 0.5;
+    for (let k = 0; k < cols; k++) { const x = k * fontSize * 1.7, y = drops[k] * fontSize; ctx.fillStyle = `rgba(${r},${g},${b},0.16)`; ctx.fillText(gl(), x, y); if (y > H && Math.random() > 0.97) drops[k] = 0; drops[k] += 0.5; }
+    // 중앙 코어 글로우 (펄스)
+    const pulse = 0.62 + 0.38 * Math.sin(now / 110);
+    const grd = ctx.createRadialGradient(cx, cy, 0, cx, cy, 86 * dpr * pulse);
+    grd.addColorStop(0, `rgba(${r},${g},${b},0.55)`); grd.addColorStop(0.45, `rgba(${r},${g},${b},0.13)`); grd.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(cx, cy, 86 * dpr * pulse, 0, 7); ctx.fill();
+    // 회전 테크 링 2겹
+    for (let ring = 0; ring < 2; ring++) { const rad = (40 + ring * 16) * dpr; const off = now / (500 + ring * 300) % (Math.PI * 2); ctx.strokeStyle = `rgba(${r},${g},${b},${0.55 - ring * 0.2})`; ctx.lineWidth = 1.5 * dpr; ctx.beginPath(); ctx.arc(cx, cy, rad, off, off + Math.PI * 1.3); ctx.stroke(); }
+    // 수렴 입자 + 꼬리
+    for (const q of P) {
+      q.r -= q.sp * (0.8 + p * 1.9);
+      if (q.r < 7 * dpr) { Object.assign(q, spawn()); continue; }
+      const near = 1 - q.r / maxR, al = Math.min(1, 0.22 + near * 0.95);
+      const ca = Math.cos(q.a), sa = Math.sin(q.a);
+      const x = cx + ca * q.r, y = cy + sa * q.r;
+      const tail = (14 + near * 26) * dpr, x2 = cx + ca * (q.r + tail), y2 = cy + sa * (q.r + tail);
+      ctx.strokeStyle = `rgba(${r},${g},${b},${al * 0.45})`; ctx.lineWidth = (0.8 + near) * dpr; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x2, y2); ctx.stroke();
+      ctx.fillStyle = Math.random() < 0.07 ? '#ffffff' : `rgba(${r},${g},${b},${al})`;
+      ctx.font = (fontSize * (0.65 + near * 0.8)) + 'px monospace'; ctx.fillText(q.g, x, y);
     }
     if (p < 1 && !fx.classList.contains('hidden')) injectRaf = requestAnimationFrame(tick);
-    else { fx.classList.add('out'); setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); brainEnergy(0.3); }, 400); }
+    else { fx.classList.add('out'); setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); brainEnergy(0.3); }, 520); }
   };
   injectRaf = requestAnimationFrame(tick);
 }
 $('injectFx').addEventListener('click', () => { cancelAnimationFrame(injectRaf); $('injectFx').classList.add('hidden'); brainEnergy(0.3); });
+// 🎨 분야 = 두뇌 — 라벨·이모지·색(그래프 노드/칩/성장바 공통)
+const CAT_META: Record<string, { label: string; emoji: string; color: string }> = {
+  marketing: { label: '마케팅', emoji: '📣', color: '#ff5c8a' },
+  coding: { label: '코딩', emoji: '💻', color: '#22d3ee' },
+  design: { label: '디자인', emoji: '🎨', color: '#a78bfa' },
+  business: { label: '사업', emoji: '💼', color: '#f5c518' },
+  general: { label: '일반', emoji: '🗂️', color: '#00ff41' },
+};
 async function renderBrain() {
-  const [g, list, count] = await Promise.all([connect.brainGraph(), connect.brainList(), connect.brainCount()]);
+  const [g, list, count, stats] = await Promise.all([connect.brainGraph(), connect.brainList(), connect.brainCount(), connect.brainStats()]);
   $('brainCount').textContent = `${count}개`;
   drawGraph(g);
+  renderGrowth(stats);
   $('brainNotes').innerHTML = list.length
-    ? list.map((n: any) => `<div class="bn"><span class="bn-t">${escapeHtml(n.text)}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`).join('')
-    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. 위에 입력하거나, 대화 중 에이전트가 자동으로 기억해요.</div>';
+    ? list.map((n: any) => { const c = CAT_META[n.category] || CAT_META.general; return `<div class="bn" style="border-left:3px solid ${c.color}" title="${c.label} 두뇌"><span class="bn-t">${escapeHtml(n.text)}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`; }).join('')
+    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. 위에 <b>원자적 사실 하나씩</b> 입력하면 분야별로 자동 분류돼요.</div>';
   $('brainNotes').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.brainDelete((b as HTMLElement).dataset.id); await renderBrain(); }));
+}
+
+// 📊 분야별 두뇌 성장바 — 각 분야가 파인튜닝 임계점(30개)에 얼마나 다가갔나. point 5를 눈에 보이게.
+function renderGrowth(stats: any[]) {
+  const el = $('catGrowth'); if (!el) return;
+  if (!stats || !stats.length) { el.innerHTML = ''; return; }
+  el.innerHTML = stats.map((s: any) => {
+    const c = CAT_META[s.id] || CAT_META.general;
+    const ready = s.ready;
+    return `<div class="cg-row${ready ? ' ready' : ''}" title="${c.label} 두뇌 · ${s.count}개${s.verified ? ` (검증 ${s.verified})` : ''}">
+      <span class="cg-ico" style="color:${c.color}">${c.emoji}</span>
+      <span class="cg-lab">${c.label}</span>
+      <span class="cg-bar"><span class="cg-fill" style="width:${s.pct}%;background:${c.color};box-shadow:0 0 8px ${c.color}99"></span></span>
+      <span class="cg-num" style="color:${ready ? c.color : ''}">${ready ? '🔥' : ''}${s.count}</span>
+    </div>`;
+  }).join('');
+}
+
+// 🔌 에제르 브릿지 상태 — 주입이 데스크탑에 안 보이는 이유를 솔직하게 알려줌.
+async function renderBridge() {
+  const el = $('bridgeRow'); if (!el) return;
+  let b: any; try { b = await connect.bridgeStatus(); } catch { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  if (b.state === 'listening') { el.className = 'bridge-row on'; el.innerHTML = `🔌 에제르 브릿지 <b>수신중</b> (:${b.port}) — 웹에서 [주입] 누르면 여기로 들어와요`; }
+  else if (b.state === 'yielded') { el.className = 'bridge-row warn'; el.innerHTML = `⚠️ 포트 ${b.port}를 <b>${escapeHtml(b.heldBy || '다른 앱')}</b>이 점유 중 — 에제르 주입이 그쪽으로 가요. 데스크탑으로 받으려면 그 앱(익스텐션)을 끄세요`; }
+  else { el.className = 'bridge-row'; el.innerHTML = `🔌 에제르 브릿지 대기 중 (:${b.port})`; }
 }
 // 🕸️ force-graph — 익스텐션과 동일한 force-directed 지식 네트워크
 let fg: any = null;
+const hexA = (h: string, a: number) => { const [r, g, b] = hexToRgb(h); return `rgba(${r},${g},${b},${a})`; };
 function drawGraph(g: any) {
   const el = $('brainGraph'); const FG = (window as any).ForceGraph;
-  const nodes = (g.nodes || []).map((n: any) => ({ id: n.id, label: n.label }));
+  // 연결 수(degree) — 허브 뉴런일수록 크게
+  const deg: Record<string, number> = {};
+  (g.links || []).forEach((l: any) => { const s = l.source?.id || l.source, t = l.target?.id || l.target; deg[s] = (deg[s] || 0) + 1; deg[t] = (deg[t] || 0) + 1; });
+  const nodes = (g.nodes || []).map((n: any) => ({ id: n.id, label: n.label, color: (CAT_META[n.category] || CAT_META.general).color, deg: deg[n.id] || 0 }));
   const links = (g.links || []).map((l: any) => ({ source: l.source, target: l.target, w: l.w }));
   if (!FG) { el.innerHTML = '<div class="muted" style="text-align:center;padding:30px">그래프 라이브러리 로드 실패</div>'; return; }
-  if (!nodes.length) { el.innerHTML = '<div class="muted" style="text-align:center;padding:46px">지식을 추가하면 네트워크가 그려져요 🧠</div>'; fg = null; return; }
+  if (!nodes.length) { el.innerHTML = '<div class="muted" style="text-align:center;padding:46px">지식을 추가하면 신경망이 그려져요 🧠</div>'; fg = null; return; }
   if (!fg || (el.firstChild as HTMLElement)?.tagName !== 'CANVAS') {
     el.innerHTML = '';
     fg = FG()(el)
       .backgroundColor('rgba(0,0,0,0)')
-      .nodeRelSize(5).nodeColor(() => '#00FF41').nodeLabel((n: any) => n.label)
-      .linkColor(() => 'rgba(0,255,65,0.32)').linkWidth((l: any) => Math.max(0.6, (l.w || 0.3) * 2))
-      .linkDirectionalParticles(1).linkDirectionalParticleWidth(1.6).linkDirectionalParticleColor(() => 'rgba(120,255,170,0.9)')
+      .nodeRelSize(3).nodeColor((n: any) => n.color || '#00FF41').nodeLabel((n: any) => n.label)   // 기본 노드 항상 그림(안전) + 텍스트는 hover만
+      .linkColor(() => 'rgba(130,255,190,0.16)').linkWidth((l: any) => Math.max(0.6, (l.w || 0.3) * 1.6))
+      .linkDirectionalParticles(2).linkDirectionalParticleWidth(2).linkDirectionalParticleColor(() => 'rgba(165,255,215,0.85)')   // 흐르는 시냅스
       .nodeCanvasObjectMode(() => 'after')
-      .nodeCanvasObject((node: any, ctx: any, scale: number) => {
-        ctx.shadowColor = '#00FF41'; ctx.shadowBlur = 10; ctx.fillStyle = '#00FF41';
-        ctx.beginPath(); ctx.arc(node.x, node.y, 4, 0, 2 * Math.PI); ctx.fill(); ctx.shadowBlur = 0;
-        const fs = Math.max(3, 10 / scale); ctx.font = fs + 'px -apple-system, sans-serif'; ctx.fillStyle = '#cdd3e0'; ctx.textAlign = 'left'; ctx.fillText(node.label || '', node.x + 7, node.y + 3);
+      .nodeCanvasObject((node: any, ctx: any) => {
+        if (!isFinite(node.x) || !isFinite(node.y)) return;               // 좌표 준비 전 프레임 가드
+        const col = node.color || '#00FF41';
+        const rad = 3 + Math.min(5, (node.deg || 0) * 0.8);               // 허브 = 큰 뉴런
+        const grd = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, rad * 3);   // 시냅스 글로우
+        grd.addColorStop(0, hexA(col, 0.7)); grd.addColorStop(0.5, hexA(col, 0.12)); grd.addColorStop(1, hexA(col, 0));
+        ctx.fillStyle = grd; ctx.beginPath(); ctx.arc(node.x, node.y, rad * 3, 0, 7); ctx.fill();
+        ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 12;  // 뉴런 코어
+        ctx.beginPath(); ctx.arc(node.x, node.y, rad, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';                          // 밝은 중심
+        ctx.beginPath(); ctx.arc(node.x, node.y, Math.max(0.7, rad * 0.4), 0, 7); ctx.fill();
       });
   }
   fg.width(el.clientWidth || 700).height(el.clientHeight || 300);

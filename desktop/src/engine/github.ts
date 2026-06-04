@@ -46,7 +46,7 @@ export async function pushFile(token: string, repo: string, filePath: string, te
   } catch (e: any) {
     const st = e?.response?.status, msg = e?.response?.data?.message;
     if (st === 401) return { ok: false, error: 'GitHub 토큰이 잘못됐거나 만료됐어요. 새 토큰(repo 권한)으로 바꾸세요.' };
-    if (st === 403) return { ok: false, error: `권한 없음(403): ${msg || ''}. 토큰에 repo(contents 쓰기) 권한이 필요해요.` };
+    if (st === 403) return { ok: false, error: `권한 없음(403): 토큰에 쓰기 권한이 없어요. ▸Fine-grained 토큰: 해당 레포를 토큰의 Repository access에 넣고 → Repository permissions → Contents를 "Read and write"로. ▸Classic 토큰: "repo" 스코프 체크. (${msg || ''})` };
     if (st === 404) return { ok: false, error: `못 찾았어요(404): "${repo}". owner/이름 철자와 토큰 권한(repo)을 확인하세요.` };
     if (st === 422) return { ok: false, error: `요청 오류(422): ${msg || ''}` };
     return { ok: false, error: msg || e?.message || String(e) };
@@ -56,6 +56,56 @@ export async function pushFile(token: string, repo: string, filePath: string, te
 export async function pushKnowledge(token: string, repo: string, notes: any[]): Promise<{ ok: boolean; count?: number; error?: string; url?: string }> {
   const r = await pushFile(token, repo, FILE_PATH, JSON.stringify(notes, null, 2), `🧠 Connect AI 지식 동기화 (${notes.length}개)`);
   return r.ok ? { ok: true, count: notes.length, url: r.url } : r;
+}
+
+// 📥 범용 지식 가져오기 — 어떤 GitHub 레포든 마크다운/텍스트 파일을 지식 노트로.
+//   폴더 구조 가정 없음. 기술적 잡파일(코드·로그·캐시·설정)만 제외해서 누구 레포에나 동작.
+const TEXT_EXT = ['.md', '.markdown', '.txt', '.mdx'];
+// 지식이 아닌 게 거의 확실한 경로(로그·세션·캐시·빌드·의존성·메타). 폴더명은 일반적 용어만.
+const SKIP_RE = /(^|\/)(\.[^/]+|node_modules|dist|build|out|coverage|vendor|sessions?|logs?|cache|tmp|temp|history|backups?)(\/|$)/i;
+const SKIP_FILE = /(^|\/)(readme|license|licence|contributing|changelog|code_of_conduct|security)\.(md|markdown|txt)$/i;
+const MAX_MD = 300;
+// YAML 프론트매터에서 title 추출 + 본문 분리(있으면), 없으면 첫 H1.
+function parseMd(md: string): { title: string; body: string } {
+  let title = '', body = md;
+  const m = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/.exec(md);
+  if (m) { body = m[2]; const t = /^title:\s*"?(.+?)"?\s*$/m.exec(m[1]); if (t) title = t[1].trim(); }
+  if (!title) { const h = /^#\s+(.+)$/m.exec(body); if (h) title = h[1].replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '').trim(); }
+  return { title, body: body.trim() };
+}
+const fileTitle = (p: string) => (p.split('/').pop() || '').replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+// 레포의 지식 파일을 노트로 변환해 반환(병합은 호출측 importNotes 가).
+export async function importRepoMarkdown(token: string, repo: string): Promise<{ ok: boolean; notes?: { text: string }[]; scanned?: number; skipped?: number; capped?: boolean; error?: string }> {
+  if (!validRepo(repo)) return { ok: false, error: '레포 형식 오류' };
+  const { owner, name } = split(repo);
+  const h: any = token ? hdr(token) : { Accept: 'application/vnd.github+json', 'User-Agent': 'connect-ai-desktop' };
+  const treeUrl = (br: string) => `https://api.github.com/repos/${owner}/${name}/git/trees/${br}?recursive=1`;
+  try {
+    let tree: any;
+    try { tree = await axios.get(treeUrl('main'), { headers: h, timeout: 20000 }); }
+    catch (e: any) { if (e?.response?.status === 404) tree = await axios.get(treeUrl('master'), { headers: h, timeout: 20000 }); else throw e; }
+    const all = (tree.data.tree || []).filter((x: any) => x.type === 'blob' && TEXT_EXT.some(e => x.path.toLowerCase().endsWith(e)));
+    const skipped = all.filter((x: any) => SKIP_RE.test(x.path) || SKIP_FILE.test(x.path)).length;
+    let blobs = all.filter((x: any) => !SKIP_RE.test(x.path) && !SKIP_FILE.test(x.path));
+    const capped = blobs.length > MAX_MD; if (capped) blobs = blobs.slice(0, MAX_MD);
+    const notes: { text: string }[] = [];
+    for (const bl of blobs) {
+      try {
+        const r = await axios.get(`https://api.github.com/repos/${owner}/${name}/git/blobs/${bl.sha}`, { headers: h, timeout: 15000 });
+        const raw = Buffer.from(r.data.content, 'base64').toString('utf8');
+        const { title, body } = parseMd(raw);
+        const head = title || fileTitle(bl.path);
+        const text = ((head ? `# ${head}\n` : '') + body).trim();
+        if (text.length > 12) notes.push({ text: text.slice(0, 4000) });
+      } catch { /* 파일 하나 실패는 건너뜀 */ }
+    }
+    return { ok: true, notes, scanned: blobs.length, skipped, capped };
+  } catch (e: any) {
+    const st = e?.response?.status;
+    if (st === 404) return { ok: false, error: '레포 또는 브랜치(main/master)를 못 찾았어요.' };
+    if (st === 401 || st === 403) return { ok: false, error: '비공개 레포면 토큰 권한이 필요해요(공개 레포는 토큰 없이도 됨).' };
+    return { ok: false, error: e?.response?.data?.message || e?.message || String(e) };
+  }
 }
 
 export async function pullKnowledge(token: string, repo: string): Promise<{ ok: boolean; notes?: any[]; error?: string }> {

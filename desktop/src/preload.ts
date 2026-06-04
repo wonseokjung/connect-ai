@@ -41,8 +41,12 @@ contextBridge.exposeInMainWorld('connect', {
   brainGraph: () => ipcRenderer.invoke('brain:graph'),
   brainList: () => ipcRenderer.invoke('brain:list'),
   brainCount: () => ipcRenderer.invoke('brain:count'),
-  brainAdd: (text: string) => ipcRenderer.invoke('brain:add', text),
+  brainAdd: (text: string, category?: string) => ipcRenderer.invoke('brain:add', text, category),
   brainDelete: (id: string) => ipcRenderer.invoke('brain:delete', id),
+  brainStats: () => ipcRenderer.invoke('brain:stats'),                                  // 📊 분야별 성장
+  brainClassify: (text: string) => ipcRenderer.invoke('brain:classify', text),          // 입력 중 분야 미리보기
+  brainSetCategory: (id: string, category: string) => ipcRenderer.invoke('brain:setCategory', id, category),
+  bridgeStatus: () => ipcRenderer.invoke('bridge:status'),                              // 🔌 에제르 브릿지 상태
   brainExportTraining: (hf: any) => ipcRenderer.invoke('brain:exportTraining', hf),  // 🧬 장기 기억 (로컬 JSONL)
   // ⚡ 단기=GitHub · 🧬 장기=HuggingFace
   memStatus: () => ipcRenderer.invoke('memstatus'),

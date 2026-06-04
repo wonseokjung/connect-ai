@@ -3,7 +3,7 @@ import * as os from 'os';
 import { chat, completeMessages, completeWithTools, detectTarget, embed, LlmTarget, ChatMessage, ToolSchema, ToolUse } from './llm';
 import { AGENTS, SPECIALIST_IDS, specialistPrompt, agentPrompt, triagePrompt } from './persona';
 import { parseTools, runTool, toolGuide, stripTools } from './tools';
-import { search as brainSearch, addNote as brainAdd } from './brain';
+import { search as brainSearch, addNote as brainAdd, CATEGORIES, type Category } from './brain';
 import { addTask } from './tasks';
 import { addApproval } from './approvals';
 import { listMcpTools, callMcpTool } from './mcp';
@@ -49,7 +49,7 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
   if (opts.sendTelegram) reg.push({ name: 'send_telegram', description: '사장님 텔레그램으로 메시지 전송(알림·보고). 사장님에게 알려달라/텔레그램으로 보내달라 할 때', event: 'telegram', parameters: obj({ message: { type: 'string' } }, ['message']), run: async a => { const r = await opts.sendTelegram!(a.message || ''); return { text: r, ok: !/실패/.test(r), path: '텔레그램' }; } });
   if (opts.readClipboard) reg.push({ name: 'read_clipboard', description: '사용자가 방금 복사한 클립보드 내용 읽기', event: 'clipboard', parameters: obj({}), run: async () => { const r = await opts.readClipboard!(); return { text: r || '(비어 있음)', ok: true, path: '클립보드' }; } });
   if (opts.captureScreen) reg.push({ name: 'capture_screen', description: '사용자 화면을 캡처해서 직접 본다(화면 분석·에러 확인 — 비전 모델 필요)', event: 'screenshot', parameters: obj({}), run: async () => { const img = await opts.captureScreen!(); return img ? { text: '화면을 캡처했어요. 아래 이미지를 보고 분석하세요.', ok: true, path: '화면', image: img } : { text: '화면 캡처 실패 — macOS 시스템 설정 → 개인정보 보호 → 화면 기록 에서 권한을 켜야 해요.', ok: false, path: '화면' }; } });
-  reg.push({ name: 'remember', description: '두뇌에 지식을 영구 저장', event: 'remember', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { let e: number[] | null = null; try { e = await embed(target.base, a.text); } catch { /* */ } brainAdd(a.text, e || undefined); return { text: '기억했어요.', ok: true, path: a.text }; } });
+  reg.push({ name: 'remember', description: '두뇌에 지식을 영구 저장', event: 'remember', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { let e: number[] | null = null; try { e = await embed(target.base, a.text); } catch { /* */ } brainAdd(a.text, e || undefined, { source: 'agent', verified: false }); return { text: '기억했어요.', ok: true, path: a.text }; } });
   reg.push({ name: 'add_task', description: '할 일을 태스크 보드에 등록', event: 'task', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { addTask(a.text, { owner: 'agent', agentEmoji: '🤖' }); return { text: '할 일을 등록했어요.', ok: true, path: a.text }; } });
   reg.push({ name: 'request_approval', description: '되돌리기 어려운 행동(돈 쓰기·발송·배포) 전 사용자 결재 요청. action 지정 시 승인되면 자동 실행', event: 'approve', parameters: obj({ title: { type: 'string' }, detail: { type: 'string' }, action: { type: 'string', enum: ['run', 'write', 'telegram', 'email'], description: '승인 후 자동 실행 종류(선택)' }, payload: { type: 'string', description: '실행할 명령/내용(선택)' }, path: { type: 'string', description: 'write 시 파일 경로(선택)' } }, ['title']), run: async a => { const act = ['run', 'write', 'telegram', 'email'].includes(a.action) ? { kind: a.action, payload: a.payload || '', path: a.path } : undefined; addApproval(a.title, act ? `⚡ ${a.action}: ${(a.payload || '').slice(0, 80)}` : (a.detail || a.title), '🤖', act as any); return { text: '승인 요청을 올렸어요.', ok: true, path: a.title }; } });
   reg.push({ name: 'dispatch_team', description: '콘텐츠 기획+디자인+개발처럼 여러 전문 분야가 동시에 필요한 큰 프로젝트를 전문 동료(유튜브·디자이너·개발자 등)에게 위임하고 결과를 받는다', parameters: obj({ brief: { type: 'string', description: '동료들에게 시킬 일' } }, ['brief']), run: async a => { const digest = await dispatchTeam(target, a.brief, opts.agentName || '에이전트', opts.company || '1인 기업', onEvent, opts.signal, opts.realtimeFor, workspace, opts.userTitle || '사장님', opts.agentModels || {}); return { text: digest, ok: true, path: '팀' }; } });
@@ -186,8 +186,18 @@ async function execWebTools(text: string, onEvent: (e: EngineEvent) => void): Pr
 }
 
 // 🧑‍🔧 specialist 도구 루프 — 동료(디자이너 등)가 직접 MCP·파일·실행 도구를 쓰며 일한다
+// 에이전트 → 분야 두뇌 매핑. 각 전문가는 자기 분야 지식을 우선해서 본다(point 2: 에이전트별 두뇌).
+const AGENT_CATEGORY: Record<string, Category> = { youtube: 'marketing', instagram: 'marketing', writer: 'marketing', researcher: 'marketing', designer: 'design', developer: 'coding', business: 'business', secretary: 'general', editor: 'general' };
+
 async function runSpecialist(target: LlmTarget, id: string, company: string, brief: string, rt: string, workspace: string, mcpBlock: string, onEvent: (e: EngineEvent) => void, signal?: AbortSignal, title = '사장님'): Promise<string> {
-  const sys = specialistPrompt(id, company, title) + mcpBlock + toolGuide(workspace);
+  let rag = '';
+  try {
+    const prefer = AGENT_CATEGORY[id];
+    let qEmb: number[] | null = null; try { qEmb = await embed(target.base, brief); } catch { /* */ }
+    const notes = brainSearch(brief, 4, qEmb || undefined, prefer);
+    if (notes.length) rag = `\n\n## 내 ${CATEGORIES[prefer]?.brain || '두뇌'} (관련 지식 — 적극 활용)\n` + notes.map(n => `- ${n.text}`).join('\n');
+  } catch { /* */ }
+  const sys = specialistPrompt(id, company, title) + rag + mcpBlock + toolGuide(workspace);
   const messages: ChatMessage[] = [
     { role: 'system', content: sys },
     { role: 'user', content: `[요청]\n${brief}\n\n당신의 전문성으로 처리하세요. 도구가 필요하면 쓰고(특히 디자인은 MCP 도구), 다 되면 결과를 보고하세요.` + (rt ? `\n\n${rt}\n⚠️ 위 실데이터만 근거로, 숫자를 지어내지 마세요.` : '') },

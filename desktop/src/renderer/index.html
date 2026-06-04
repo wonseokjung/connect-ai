@@ -280,12 +280,17 @@
           <div class="mem-acts"><button id="ghPushBtn" class="oc-primary">⬆ 동기화</button><button id="ghPullBtn" class="oc-primary">⬇ 불러오기</button></div>
         </div>
         <div class="mem-status" id="ghStatus"></div>
-        <div class="oc-row">
-          <input id="brainInput" placeholder="에이전트에게 기억시킬 지식 (예: 내 채널 주제는 AI 교육이다)" autocomplete="off" />
+        <!-- 🔌 에제르 브릿지 상태 — 주입이 안 보이는 이유를 알려줌 -->
+        <div class="bridge-row hidden" id="bridgeRow"></div>
+        <!-- 📊 분야별 두뇌 성장 — "어떻게 쌓이는지"가 눈에 보이는 곳 -->
+        <div class="cat-growth" id="catGrowth"></div>
+        <div class="oc-row brain-add-row">
+          <input id="brainInput" placeholder="원자적 사실 하나씩 (예: 내 채널 주제는 AI 교육이다)" autocomplete="off" />
+          <span class="cat-hint" id="catHint" title="자동 분류된 분야"></span>
           <button id="brainAddBtn" class="oc-primary">+ 기억</button>
         </div>
         <div id="brainGraph" class="brain-graph"></div>
-        <div class="muted" style="font-size:11px;text-align:center">노드 = 지식 · 선 = 의미 연결 · 끌어서 움직임 · GitHub 레포에 버전관리로 동기화 (토큰/레포는 🗂️ 연동에서)</div>
+        <div class="muted" style="font-size:11px;text-align:center">노드 = 지식 · 선 = 의미 연결 · 색 = 분야 · 끌어서 움직임 · GitHub에 자동 동기화 (토큰/레포는 🗂️ 연동에서)</div>
         <div class="brain-notes" id="brainNotes"></div>
       </div>
       <!-- 장기 기억 = HuggingFace 학습 -->
@@ -305,13 +310,17 @@
     </div>
   </div>
 
-  <!-- 🧠 매트릭스 지식 주입 FX -->
+  <!-- 🧠 매트릭스 브레인 인젝션 FX -->
   <div class="inject-fx hidden" id="injectFx">
     <canvas id="injectRain"></canvas>
     <div class="inject-hud">
-      <div class="ih-title">🧠 지식 주입 <span class="ih-en">KNOWLEDGE INJECTION</span></div>
+      <span class="ih-cnr tl"></span><span class="ih-cnr tr"></span><span class="ih-cnr bl"></span><span class="ih-cnr br"></span>
+      <span class="ih-scan"></span>
+      <div class="ih-core" id="ihCore"><span class="ih-ring"></span><span class="ih-ring r2"></span><span class="ih-hex"></span><span class="ih-brain">🧠</span></div>
+      <div class="ih-title" id="ihTitle">브레인 인젝션 <span class="ih-en">BRAIN&nbsp;INJECTION</span></div>
       <div class="ih-sub" id="ihSub">INITIALIZING…</div>
       <div class="ih-bar"><div class="ih-fill" id="ihFill"></div></div>
+      <div class="ih-log" id="ihLog"></div>
       <div class="ih-text" id="ihText"></div>
     </div>
   </div>

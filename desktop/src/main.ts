@@ -8,10 +8,10 @@ import * as os from 'os';
 import { talkToMyAgent, agentWithTools, ChatTurn } from './engine/company';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
-import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes } from './engine/brain';
-import { startBridge, stopBridge } from './engine/bridge';
+import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, setCategory as brainSetCategory, classify, CATEGORIES, type Category } from './engine/brain';
+import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { autoUpdater } from 'electron-updater';
-import { pushKnowledge, pullKnowledge, pushFile } from './engine/github';
+import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown } from './engine/github';
 import { uploadDataset, notesToJsonl } from './engine/hf';
 import { buildNotebook } from './engine/train';
 import { sendEmail } from './engine/email';
@@ -552,17 +552,24 @@ ipcMain.handle('company:reset', () => { history = []; return true; });
 
 // 🧠 두뇌 (지식 네트워크)
 ipcMain.handle('brain:graph', () => brainGraph());
-ipcMain.handle('brain:list', () => allNotes().map(n => ({ id: n.id, text: n.text, ts: n.ts })).sort((a, b) => b.ts - a.ts));
+ipcMain.handle('brain:list', () => allNotes().map(n => ({ id: n.id, text: n.text, ts: n.ts, category: n.category || 'general', source: n.source || 'me', verified: !!n.verified })).sort((a, b) => b.ts - a.ts));
 ipcMain.handle('brain:count', () => noteCount());
 ipcMain.handle('brain:delete', (_e, id: string) => { deleteNote(id); return noteCount(); });
-ipcMain.handle('brain:add', async (_e, text: string) => {
+// 📊 분야별 두뇌 성장 통계 (마케팅·코딩·디자인·사업·일반) — 개수·검증·파인튜닝 준비 여부
+ipcMain.handle('brain:stats', () => categoryStats());
+// 분야 미리보기(입력 중 자동분류 표시) — 저장 안 함
+ipcMain.handle('brain:classify', (_e, text: string) => { const id = classify(text || '') as Category; return { id, label: CATEGORIES[id].label, emoji: CATEGORIES[id].emoji, brain: CATEGORIES[id].brain }; });
+ipcMain.handle('brain:setCategory', (_e, id: string, category: Category) => { brainSetCategory(id, category); return categoryStats(); });
+ipcMain.handle('brain:add', async (_e, text: string, category?: Category) => {
   const c = loadConfig();
   let e: number[] | null = null;
   try { e = await embed(c.llmBase || 'http://127.0.0.1:1234', text); } catch { /* */ }
-  brainAddNote(text, e || undefined);
+  brainAddNote(text, e || undefined, { category, source: 'me', verified: true });   // 직접 입력 = 검증된 출처
   autoSyncSoon();
   return noteCount();
 });
+// 🔌 에제르 브릿지 상태 — 수신중/양보(다른 앱 점유)/꺼짐
+ipcMain.handle('bridge:status', () => bridgeStatus());
 
 // 🛠️ 작업 폴더 — 에이전트가 파일을 만들/읽을 기본 위치
 ipcMain.handle('workspace:get', () => loadConfig().workspace || defaultWorkspace());
@@ -734,7 +741,7 @@ function startConnectBridge() {
       const text = `# ${title}\n${markdown}`.slice(0, 8000);
       let emb: number[] | null = null;
       try { const t = await detectTarget({ base: loadConfig().llmBase, model: loadConfig().llmModel, key: geminiKey() }); if (t) emb = await embed(t.base, text); } catch { /* 임베딩 없어도 키워드 RAG */ }
-      brainAddNote(text, emb || undefined);
+      brainAddNote(text, emb || undefined, { source: 'ezerai', verified: true });   // 에제르 큐레이션 팩 = 검증됨
     },
     runExam: async (prompt: string) => {
       const c = loadConfig();
@@ -744,9 +751,11 @@ function startConnectBridge() {
     },
     onInject: (kind: string, label: string, dir?: string) => {
       const emoji: any = { knowledge: '🧠', skill: '🐍', template: '📦', design: '🎨' };
+      // FX 색상용 분야: 지식은 제목으로 자동분류, 스킬=코딩·디자인=디자인
+      const category: Category = kind === 'skill' ? 'coding' : kind === 'design' ? 'design' : kind === 'knowledge' ? classify(label) : 'general';
       notify(`${emoji[kind] || '🔌'} EZERAI 주입`, `${label} — Connect AI에 들어왔어요`);
       win?.webContents.send('engine:event', { kind: 'status', text: `${emoji[kind] || '🔌'} EZERAI 브레인팩 주입: ${label}` });
-      win?.webContents.send('bridge:inject', { kind, label, dir });   // 렌더러: 파일트리 새로고침 + FX
+      win?.webContents.send('bridge:inject', { kind, label, dir, category });   // 렌더러: 파일트리 새로고침 + FX
     },
   });
 }
@@ -757,10 +766,15 @@ ipcMain.handle('github:push', async () => {
 });
 ipcMain.handle('github:pull', async () => {
   const g = connOf('github');
+  // ① Connect AI 표준 형식(connect-ai/knowledge.json) ② 범용: 레포의 마크다운/텍스트 지식 파일
   const r = await pullKnowledge(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO);
-  if (!r.ok) return r;
-  const added = importNotes(r.notes || []);
-  return { ok: true, added, total: noteCount() };
+  let added = 0;
+  if (r.ok) added += importNotes(r.notes || [], { source: 'me', verified: true });
+  const md = await importRepoMarkdown(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO);
+  let scanned = 0, skipped = 0, capped = false;
+  if (md.ok) { added += importNotes(md.notes || [], { source: 'me', verified: true }); scanned = md.scanned || 0; skipped = md.skipped || 0; capped = !!md.capped; }
+  if (!r.ok && !md.ok) return { ok: false, error: md.error || r.error };
+  return { ok: true, added, total: noteCount(), scanned, skipped, capped };
 });
 ipcMain.handle('hf:upload', async () => {
   const h = connOf('huggingface');

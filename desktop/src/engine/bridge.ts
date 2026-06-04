@@ -5,8 +5,25 @@ import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const PORT = Number(process.env.CONNECT_BRIDGE_PORT) || 4825;
+// 후보 포트들 — 4825가 익스텐션 등에 막혀도 4826/4827로 받는다(에제르가 전 포트에 쏴줌).
+const PORTS = process.env.CONNECT_BRIDGE_PORT ? [Number(process.env.CONNECT_BRIDGE_PORT)] : [4825, 4826, 4827];
 let server: http.Server | null = null;
+
+// 브릿지 상태 — 'listening'(내가 어떤 포트로 수신중) · 'yielded'(전 포트가 점유됨) · 'off'(아직/꺼짐).
+type BridgeState = 'listening' | 'yielded' | 'off';
+let state: BridgeState = 'off';
+let boundPort = 0;
+let heldBy = '';
+export function bridgeStatus(): { state: BridgeState; port: number; heldBy: string } { return { state, port: boundPort || PORTS[0], heldBy }; }
+// 양보 시 첫 포트를 누가 점유했는지 가볍게 조회(익스텐션이면 app/version 회신).
+function probeHolder(port: number) {
+  try {
+    const r = http.get({ host: '127.0.0.1', port, path: '/ping', timeout: 1500 }, (res) => {
+      let d = ''; res.on('data', (c) => d += c); res.on('end', () => { try { const j = JSON.parse(d); heldBy = j?.app ? `${j.app}${j.version ? ' v' + j.version : ''}` : '다른 앱'; } catch { heldBy = '다른 앱'; } });
+    });
+    r.on('error', () => { heldBy = '다른 앱'; }); r.on('timeout', () => { try { r.destroy(); } catch { /* */ } heldBy = '다른 앱'; });
+  } catch { heldBy = '다른 앱'; }
+}
 
 export interface BridgeDeps {
   status: () => { defaultModel: string; brain: { fileCount: number; enabled: boolean } };
@@ -85,11 +102,16 @@ export function startBridge(deps: BridgeDeps): void {
       res.statusCode = 404; res.end(JSON.stringify({ ok: false, error: 'not found' }));
     } catch (e: any) { res.statusCode = 500; res.end(JSON.stringify({ ok: false, error: e?.message || String(e) })); }
   });
-  server.on('error', (e: any) => {
-    // EADDRINUSE = 익스텐션(또는 다른 Connect AI)이 이미 4825 사용 중 → 그쪽이 처리하므로 조용히 양보
-    try { console.error(e?.code === 'EADDRINUSE' ? `[bridge] 포트 ${PORT} 이미 사용 중(익스텐션?) — 데스크톱 브릿지 양보` : `[bridge] ${e?.message}`); } catch { /* */ }
-    server = null;
-  });
-  server.listen(PORT, '127.0.0.1');
+  server.once('listening', () => { state = 'listening'; boundPort = (server!.address() as any)?.port || 0; heldBy = ''; try { console.error(`[bridge] 수신중 :${boundPort}`); } catch { /* */ } });
+  // 후보 포트를 순서대로 시도 — 막히면 다음 포트로(에러는 once라 매번 재등록).
+  let idx = 0;
+  const tryNext = () => {
+    if (!server) return;
+    if (idx >= PORTS.length) { state = 'yielded'; probeHolder(PORTS[0]); try { console.error(`[bridge] 포트 ${PORTS.join('/')} 전부 사용 중 — 양보`); } catch { /* */ } server = null; return; }
+    const p = PORTS[idx++];
+    server.once('error', (e: any) => { if (e?.code === 'EADDRINUSE') tryNext(); else { state = 'off'; try { console.error(`[bridge] ${e?.message}`); } catch { /* */ } server = null; } });
+    server.listen(p, '127.0.0.1');
+  };
+  tryNext();
 }
 export function stopBridge(): void { try { server?.close(); } catch { /* */ } server = null; }
