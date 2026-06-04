@@ -66,6 +66,7 @@
         }
       ],
       "icon": "build/icon.icns",
+      "artifactName": "Connect-AI-${version}-${arch}-mac.${ext}",
       "hardenedRuntime": true,
       "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
