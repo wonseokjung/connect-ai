@@ -721,6 +721,25 @@ function lifeSocialize(a: string, b: string) {
 
 $('officeBtn').addEventListener('click', () => { buildOffice(); openOverlay('officePanel'); officeLive(); });
 
+// 🪟 별도 사무실 창 — 옆에 띄워놓고 에이전트들 일하는 거 구경
+let officeEngagedM = false;
+function ensureOfficeM() { if (officeEngagedM) return; officeEngagedM = true; taskActive = true; buildOffice(); officeReset(); $('officeStatus').textContent = '가동 중…'; officeSet('ceo', 'work'); }
+function driveOfficeEvent(e: any) {   // 엔진 이벤트로 사무실만 구동 (별도 창용)
+  if (e.kind === 'dispatch') { ensureOfficeM(); officeDispatch(e.agents); feedStory('🧑‍🏫', cfg.userTitle || '사장님', `팀 ${e.agents.length}명 소집`, '#ffd166'); }
+  else if (e.kind === 'agentStart') { ensureOfficeM(); officeStreams[e.id] = ''; officeSet(e.id, 'work'); feedStory(e.emoji, e.name, (WORK_LABEL[e.id] || '작업 중').replace(/중$/, '시작'), AGENTS[e.id]?.color); }
+  else if (e.kind === 'agentChunk') { officeStream(e.id, e.text); }
+  else if (e.kind === 'agentDone') { officeSet(e.id, 'done', e.output); feedStory(AGENTS[e.id]?.emoji || '🤖', AGENTS[e.id]?.name || e.id, '✓ 완료', AGENTS[e.id]?.color); rememberOffice(`${AGENTS[e.id]?.name || e.id}가 일 끝낸 거`); }
+  else if (e.kind === 'agentConfer') { officeConfer(e); }
+  else if (e.kind === 'final') { if (officeEngagedM) { officeSet('ceo', 'done', e.text); $('officeStatus').textContent = '보고 완료'; feedStory('🧭', 'CEO', '종합 보고 완료 ✓', '#9fe'); setTimeout(() => { taskActive = false; officeLive(); }, 3000); } }
+}
+const OFFICE_MODE = new URLSearchParams(location.search).get('office') === '1';
+if (OFFICE_MODE) {
+  document.body.classList.add('office-only');
+  buildOffice(); openOverlay('officePanel'); officeLive();
+  connect.onEngineEvent?.(driveOfficeEvent);   // 메인에서 브로드캐스트되는 엔진 이벤트 수신
+}
+$('officePop')?.addEventListener('click', () => connect.officeOpen?.());
+
 // ── 💻 작업실 (파일 트리 + 코드 뷰어) ──────────────────────
 let codeWs = '';
 let codeCurrentFile = '';

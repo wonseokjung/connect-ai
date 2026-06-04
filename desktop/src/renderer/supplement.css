@@ -380,6 +380,13 @@
 .cf-txt.story { color: var(--text-bright, #eaffea); font-weight: 600; }
 /* 🟢 LIVE 상태 점멸 */
 .cls-count { transition: color .3s; }
+/* 🪟 별도 사무실 전용 창 — 사무실만 풀스크린, 나머지 숨김 */
+body.office-only > .header, body.office-only > .thinking-bar, body.office-only > .work-split { display: none !important; }
+body.office-only .overlay:not(#officePanel) { display: none !important; }
+body.office-only #officePanel { position: fixed; inset: 0; background: #06100b; padding: 0; display: flex !important; align-items: stretch; justify-content: stretch; }
+body.office-only #officePanel .office-card, body.office-only #officePanel .overlay-card { width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; margin: 0; }
+body.office-only #officePop, body.office-only #officePanel .overlay-x { display: none; }
+body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height: 0; }
 /* 🤖 에이전트별 모델 선택 */
 .ag-model { margin-top: 14px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--ag, #39ff14) 30%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--ag, #39ff14) 7%, transparent); }
 .ag-model label { display: block; font-size: 12px; font-weight: 800; color: var(--text-bright, #fff); margin-bottom: 7px; }

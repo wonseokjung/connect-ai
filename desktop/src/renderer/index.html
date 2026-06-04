@@ -139,8 +139,8 @@
       <div class="overlay-head">⚙️ 설정 <button class="overlay-x" data-close="settingsPanel">✕</button></div>
       <div class="set-section">🤖 내 비서</div>
       <div class="row2">
-        <label>에이전트 이름 <span class="muted small">(이렇게 불러요)</span><input id="cfgAgentName" placeholder="예) 자비스, 제이 부하" /></label>
-        <label>나를 부르는 호칭 <span class="muted small">(비서가 날 이렇게 불러요)</span><input id="cfgUserTitle" placeholder="예) 사장님, 대표님, 제이님" /></label>
+        <label>에이전트 이름 <span class="muted small">(이렇게 불러요)</span><input id="cfgAgentName" placeholder="예) 자비스, 비서, 코니" /></label>
+        <label>나를 부르는 호칭 <span class="muted small">(비서가 날 이렇게 불러요)</span><input id="cfgUserTitle" placeholder="예) 사장님, 대표님, 주인님" /></label>
       </div>
       <label>🤖 AI 모델 <span class="muted small">(로컬에서 로드된 모델 자동)</span><select id="modelSel"></select></label>
       <label>에이전트 인사말 <span class="muted small">(비우면 기본 · {name}=이름 · {title}=내 호칭)</span><input id="cfgGreeting" placeholder="{title}, {name}입니다. 무엇을 도와드릴까요?" /></label>
@@ -249,7 +249,7 @@
   <!-- 🏢 사무실 (1인 기업 모드 시각화) -->
   <div class="overlay hidden" id="officePanel">
     <div class="overlay-card office-card">
-      <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><button class="overlay-x" data-close="officePanel">✕</button></div>
+      <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><button class="code-mini" id="officePop" title="별도 창으로 띄우기 (옆에 놓고 보기)">🪟</button><button class="overlay-x" data-close="officePanel">✕</button></div>
       <div class="voffice" id="voffice"></div>
       <div class="confer-feed" id="conferFeed"></div>
       <div class="muted" style="text-align:center;font-size:11px">💬 동료를 클릭하면 상세 정보 · 큰 일을 맡기면 모였다가 → 자리로 걸어가 일하고 → 회의합니다</div>

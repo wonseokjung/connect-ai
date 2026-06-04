@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('connect', {
   onTermShow: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('term:show', h); return () => ipcRenderer.removeListener('term:show', h); },
   // 🔌 EZERAI 브레인팩 주입 알림
   onBridgeInject: (cb: (d: any) => void) => { const h = (_e: any, d: any) => cb(d); ipcRenderer.on('bridge:inject', h); return () => ipcRenderer.removeListener('bridge:inject', h); },
+  officeOpen: () => ipcRenderer.invoke('office:open'),   // 🪟 별도 사무실 창
   stop: () => ipcRenderer.invoke('company:stop'),                          // 생성 중단
   reset: () => ipcRenderer.invoke('company:reset'),
   listModels: () => ipcRenderer.invoke('models:list'),

@@ -312,6 +312,24 @@ function openRevenueWindow() {
   revenueWin.on('closed', () => { revenueWin = null; });
 }
 const postRevenue = (s: any) => { if (revenueWin && !revenueWin.isDestroyed()) revenueWin.webContents.send('revenue:state', s); };
+
+// 🪟 별도 사무실 창 — 에이전트 가상사무실을 옆에 띄워놓고 구경
+let officeWin: BrowserWindow | null = null;
+function openOfficeWindow() {
+  if (officeWin && !officeWin.isDestroyed()) { officeWin.focus(); return; }
+  officeWin = new BrowserWindow({
+    width: 960, height: 720, minWidth: 600, minHeight: 460, title: '가상 사무실 — Connect AI',
+    backgroundColor: '#06100b', show: false,
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
+  });
+  officeWin.once('ready-to-show', () => officeWin?.show());
+  officeWin.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'), { query: { office: '1' } });
+  officeWin.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
+  officeWin.on('closed', () => { officeWin = null; });
+}
+ipcMain.handle('office:open', () => { openOfficeWindow(); return true; });
+// 엔진 이벤트를 메인+사무실 창 둘 다에 (사무실 창이 살아 움직이게)
+const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };
 async function loadRevenue() {
   postRevenue({ type: 'state', loading: true, error: null, data: null });
   const c = loadConfig();
@@ -480,7 +498,7 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
   const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
-  const send = (ev: any) => win?.webContents.send('engine:event', ev);
+  const send = (ev: any) => emitEngine(ev);   // 메인 + 별도 사무실 창
   // 도구 켜짐 = 파일 읽기/쓰기 하는 진짜 에이전트, 꺼짐 = 단순 대화
   const reply = c.tools !== false
     ? await agentWithTools(history, text, opts, send)
