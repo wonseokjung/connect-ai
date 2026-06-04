@@ -247,18 +247,18 @@ async function ask(text: string) {
   $('thinkingBar').classList.add('active'); $('brandSuffix').textContent = '· 생각 중…';
   brainEnergy(0.7);  // 🧠 두뇌 활성화
   let finalText = ''; let liveEl: HTMLElement | null = null; let teamEngaged = false;
-  const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; buildOffice(); officeReset(); $('officeStatus').textContent = '가동 중…'; officeSet('ceo', 'work'); openOverlay('officePanel'); };
+  const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; taskActive = true; buildOffice(); officeReset(); $('officeStatus').textContent = '가동 중…'; officeSet('ceo', 'work'); openOverlay('officePanel'); };
   const off = connect.onEngineEvent((e: any) => {
     if (e.kind === 'status') { hint(e.text); brainEnergy(0.68); }
-    else if (e.kind === 'dispatch') { ensureOffice(); officeDispatch(e.agents); brainEnergy(0.95); }
-    else if (e.kind === 'agentStart') { hint(`${e.emoji} ${e.name} 작업 중…`); ensureOffice(); officeStreams[e.id] = ''; officeSet(e.id, 'work'); brainEnergy(0.85); }
+    else if (e.kind === 'dispatch') { ensureOffice(); officeDispatch(e.agents); feedStory('🧑‍🏫', '사장님', `팀 ${e.agents.length}명 소집`, '#ffd166'); brainEnergy(0.95); }
+    else if (e.kind === 'agentStart') { hint(`${e.emoji} ${e.name} 작업 중…`); ensureOffice(); officeStreams[e.id] = ''; officeSet(e.id, 'work'); feedStory(e.emoji, e.name, (WORK_LABEL[e.id] || '작업 중').replace(/중$/, '시작'), AGENTS[e.id]?.color); brainEnergy(0.85); }
     else if (e.kind === 'agentChunk') { officeStream(e.id, e.text); brainEnergy(0.85); }
-    else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); officeSet(e.id, 'done', e.output); }
+    else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); officeSet(e.id, 'done', e.output); feedStory(AGENTS[e.id]?.emoji || '🤖', AGENTS[e.id]?.name || e.id, '✓ 완료', AGENTS[e.id]?.color); rememberOffice(`${AGENTS[e.id]?.name || e.id}가 일 끝낸 거`); }
     else if (e.kind === 'agentConfer') { officeConfer(e); brainEnergy(0.8); }
     else if (e.kind === 'tool') { const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행', serve: '🖥️ 서버 실행' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9);
       if (e.name === 'write_file') codeBump(true); else if (e.name === 'run_command' || e.name === 'serve') codeBump(false); }
     else if (e.kind === 'token') { finalText += e.text; if (!liveEl) liveEl = addLog(agentTag(), '', false, true); setBody(liveEl, finalText, true); brainEnergy(0.88); }
-    else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); if (teamEngaged) { officeSet('ceo', 'done', finalText); $('officeStatus').textContent = '보고 완료'; } }
+    else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); if (teamEngaged) { officeSet('ceo', 'done', finalText); $('officeStatus').textContent = '보고 완료'; feedStory('🧭', 'CEO', '종합 보고 완료 ✓', '#9fe'); setTimeout(() => { taskActive = false; officeLive(); }, 3000); } }
     else if (e.kind === 'error') { addLog(agentTag(), e.text, false, true); speak(e.text); }
   });
   try { await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) }); }
@@ -530,6 +530,7 @@ function buildOffice() {
     }).join('');
   officeBuilt = true;
   startSpriteLoop();
+  startOfficeLife();   // 🎬 자율 생활 시작 (일 없을 때 어슬렁·잡담)
 }
 // 스프라이트 애니메이션 루프 — 방향·상태에 따라 background-position 스텝
 const TILE = 48, CH = 96;
@@ -582,7 +583,7 @@ function officeSet(id: string, state: 'idle' | 'think' | 'work' | 'done', text?:
   el.classList.remove('thinking', 'working', 'done', 'idle');
   const b = document.getElementById('vob-' + id);
   if (state === 'think') { el.classList.add('thinking'); setText('vost-' + id, '준비 중…'); }
-  else if (state === 'work') { el.classList.add('working'); setText('vost-' + id, '작업 중…'); voSparks(id); }
+  else if (state === 'work') { el.classList.add('working'); setText('vost-' + id, WORK_LABEL[id] || '작업 중…'); voSparks(id); }
   else if (state === 'done') { el.classList.add('done'); setText('vost-' + id, '✓ 완료'); voHome(id); if (b) b.classList.remove('show', 'typing', 'speech'); }
   else { el.classList.add('idle'); setText('vost-' + id, '대기'); if (b) b.classList.remove('show', 'typing', 'speech'); }
 }
@@ -598,6 +599,7 @@ function officeStream(id: string, chunk: string) {
 // 🎬 소집 — 배너 + CEO 지휘 + 동료들이 가운데로 모였다가 자리로 걸어감
 function officeDispatch(agents: { id: string; name: string; emoji: string }[]) {
   if (!officeBuilt) buildOffice();
+  taskActive = true;   // 소집되면 자율생활 멈춤
   $('officeStatus').textContent = `🚀 ${agents.length}명 소집`;
   const banner = document.createElement('div'); banner.className = 'dispatch-banner';
   banner.innerHTML = `<span class="db-tag">📋 팀 소집</span><span class="db-sub">${agents.map(a => a.emoji).join(' ')} ${agents.length}명 투입</span>`;
@@ -628,7 +630,93 @@ function officeReset() {
   if (officeBuilt) AGENT_ORDER.forEach(id => { officeStreams[id] = ''; officeSet(id, 'idle'); voHome(id); });
   $('conferFeed').innerHTML = '';
 }
-$('officeBtn').addEventListener('click', () => { buildOffice(); openOverlay('officePanel'); });
+
+// ══════════ 🎬 살아있는 사무실 (Smallville 연출) ══════════
+// 역할별 작업 라벨 — "일이 곧 행동으로" 보이게
+const WORK_LABEL: Record<string, string> = { ceo: '🧭 지휘 중', youtube: '🎬 기획 중', instagram: '📸 콘텐츠 중', designer: '🎨 디자인 중', developer: '💻 코딩 중', business: '📈 분석 중', secretary: '🗂️ 정리 중', editor: '✂️ 편집 중', writer: '✍️ 작성 중', researcher: '🔍 조사 중' };
+// 사무실 핫스팟(정수기·라운지·회의테이블 등) — 어슬렁거릴 목적지
+const LIFE_SPOTS: [number, number][] = [[50, 30], [63, 40], [37, 40], [50, 58], [30, 70], [72, 70]];
+// 에이전트별 혼잣말(성격) — 어슬렁거릴 때
+const AMBIENT: Record<string, string[]> = {
+  ceo: ['다들 잘하고 있네 👍', '이번 분기 가보자', '회의 한번 잡을까', '커피나 한잔 ☕'],
+  youtube: ['다음 영상 뭐 찍지 🎬', '썸네일 A/B 돌려볼까', '이번 편 반응 좋다', '오프닝을 바꿔볼까'],
+  instagram: ['릴스 각 나왔다 📸', '해시태그 뭐 달지', '피드 톤 맞춰야지', '스토리 올릴 시간'],
+  designer: ['이 색 조합 괜찮은데 🎨', '폰트 좀 바꿔볼까', '레퍼런스 찾아봐야지', '여백이 생명이지'],
+  developer: ['이 버그 왜 이러지 🐛', '리팩토링 땡긴다', '커밋하고 쉬자 ☕', '테스트 돌려놓고'],
+  business: ['이번 달 매출 좋네 📈', '전환율이 관건이야', '광고 예산 어디 쓸까', '리텐션 보자'],
+  secretary: ['일정 정리해야지 🗂️', '오늘 할 일 뭐였더라', '메일 답장 밀렸네', '다들 바빠 보여'],
+  editor: ['컷 편집 깔끔하게 ✂️', 'BGM 뭐 깔지', '자막 타이밍 맞춰야지', '한 번 더 보자'],
+  writer: ['첫 문장이 어렵네 ✍️', '카피 좀 더 짧게', '톤을 바꿔볼까', '제목이 절반이지'],
+  researcher: ['이 자료 흥미롭다 🔍', '출처 더 찾아보자', '트렌드 정리 중', '데이터가 말해주네'],
+};
+const SMALLTALK = ['오늘 어때요? 😊', '커피 한잔? ☕', '그거 봤어요?', '수고 많아요 👍', '점심 뭐 먹죠?', '주말 계획 있어요?', '같이 해볼까요?', '좋은 아이디어네요 ✨', '잘 되가요?', '오 멋진데요!'];
+const FRIENDS: [string, string][] = [['designer', 'developer'], ['youtube', 'editor'], ['instagram', 'writer'], ['business', 'secretary'], ['researcher', 'ceo']];
+const pick = <T,>(a: T[]): T => a[(Math.random() * a.length) | 0];
+
+let lifeTimer: any = null;
+let taskActive = false;   // 진짜 작업(팀 소집) 중엔 자율생활 멈춤
+const officeMemory: string[] = [];   // 🧠 사무실 기억 — 최근 사건(에이전트가 잡담에서 언급)
+function rememberOffice(ev: string) { if (!ev) return; officeMemory.push(ev); if (officeMemory.length > 8) officeMemory.shift(); }
+const REACT = ['그거 봤어요? ', '아까 ', '오 ', '대박 ', '역시 ', '와 '];
+function startOfficeLife() { if (lifeTimer) return; lifeTimer = window.setInterval(lifeTick, 2800); }
+function officeLive() { if (!taskActive) $('officeStatus').textContent = '🟢 LIVE · 사무실 가동 중'; }
+
+function lifeBubble(id: string, text: string, cls = 'speech') {
+  const b = document.getElementById('vob-' + id); if (!b) return;
+  b.textContent = text; b.classList.add('show', cls); b.classList.remove('typing');
+  window.clearTimeout((b as any)._lt); (b as any)._lt = window.setTimeout(() => b.classList.remove('show', 'speech', 'ambient'), 2900);
+}
+function feedAmbient(html: string) { feedRaw(html, 'ambient'); }
+function feedRaw(html: string, cls: string) {
+  const feed = $('conferFeed'); if (!feed) return;
+  const line = document.createElement('div'); line.className = 'cf-line ' + cls; line.innerHTML = html;
+  feed.appendChild(line); feed.scrollTop = feed.scrollHeight;
+  while (feed.childElementCount > 60 && feed.firstChild) feed.removeChild(feed.firstChild);
+}
+// 작업 스토리 한 줄 (내레이터) — 누가·무엇을
+function feedStory(emoji: string, name: string, action: string, color = '#9fe') {
+  feedRaw(`<span class="cf-from" style="color:${color}">${emoji} ${esc(name)}</span><span class="cf-txt story">${esc(action)}</span>`, 'story');
+}
+const isIdle = (id: string) => { const el = document.getElementById('vo-' + id); return !!el && el.classList.contains('idle'); };
+
+// 자율 행동 한 틱 — 잡담 / 어슬렁 / 감정표현
+function lifeTick() {
+  if (taskActive || !officeBuilt) return;
+  if ($('officePanel').classList.contains('hidden')) return;   // 안 보면 쉬기(성능)
+  officeLive();
+  const idle = AGENT_ORDER.filter(isIdle); if (idle.length < 1) return;
+  const roll = Math.random();
+  if (roll < 0.42 && idle.length >= 2) {                       // 🗣️ 잡담
+    const a = pick(idle);
+    const fr = FRIENDS.find(([x, y]) => (x === a || y === a))?.filter(z => z !== a)[0];
+    const b = (fr && isIdle(fr)) ? fr : pick(idle.filter(x => x !== a));
+    if (b) lifeSocialize(a, b);
+  } else if (roll < 0.74) {                                    // 🚶 어슬렁
+    lifeWander(pick(idle));
+  } else {                                                     // 💭 혼잣말/감정
+    const id = pick(idle); lifeBubble(id, pick(AMBIENT[id] || SMALLTALK), 'ambient');
+  }
+}
+function lifeWander(id: string) {
+  if (!isIdle(id)) return;
+  const spot = pick(LIFE_SPOTS), home = VO_HOME[id] || VO_MEET;
+  voMove(id, spot[0] + (Math.random() - 0.5) * 8, spot[1] + (Math.random() - 0.5) * 6);
+  if (Math.random() < 0.5) setTimeout(() => lifeBubble(id, pick(AMBIENT[id] || SMALLTALK), 'ambient'), 600);
+  window.setTimeout(() => { if (isIdle(id) && !taskActive) voHome(id); }, 2600 + Math.random() * 1600);
+}
+function lifeSocialize(a: string, b: string) {
+  if (!isIdle(a) || !isIdle(b)) return;
+  const hb = VO_HOME[b] || VO_MEET, ha = VO_HOME[a] || VO_MEET;
+  voMove(a, hb[0] + (hb[0] > 50 ? -8 : 8), hb[1] + 5);   // a가 b에게 다가감
+  // 35%는 최근 사건을 언급(기억) — 스몰빌처럼 맥락 있는 대화
+  const la = (officeMemory.length && Math.random() < 0.35) ? `${pick(REACT)}${pick(officeMemory)} 👏` : pick(SMALLTALK);
+  const lb = pick([...SMALLTALK, ...(AMBIENT[b] || [])]);
+  setTimeout(() => { if (taskActive) return; lifeBubble(a, la); feedAmbient(`<span class="cf-from" style="color:${AGENTS[a]?.color || '#9fe'}">${AGENTS[a]?.emoji || ''} ${esc(AGENTS[a]?.name || a)}</span><span class="cf-arrow">→</span><span class="cf-to">${AGENTS[b]?.emoji || ''} ${esc(AGENTS[b]?.name || b)}</span><span class="cf-txt">${esc(la)}</span>`); }, 750);
+  setTimeout(() => { if (taskActive) return; lifeBubble(b, lb); }, 1700);
+  window.setTimeout(() => { if (!taskActive) voMove(a, ha[0], ha[1]); }, 3100);
+}
+
+$('officeBtn').addEventListener('click', () => { buildOffice(); openOverlay('officePanel'); officeLive(); });
 
 // ── 💻 작업실 (파일 트리 + 코드 뷰어) ──────────────────────
 let codeWs = '';

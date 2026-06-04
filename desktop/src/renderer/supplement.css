@@ -361,6 +361,9 @@
 .vo-bubble.typing { background: rgba(8,10,15,.95); color: color-mix(in srgb, var(--ag) 80%, #dfe); border: 1px solid color-mix(in srgb, var(--ag) 45%, transparent); font-family: var(--mono); white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .vo-bubble.speech { background: rgba(8,10,15,.96); color: #eaffe0; border: 1px solid var(--ag); border-radius: 10px 10px 10px 2px; white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .vo-bubble.speech::after { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: var(--ag); }
+/* 🎬 일상 잡담 말풍선 — 부드럽고 둥글게(작업 말풍선과 구분) */
+.vo-bubble.ambient { background: rgba(14,18,24,.92); color: #cfe; border: 1px solid rgba(255,255,255,.16); border-radius: 13px; white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis; font-size: 13px; opacity: .96; }
+.vo-bubble.ambient::after { content: ''; position: absolute; left: 50%; top: 100%; transform: translateX(-50%); border: 5px solid transparent; border-top-color: rgba(255,255,255,.16); }
 
 /* 회의 피드 */
 .confer-feed { display: flex; flex-direction: column; gap: 5px; max-height: 108px; overflow-y: auto; margin-top: 10px; padding-right: 2px; }
@@ -369,6 +372,14 @@
 .cf-from { font-weight: 700; white-space: nowrap; } .cf-arrow { color: var(--text-dim); }
 .cf-to { color: var(--text-dim); white-space: nowrap; } .cf-txt { color: var(--text); flex: 1; }
 @keyframes cfIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* 일상(잡담) 피드 줄 — 흐리게(작업 회의와 구분) */
+.cf-line.ambient { background: rgba(255,255,255,.025); border-color: rgba(255,255,255,.06); opacity: .82; }
+.cf-line.ambient .cf-txt { color: var(--text-dim); font-style: italic; }
+/* 작업 스토리 줄 — 선명(내레이터) */
+.cf-line.story { background: rgba(0,255,65,.06); border-color: color-mix(in srgb, var(--accent, #39ff14) 22%, transparent); }
+.cf-txt.story { color: var(--text-bright, #eaffea); font-weight: 600; }
+/* 🟢 LIVE 상태 점멸 */
+.cls-count { transition: color .3s; }
 
 /* 팀 소집 배너 */
 .dispatch-banner { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%); z-index: 30; text-align: center;
