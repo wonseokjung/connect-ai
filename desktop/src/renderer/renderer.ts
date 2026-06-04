@@ -250,18 +250,19 @@ async function ask(text: string) {
   $('thinkingBar').classList.add('active'); $('brandSuffix').textContent = '· 생각 중…';
   brainEnergy(0.7);  // 🧠 두뇌 활성화
   let finalText = ''; let liveEl: HTMLElement | null = null; let teamEngaged = false;
-  const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; taskActive = true; buildOffice(); officeReset(); $('officeStatus').textContent = '가동 중…'; officeSet('ceo', 'work'); openOverlay('officePanel'); };
+  // 🪟 사무실은 별도 창 전용 — 팀 작업 시작되면 옆 창 자동으로 띄움(메인 창은 채팅 집중)
+  const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; connect.officeOpen?.(); };
   const off = connect.onEngineEvent((e: any) => {
     if (e.kind === 'status') { hint(e.text); brainEnergy(0.68); }
-    else if (e.kind === 'dispatch') { ensureOffice(); officeDispatch(e.agents); feedStory('🧑‍🏫', '사장님', `팀 ${e.agents.length}명 소집`, '#ffd166'); brainEnergy(0.95); }
-    else if (e.kind === 'agentStart') { hint(`${e.emoji} ${e.name} 작업 중…`); ensureOffice(); officeStreams[e.id] = ''; officeSet(e.id, 'work'); feedStory(e.emoji, e.name, (WORK_LABEL[e.id] || '작업 중').replace(/중$/, '시작'), AGENTS[e.id]?.color); brainEnergy(0.85); }
-    else if (e.kind === 'agentChunk') { officeStream(e.id, e.text); brainEnergy(0.85); }
-    else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); officeSet(e.id, 'done', e.output); feedStory(AGENTS[e.id]?.emoji || '🤖', AGENTS[e.id]?.name || e.id, '✓ 완료', AGENTS[e.id]?.color); rememberOffice(`${AGENTS[e.id]?.name || e.id}가 일 끝낸 거`); }
-    else if (e.kind === 'agentConfer') { officeConfer(e); brainEnergy(0.8); }
+    else if (e.kind === 'dispatch') { ensureOffice(); brainEnergy(0.95); }
+    else if (e.kind === 'agentStart') { hint(`${e.emoji} ${e.name} 작업 중…`); ensureOffice(); brainEnergy(0.85); }
+    else if (e.kind === 'agentChunk') { brainEnergy(0.85); }
+    else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); }
+    else if (e.kind === 'agentConfer') { brainEnergy(0.8); }
     else if (e.kind === 'tool') { const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행', serve: '🖥️ 서버 실행', youtube: '📺 유튜브 분석', telegram: '✈️ 텔레그램 전송' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9);
       if (e.name === 'write_file') codeBump(true); else if (e.name === 'run_command' || e.name === 'serve') codeBump(false); }
     else if (e.kind === 'token') { finalText += e.text; if (!liveEl) liveEl = addLog(agentTag(), '', false, true); setBody(liveEl, finalText, true); brainEnergy(0.88); }
-    else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); if (teamEngaged) { officeSet('ceo', 'done', finalText); $('officeStatus').textContent = '보고 완료'; feedStory('🧭', 'CEO', '종합 보고 완료 ✓', '#9fe'); setTimeout(() => { taskActive = false; officeLive(); }, 3000); } }
+    else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); }
     else if (e.kind === 'error') { addLog(agentTag(), e.text, false, true); speak(e.text); }
   });
   try { await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) }); }
@@ -719,7 +720,7 @@ function lifeSocialize(a: string, b: string) {
   window.setTimeout(() => { if (!taskActive) voMove(a, ha[0], ha[1]); }, 3100);
 }
 
-$('officeBtn').addEventListener('click', () => { buildOffice(); openOverlay('officePanel'); officeLive(); });
+$('officeBtn').addEventListener('click', () => { connect.officeOpen?.(); });   // 🏢 → 바로 옆 창으로
 
 // 🪟 별도 사무실 창 — 옆에 띄워놓고 에이전트들 일하는 거 구경
 let officeEngagedM = false;

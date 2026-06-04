@@ -317,9 +317,20 @@ const postRevenue = (s: any) => { if (revenueWin && !revenueWin.isDestroyed()) r
 let officeWin: BrowserWindow | null = null;
 function openOfficeWindow() {
   if (officeWin && !officeWin.isDestroyed()) { officeWin.focus(); return; }
+  // 메인 창 오른쪽 옆에 붙여서 배치 (화면 넘으면 메인 왼쪽 또는 기본 위치)
+  const W = 960, H = 720;
+  let pos: { x?: number; y?: number } = {};
+  try {
+    if (win && !win.isDestroyed()) {
+      const b = win.getBounds(); const disp = screen.getDisplayMatching(b).workArea;
+      let x = b.x + b.width + 8;
+      if (x + W > disp.x + disp.width) x = Math.max(disp.x, b.x - W - 8);   // 오른쪽 공간 없으면 왼쪽
+      pos = { x: Math.round(x), y: Math.round(b.y) };
+    }
+  } catch { /* */ }
   officeWin = new BrowserWindow({
-    width: 960, height: 720, minWidth: 600, minHeight: 460, title: '가상 사무실 — Connect AI',
-    backgroundColor: '#06100b', show: false,
+    width: W, height: H, minWidth: 600, minHeight: 460, title: '가상 사무실 — Connect AI',
+    backgroundColor: '#06100b', show: false, ...pos,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   });
   officeWin.once('ready-to-show', () => officeWin?.show());
