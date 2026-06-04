@@ -380,6 +380,12 @@
 .cf-txt.story { color: var(--text-bright, #eaffea); font-weight: 600; }
 /* 🟢 LIVE 상태 점멸 */
 .cls-count { transition: color .3s; }
+/* 🤖 에이전트별 모델 선택 */
+.ag-model { margin-top: 14px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--ag, #39ff14) 30%, transparent); border-radius: 11px; background: color-mix(in srgb, var(--ag, #39ff14) 7%, transparent); }
+.ag-model label { display: block; font-size: 12px; font-weight: 800; color: var(--text-bright, #fff); margin-bottom: 7px; }
+.ag-model select { width: 100%; background: var(--input-bg, rgba(0,0,0,.3)); border: 1px solid var(--border2, rgba(255,255,255,.14)); color: var(--text-bright, #eee); padding: 9px 11px; border-radius: 8px; font-family: inherit; outline: none; }
+.ag-model select:focus { border-color: var(--ag, #39ff14); }
+.ag-model-hint { font-size: 11px; color: var(--text-dim, #889); margin-top: 7px; line-height: 1.5; }
 
 /* 팀 소집 배너 */
 .dispatch-banner { position: absolute; top: 42%; left: 50%; transform: translate(-50%,-50%); z-index: 30; text-align: center;

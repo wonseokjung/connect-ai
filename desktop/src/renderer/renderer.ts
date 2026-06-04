@@ -195,11 +195,14 @@ $('cfgVoicePick').addEventListener('change', async (e: any) => {
 });
 
 // ── 모델 드롭다운 (로드된 채팅 모델 자동) ──────────────────
+let MODELS_CACHE: string[] = [];
+let MODELS_LOADED = '';
 async function loadModels() {
   const sel = $('modelSel') as HTMLSelectElement;
   const info = await connect.listModels();
   sel.innerHTML = '';
-  if (!info || !info.models?.length) { const o = document.createElement('option'); o.textContent = '로컬 AI 없음'; sel.appendChild(o); return; }
+  if (!info || !info.models?.length) { const o = document.createElement('option'); o.textContent = '로컬 AI 없음'; sel.appendChild(o); MODELS_CACHE = []; return; }
+  MODELS_CACHE = info.models; MODELS_LOADED = info.loaded || '';
   for (const m of info.models) { const o = document.createElement('option'); o.value = m; o.textContent = m + (/^gemini/i.test(m) ? '  ☁️ 클라우드' : (m === info.loaded ? '  ● 로드됨' : '')); sel.appendChild(o); }
   sel.value = (cfg.llmModel && info.models.includes(cfg.llmModel)) ? cfg.llmModel : (info.loaded || info.models[0]);
   cfg = await connect.setConfig({ llmBase: info.base, llmModel: sel.value });
@@ -860,6 +863,9 @@ function openAgentDetail(id: string) {
     ? `<img class="ag-photo" src="../../assets/agents/${PROFILE[id]}" alt="" />`
     : `<div class="ag-photo ag-photo-emoji" style="background:color-mix(in srgb,${a.color} 18%,#0a120c);border-color:${a.color}">${a.emoji}</div>`;
   $('agHeadName').textContent = `${a.emoji} ${a.name}`;
+  const cur = (cfg.agentModels || {})[id] || '';
+  const opts = ['<option value="">⚙️ 자동 (공용 모델)</option>']
+    .concat(MODELS_CACHE.map(m => `<option value="${esc(m)}"${m === cur ? ' selected' : ''}>${esc(m)}${/^gemini/i.test(m) ? ' ☁️' : (m === MODELS_LOADED ? ' ●' : '')}</option>`)).join('');
   $('agentBody').innerHTML = `
     <div class="ag-detail" style="--ag:${a.color}">
       ${avatar}
@@ -867,7 +873,18 @@ function openAgentDetail(id: string) {
         <div class="ag-role">${esc(a.role)}</div>
         <div class="ag-spec">${esc((a as any).specialty || '')}</div>
       </div>
+    </div>
+    <div class="ag-model">
+      <label>🤖 이 에이전트의 AI 모델</label>
+      <select id="agModelSel">${opts}</select>
+      <div class="ag-model-hint">장기기억으로 학습한 <b>전용 모델</b>을 배정하세요 (예: 마케팅튜닝 → 비즈니스). 비워두면 공용 모델 사용.</div>
     </div>`;
+  $('agModelSel')?.addEventListener('change', async (e) => {
+    const v = (e.target as HTMLSelectElement).value;
+    const am = { ...(cfg.agentModels || {}) }; if (v) am[id] = v; else delete am[id];
+    cfg = await connect.setConfig({ agentModels: am });
+    hint(v ? `${a.emoji} ${a.name} → ${v}` : `${a.emoji} ${a.name} → 공용 모델`);
+  });
   openOverlay('agentPanel');
 }
 $('voffice').addEventListener('click', (e) => { const el = (e.target as HTMLElement).closest('.vo-agent'); if (el) openAgentDetail(el.id.replace('vo-', '')); });

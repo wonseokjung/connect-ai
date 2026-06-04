@@ -28,7 +28,7 @@ import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessa
 
 interface Service { id: string; name: string; url: string; desc: string }
 interface Config {
-  company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean;
+  company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean; agentModels?: Record<string, string>;
   voiceName: string; jarvis: boolean; plazaDbUrl: string; llmBase?: string; llmModel?: string; voice: boolean;
   services: Service[]; telegramToken: string; telegramChatId: string; apiKeys: Record<string, string>; paypalClientId: string; paypalSecret: string;
   hfToken: string; hfModel: string;
@@ -479,7 +479,7 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
       return err ? `열기 실패: ${err}` : `✅ 열었어요: ${t}`;
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
-  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님' };
+  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
   const send = (ev: any) => win?.webContents.send('engine:event', ev);
   // 도구 켜짐 = 파일 읽기/쓰기 하는 진짜 에이전트, 꺼짐 = 단순 대화
   const reply = c.tools !== false

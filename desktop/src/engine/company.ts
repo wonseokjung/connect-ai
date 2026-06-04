@@ -23,7 +23,7 @@ export type EngineEvent =
   | { kind: 'final'; text: string }
   | { kind: 'error'; text: string };
 
-export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; }
+export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; agentModels?: Record<string, string>; }
 const aborted = (opts: { signal?: AbortSignal }) => !!opts.signal?.aborted;
 
 // ── 네이티브 tool calling ───────────────────────────────────────────────
@@ -50,7 +50,7 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
   reg.push({ name: 'remember', description: '두뇌에 지식을 영구 저장', event: 'remember', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { let e: number[] | null = null; try { e = await embed(target.base, a.text); } catch { /* */ } brainAdd(a.text, e || undefined); return { text: '기억했어요.', ok: true, path: a.text }; } });
   reg.push({ name: 'add_task', description: '할 일을 태스크 보드에 등록', event: 'task', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { addTask(a.text, { owner: 'agent', agentEmoji: '🤖' }); return { text: '할 일을 등록했어요.', ok: true, path: a.text }; } });
   reg.push({ name: 'request_approval', description: '되돌리기 어려운 행동(돈 쓰기·발송·배포) 전 사용자 결재 요청. action 지정 시 승인되면 자동 실행', event: 'approve', parameters: obj({ title: { type: 'string' }, detail: { type: 'string' }, action: { type: 'string', enum: ['run', 'write', 'telegram', 'email'], description: '승인 후 자동 실행 종류(선택)' }, payload: { type: 'string', description: '실행할 명령/내용(선택)' }, path: { type: 'string', description: 'write 시 파일 경로(선택)' } }, ['title']), run: async a => { const act = ['run', 'write', 'telegram', 'email'].includes(a.action) ? { kind: a.action, payload: a.payload || '', path: a.path } : undefined; addApproval(a.title, act ? `⚡ ${a.action}: ${(a.payload || '').slice(0, 80)}` : (a.detail || a.title), '🤖', act as any); return { text: '승인 요청을 올렸어요.', ok: true, path: a.title }; } });
-  reg.push({ name: 'dispatch_team', description: '콘텐츠 기획+디자인+개발처럼 여러 전문 분야가 동시에 필요한 큰 프로젝트를 전문 동료(유튜브·디자이너·개발자 등)에게 위임하고 결과를 받는다', parameters: obj({ brief: { type: 'string', description: '동료들에게 시킬 일' } }, ['brief']), run: async a => { const digest = await dispatchTeam(target, a.brief, opts.agentName || '에이전트', opts.company || '1인 기업', onEvent, opts.signal, opts.realtimeFor, workspace, opts.userTitle || '사장님'); return { text: digest, ok: true, path: '팀' }; } });
+  reg.push({ name: 'dispatch_team', description: '콘텐츠 기획+디자인+개발처럼 여러 전문 분야가 동시에 필요한 큰 프로젝트를 전문 동료(유튜브·디자이너·개발자 등)에게 위임하고 결과를 받는다', parameters: obj({ brief: { type: 'string', description: '동료들에게 시킬 일' } }, ['brief']), run: async a => { const digest = await dispatchTeam(target, a.brief, opts.agentName || '에이전트', opts.company || '1인 기업', onEvent, opts.signal, opts.realtimeFor, workspace, opts.userTitle || '사장님', opts.agentModels || {}); return { text: digest, ok: true, path: '팀' }; } });
   try {
     const mt = await listMcpTools();
     for (const t of mt as any[]) {
@@ -223,7 +223,7 @@ async function runSpecialist(target: LlmTarget, id: string, company: string, bri
 }
 
 // 팀 소집 — 브리프를 전문 동료들에게 분배·작업시키고(실시간 스트리밍) → 짧은 팀 회의 → 결과 종합 반환
-async function dispatchTeam(target: LlmTarget, brief: string, name: string, company: string, onEvent: (e: EngineEvent) => void, signal?: AbortSignal, realtimeFor?: (id: string) => Promise<string>, workspace = '', title = '사장님'): Promise<string> {
+async function dispatchTeam(target: LlmTarget, brief: string, name: string, company: string, onEvent: (e: EngineEvent) => void, signal?: AbortSignal, realtimeFor?: (id: string) => Promise<string>, workspace = '', title = '사장님', agentModels: Record<string, string> = {}): Promise<string> {
   let plan: any = null;
   try { const raw = await chat(target, triagePrompt(name, company, title), `요청: ${brief}`, { temperature: 0.2, signal }); plan = firstJson(raw); } catch { /* */ }
   if (signal?.aborted) return '(중단됨)';
@@ -240,7 +240,10 @@ async function dispatchTeam(target: LlmTarget, brief: string, name: string, comp
     try {
       // 🤝 실데이터 주입(유튜브·매출) + 🧑‍🔧 도구 루프(MCP·파일·실행) — 동료가 직접 도구를 쓴다
       const rt = realtimeFor ? await realtimeFor(id).catch(() => '') : '';
-      const out = await runSpecialist(target, id, company, brief, rt, workspace, mcpBlock, onEvent, signal, title);
+      // 🤖 이 에이전트 전용 모델이 지정돼 있으면 그 모델로 (예: 마케팅튜닝→비즈니스, 디자인튜닝→디자이너)
+      const spTarget = agentModels[id] ? { ...target, model: agentModels[id] } : target;
+      if (agentModels[id]) onEvent({ kind: 'status', text: `${a.emoji} ${a.name} · 전용 모델(${agentModels[id]})` });
+      const out = await runSpecialist(spTarget, id, company, brief, rt, workspace, mcpBlock, onEvent, signal, title);
       outputs[id] = out; onEvent({ kind: 'agentDone', id, output: out });
     } catch (e: any) { outputs[id] = `(${a.name} 실패: ${e?.message || e})`; onEvent({ kind: 'agentDone', id, output: outputs[id] }); }
   }
