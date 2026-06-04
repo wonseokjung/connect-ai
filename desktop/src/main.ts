@@ -497,7 +497,14 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
       return err ? `열기 실패: ${err}` : `✅ 열었어요: ${t}`;
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
-  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
+  const getYoutube = () => realtimeFor('youtube');   // 유튜브 채널 실데이터(연동된 경우)
+  const sendTelegram = async (msg: string): Promise<string> => {
+    const cc = loadConfig(); const tok = cc.telegramToken, chat = cc.telegramChatId;
+    if (!tok || !chat) return '텔레그램이 연결 안 됐어요. 🗂️ 연동 → Telegram에 봇 토큰과 chat_id를 넣으세요.';
+    try { await axios.post(`https://api.telegram.org/bot${tok}/sendMessage`, { chat_id: chat, text: msg || '(빈 메시지)' }, { timeout: 9000 }); return '✅ 텔레그램으로 보냈어요.'; }
+    catch (e: any) { return `텔레그램 전송 실패: ${e?.response?.data?.description || e?.message}`; }
+  };
+  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, getYoutube, sendTelegram, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
   const send = (ev: any) => emitEngine(ev);   // 메인 + 별도 사무실 창
   // 도구 켜짐 = 파일 읽기/쓰기 하는 진짜 에이전트, 꺼짐 = 단순 대화
   const reply = c.tools !== false
