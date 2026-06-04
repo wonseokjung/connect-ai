@@ -28,6 +28,10 @@ contextBridge.exposeInMainWorld('connect', {
   // 🔌 EZERAI 브레인팩 주입 알림
   onBridgeInject: (cb: (d: any) => void) => { const h = (_e: any, d: any) => cb(d); ipcRenderer.on('bridge:inject', h); return () => ipcRenderer.removeListener('bridge:inject', h); },
   officeOpen: () => ipcRenderer.invoke('office:open'),   // 🪟 별도 사무실 창
+  // ⬆️ 자동 업데이트
+  updateCheck: () => ipcRenderer.invoke('update:check'),
+  updateInstall: () => ipcRenderer.invoke('update:install'),
+  onUpdateStatus: (cb: (s: any) => void) => { const h = (_e: any, s: any) => cb(s); ipcRenderer.on('update:status', h); return () => ipcRenderer.removeListener('update:status', h); },
   stop: () => ipcRenderer.invoke('company:stop'),                          // 생성 중단
   reset: () => ipcRenderer.invoke('company:reset'),
   listModels: () => ipcRenderer.invoke('models:list'),

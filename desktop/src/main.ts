@@ -10,6 +10,7 @@ import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes } from './engine/brain';
 import { startBridge, stopBridge } from './engine/bridge';
+import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile } from './engine/github';
 import { uploadDataset, notesToJsonl } from './engine/hf';
 import { buildNotebook } from './engine/train';
@@ -267,6 +268,7 @@ app.whenReady().then(() => {
   scheduleBriefing();
   scheduleAuto();
   startConnectBridge();   // 🔌 EZERAI ↔ Connect AI 두뇌 브릿지 (:4825)
+  setTimeout(setupAutoUpdate, 4000);   // ⬆️ 자동 업데이트 체크(부팅 4초 후)
   app.on('activate', () => { showWindow(); });
 });
 app.on('before-quit', () => { quitting = true; });
@@ -339,6 +341,24 @@ function openOfficeWindow() {
   officeWin.on('closed', () => { officeWin = null; });
 }
 ipcMain.handle('office:open', () => { openOfficeWindow(); return true; });
+
+// ⬆️ 자동 업데이트 (electron-updater + GitHub 릴리스) — 맥(서명·공증)·윈도우 둘 다
+function setupAutoUpdate() {
+  if (!app.isPackaged) return;   // 개발 빌드(electron .)에선 비활성
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  const sendU = (s: any) => { try { win?.webContents.send('update:status', s); } catch { /* */ } };
+  autoUpdater.on('checking-for-update', () => sendU({ state: 'checking' }));
+  autoUpdater.on('update-available', (i) => sendU({ state: 'available', version: i?.version }));
+  autoUpdater.on('update-not-available', () => sendU({ state: 'none' }));
+  autoUpdater.on('download-progress', (p) => sendU({ state: 'downloading', percent: Math.round(p?.percent || 0) }));
+  autoUpdater.on('update-downloaded', (i) => { sendU({ state: 'downloaded', version: i?.version }); notify('🎉 새 버전 준비됨', `v${i?.version} — 앱에서 "재시작 업그레이드"를 누르세요.`); });
+  autoUpdater.on('error', (e) => sendU({ state: 'error', error: String(e?.message || e) }));
+  autoUpdater.checkForUpdates().catch(() => { /* 네트워크 없어도 무시 */ });
+  setInterval(() => autoUpdater.checkForUpdates().catch(() => { /* */ }), 6 * 60 * 60 * 1000);   // 6시간마다
+}
+ipcMain.handle('update:check', async () => { if (!app.isPackaged) return { dev: true }; try { const r = await autoUpdater.checkForUpdates(); return { ok: true, version: r?.updateInfo?.version }; } catch (e: any) { return { ok: false, error: e?.message }; } });
+ipcMain.handle('update:install', () => { try { autoUpdater.quitAndInstall(); } catch { /* */ } });
 // 엔진 이벤트를 메인+사무실 창 둘 다에 (사무실 창이 살아 움직이게)
 const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };
 async function loadRevenue() {

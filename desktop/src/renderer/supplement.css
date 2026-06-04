@@ -378,6 +378,13 @@
 /* 작업 스토리 줄 — 선명(내레이터) */
 .cf-line.story { background: rgba(0,255,65,.06); border-color: color-mix(in srgb, var(--accent, #39ff14) 22%, transparent); }
 .cf-txt.story { color: var(--text-bright, #eaffea); font-weight: 600; }
+/* ⬆️ 자동 업데이트 배너 */
+.update-bar { flex-shrink: 0; display: flex; align-items: center; gap: 10px; justify-content: center; padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: #fff; z-index: 30; }
+.update-bar.dl { background: linear-gradient(90deg, rgba(0,150,255,.18), rgba(0,150,255,.08)); border-bottom: 1px solid rgba(0,150,255,.35); color: #bfe3ff; }
+.update-bar.ready { background: linear-gradient(90deg, rgba(57,255,20,.16), rgba(57,255,20,.06)); border-bottom: 1px solid var(--accent-glow, rgba(57,255,20,.4)); color: #eaffe0; }
+.update-bar button { background: var(--accent, #39ff14); color: #000; border: none; border-radius: 7px; padding: 5px 12px; font-weight: 800; font-size: 12px; cursor: pointer; }
+.update-bar button:hover { box-shadow: 0 0 12px var(--accent-glow, rgba(57,255,20,.5)); }
+.update-bar button.upd-ghost { background: transparent; color: var(--text-dim, #9aa); border: 1px solid var(--border2, rgba(255,255,255,.15)); }
 /* 🟢 LIVE 상태 점멸 */
 .cls-count { transition: color .3s; }
 /* 🪟 별도 사무실 전용 창 — 사무실만 풀스크린, 나머지 숨김 */

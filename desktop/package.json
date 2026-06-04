@@ -19,6 +19,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/nodemailer": "^8.0.0",
     "axios": "^1.7.0",
+    "electron-updater": "^6.8.3",
     "msedge-tts": "^2.0.5",
     "nodemailer": "^8.0.10"
   },
@@ -41,11 +42,24 @@
       "assets/**",
       "package.json"
     ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "wonseokjung",
+        "repo": "connect-ai"
+      }
+    ],
     "mac": {
       "category": "public.app-category.productivity",
       "target": [
         {
           "target": "dmg",
+          "arch": [
+            "universal"
+          ]
+        },
+        {
+          "target": "zip",
           "arch": [
             "universal"
           ]

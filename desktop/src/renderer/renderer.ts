@@ -722,6 +722,18 @@ function lifeSocialize(a: string, b: string) {
 
 $('officeBtn').addEventListener('click', () => { connect.officeOpen?.(); });   // 🏢 → 바로 옆 창으로
 
+// ⬆️ 자동 업데이트 배너
+connect.onUpdateStatus?.((s: any) => {
+  const bar = $('updateBar'); if (!bar) return;
+  if (s.state === 'downloading') { bar.hidden = false; bar.className = 'update-bar dl'; bar.innerHTML = `⬇️ 새 버전 받는 중… <b>${s.percent || 0}%</b>`; }
+  else if (s.state === 'downloaded') {
+    bar.hidden = false; bar.className = 'update-bar ready';
+    bar.innerHTML = `🎉 새 버전 <b>v${s.version}</b> 준비됐어요 <button id="updNow">재시작해서 업그레이드</button> <button id="updLater" class="upd-ghost">나중에</button>`;
+    $('updNow')?.addEventListener('click', () => connect.updateInstall?.());
+    $('updLater')?.addEventListener('click', () => { bar.setAttribute('hidden', ''); });
+  } else if (s.state === 'available') { hint(`⬆️ 새 버전 v${s.version} 받는 중…`); }
+});
+
 // 🪟 별도 사무실 창 — 옆에 띄워놓고 에이전트들 일하는 거 구경
 let officeEngagedM = false;
 function ensureOfficeM() { if (officeEngagedM) return; officeEngagedM = true; taskActive = true; buildOffice(); officeReset(); $('officeStatus').textContent = '가동 중…'; officeSet('ceo', 'work'); }
