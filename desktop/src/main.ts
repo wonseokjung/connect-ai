@@ -9,6 +9,7 @@ import { talkToMyAgent, agentWithTools, ChatTurn } from './engine/company';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes } from './engine/brain';
+import { startBridge, stopBridge } from './engine/bridge';
 import { pushKnowledge, pullKnowledge, pushFile } from './engine/github';
 import { uploadDataset, notesToJsonl } from './engine/hf';
 import { buildNotebook } from './engine/train';
@@ -21,7 +22,7 @@ import { edgeTTS } from './engine/edgetts';
 import * as http from 'http';
 import { setTaskFile, listTasks, addTask, setStatus as setTaskStatus, openTasks, taskCount } from './engine/tasks';
 import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, approvalCount, getApproval, ApprovalAction } from './engine/approvals';
-import { spawnSync } from 'child_process';
+import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
 import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, PlazaSession, PlazaMessage } from './plaza';
 
@@ -265,6 +266,7 @@ app.whenReady().then(() => {
   buildTray();
   scheduleBriefing();
   scheduleAuto();
+  startConnectBridge();   // 🔌 EZERAI ↔ Connect AI 두뇌 브릿지 (:4825)
   app.on('activate', () => { showWindow(); });
 });
 app.on('before-quit', () => { quitting = true; });
@@ -364,6 +366,67 @@ ipcMain.handle('tts:speak', async (_e, text: string) => {
 
 // ─────────────────────────── 일반 모드 (단일 에이전트 1:1 + 대화 기억)
 let history: ChatTurn[] = [];
+// ⌨️ 통합 터미널 — 사용자 명령 + 에이전트 개발서버가 전부 여기서 돈다. 한 번에 하나(이전 것 종료). ⏹/Ctrl+C로 중지.
+let termProc: ChildProcess | null = null;
+const termSend = (kind: string, text: string) => { try { win?.webContents.send('term:data', { kind, text }); } catch { /* */ } };
+function killTerm() {
+  if (!termProc) return;
+  try { if (process.platform === 'win32' && termProc.pid) spawn('taskkill', ['/pid', String(termProc.pid), '/T', '/F']); else { termProc.kill(); if (termProc.pid) { try { process.kill(-termProc.pid, 'SIGTERM'); } catch { /* */ } } } } catch { /* */ }
+  termProc = null;
+}
+app.on('before-quit', killTerm);
+// 명령을 터미널에서 스트리밍 실행. 이전 프로세스 종료 후 새로.
+function spawnInTerminal(cmd: string, ws: string): ChildProcess | null {
+  killTerm();
+  try {
+    const child = spawn(cmd, { cwd: ws, shell: true, detached: process.platform !== 'win32', env: { ...process.env, BROWSER: 'none', FORCE_COLOR: '0' } });
+    termProc = child;
+    child.stdout?.on('data', (d: Buffer) => termSend('out', d.toString('utf8')));
+    child.stderr?.on('data', (d: Buffer) => termSend('out', d.toString('utf8')));
+    child.on('error', (e) => termSend('out', `오류: ${e?.message || e}`));
+    child.on('exit', (code) => { termSend('exit', `[종료 코드 ${code ?? '?'}]`); if (termProc === child) termProc = null; });
+    return child;
+  } catch (e: any) { termSend('exit', `실행 실패: ${e?.message || e}`); return null; }
+}
+// 맥에선 python/pip 가 보통 python3/pip3 → 자동 교정 (가장 흔한 실패 원인)
+function normalizeCmd(cmd: string): string {
+  let c = (cmd || '').trim();
+  if (process.platform !== 'win32') {
+    c = c.replace(/(^|\s|&&\s*|;\s*|\|\s*)python(?!3)(\s)/g, '$1python3$2')
+         .replace(/(^|\s|&&\s*|;\s*|\|\s*)pip(?!3)(\s)/g, '$1pip3$2');
+  }
+  return c;
+}
+// 명령에서 포트 추출 (http.server 8000 / --port 3000 / -p 5173 / :8080)
+function portFromCmd(cmd: string): number | null {
+  const m = cmd.match(/--port[=\s]+(\d{2,5})/) || cmd.match(/\bhttp\.server\s+(\d{2,5})/) || cmd.match(/-p[=\s]+(\d{2,5})/) || cmd.match(/:(\d{4,5})\b/);
+  return m ? parseInt(m[1], 10) : null;
+}
+// 개발 서버 — 터미널에서 실행(자동 표시) + URL 감지해서 브라우저 자동 오픈. ⏹/Ctrl+C로 중지.
+function startServer(rawCmd: string, ws: string): Promise<string> {
+  return new Promise((resolve) => {
+    const cmd = normalizeCmd(rawCmd);
+    const wantPort = portFromCmd(cmd) || (/http\.server|SimpleHTTPServer/i.test(cmd) ? 8000 : /flask|app\.run/i.test(cmd) ? 5000 : /vite/i.test(cmd) ? 5173 : /next/i.test(cmd) ? 3000 : 3000);
+    // 정적 서버인데 index.html이 없으면 → 에이전트에게 "파일부터 만들라" 경고 (빈 폴더 serve 방지)
+    let warn = '';
+    if (/http\.server|SimpleHTTPServer/i.test(cmd)) { try { if (!fs.existsSync(path.join(ws, 'index.html'))) warn = `\n⚠️ 경고: 이 폴더에 index.html이 없어서 브라우저에 "Directory listing"(빈 목록)만 떠요. 반드시 write_file 로 index.html 을 먼저 만든 뒤 다시 서버를 띄우세요. 아직 웹사이트를 만든 게 아닙니다.`; } catch { /* */ } }
+    termSend('cmd', `$ ${cmd}`);
+    try { win?.webContents.send('term:show'); } catch { /* */ }
+    const child = spawnInTerminal(cmd, ws);
+    if (!child) return resolve('서버 실행 실패');
+    let out = '', done = false;
+    const open = (port: string | number, note: string) => { if (done) return; done = true; const url = `http://localhost:${port}`; shell.openExternal(url); resolve(`✅ ${note}: ${url}\n(터미널에서 실행 중 — ⏹ 또는 Ctrl+C로 중지)${warn}`); };
+    const scan = (buf: Buffer) => {
+      out += buf.toString('utf8');
+      const m = out.match(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d+)/i) || out.match(/port\s+(\d{2,5})/i);
+      if (m) open(m[1], '서버를 띄우고 브라우저를 열었어요');
+    };
+    child.stdout?.on('data', scan);
+    child.stderr?.on('data', scan);
+    child.on('exit', (code) => { if (!done) { done = true; resolve(`서버가 종료됐어요(코드 ${code}). 명령이 잘못됐을 수 있어요.\n로그: ${out.slice(-400) || '(출력 없음)'}\n💡 정적 사이트면 python3 -m http.server ${wantPort || 8000} 를 시도해 보세요.`); } });
+    setTimeout(() => { if (!done) open(wantPort || 3000, '서버 실행 중 — 브라우저를 열었어요'); }, 4500);
+  });
+}
 const servicesInfo = (c: Config) => {
   const svc = c.services.length
     ? `\n\n## ${c.company}의 서비스/사업 (사장님 것 — 인지하고 적극 활용)\n` + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n')
@@ -379,8 +442,12 @@ const servicesInfo = (c: Config) => {
   return svc + tk + ap;
 };
 let runAbort: AbortController | null = null;
-ipcMain.handle('company:run', async (_e, text: string) => {
+ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
   const c = loadConfig();
+  // 📎 첨부: 파일 경로는 메시지에 알려주고, 이미지는 비전으로 모델에 직접 보여준다
+  const attachPaths = (attach?.paths || []).filter(Boolean);
+  const attachImages = (attach?.images || []).filter(Boolean);
+  if (attachPaths.length) text = `${text}\n\n[사장님이 첨부한 파일 경로 — 필요하면 read_file·open·run·serve로 다뤄라]\n${attachPaths.join('\n')}`;
   runAbort?.abort();                 // 이전 실행이 남아있으면 정리
   runAbort = new AbortController();
   const getRevenue = async () => {
@@ -412,7 +479,7 @@ ipcMain.handle('company:run', async (_e, text: string) => {
       return err ? `열기 실패: ${err}` : `✅ 열었어요: ${t}`;
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
-  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, userTitle: c.userTitle || '사장님' };
+  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님' };
   const send = (ev: any) => win?.webContents.send('engine:event', ev);
   // 도구 켜짐 = 파일 읽기/쓰기 하는 진짜 에이전트, 꺼짐 = 단순 대화
   const reply = c.tools !== false
@@ -449,6 +516,50 @@ ipcMain.handle('workspace:pick', async () => {
   saveConfig({ workspace: r.filePaths[0] });
   return r.filePaths[0];
 });
+
+// 💻 작업실 — 파일 트리 / 내용 보기 / Finder 열기
+const TREE_SKIP = /^(node_modules|venv|env|__pycache__|dist|build|out|\.next|\.cache|\.git|target|\$RECYCLE|Library)$/i;
+function buildTree(root: string) {
+  let count = 0;
+  const walk = (dir: string, depth: number): any[] => {
+    if (depth > 6 || count > 1200) return [];
+    let items: import('fs').Dirent[]; try { items = fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
+    const dirs: any[] = [], files: any[] = [];
+    for (const it of items) {
+      if (it.name.startsWith('.') || TREE_SKIP.test(it.name)) continue;
+      if (count++ > 1200) break;
+      const full = path.join(dir, it.name);
+      if (it.isDirectory()) dirs.push({ name: it.name, path: full, dir: true, children: walk(full, depth + 1) });
+      else { let mtime = 0; try { mtime = fs.statSync(full).mtimeMs; } catch { /* */ } files.push({ name: it.name, path: full, dir: false, mtime }); }
+    }
+    dirs.sort((a, b) => a.name.localeCompare(b.name)); files.sort((a, b) => a.name.localeCompare(b.name));
+    return [...dirs, ...files];
+  };
+  try { if (!fs.existsSync(root)) return { root, name: path.basename(root), children: [], missing: true }; } catch { /* */ }
+  return { root, name: path.basename(root), children: walk(root, 0) };
+}
+ipcMain.handle('fs:tree', (_e, root?: string) => buildTree(root || loadConfig().workspace || defaultWorkspace()));
+ipcMain.handle('fs:read', (_e, p: string) => {
+  try {
+    const st = fs.statSync(p);
+    const name = path.basename(p);
+    if (/\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i.test(p)) return { image: `data:image/${(path.extname(p).slice(1) || 'png').replace('jpg', 'jpeg')};base64,${fs.readFileSync(p).toString('base64')}`, name };
+    if (/\.(pdf|zip|mp4|mov|mp3|wav|dmg|exe|woff2?|ttf|otf|node|bin)$/i.test(p)) return { binary: true, name };
+    if (st.size > 600_000) return { error: `파일이 커서 미리보기를 생략했어요 (${Math.round(st.size / 1024)}KB)`, name };
+    return { content: fs.readFileSync(p, 'utf8'), name, size: st.size };
+  } catch (e: any) { return { error: e?.message || String(e) }; }
+});
+ipcMain.handle('fs:reveal', (_e, p: string) => { try { shell.showItemInFolder(p); return true; } catch { return false; } });
+ipcMain.handle('fs:write', (_e, p: string, content: string) => { try { fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, content ?? '', 'utf8'); return { ok: true }; } catch (e: any) { return { ok: false, error: e?.message || String(e) }; } });
+
+// ⌨️ 터미널 IPC — 사용자가 친 명령 실행 / 중지 (서버도 같은 termProc 사용 → 한 곳에서 중지)
+ipcMain.handle('term:run', (_e, cmd: string, ws?: string) => {
+  const cwd = ws || loadConfig().workspace || defaultWorkspace();
+  termSend('cmd', `$ ${cmd}`);
+  spawnInTerminal(normalizeCmd(cmd), cwd);
+  return true;
+});
+ipcMain.handle('term:kill', () => { killTerm(); return true; });
 
 // 🗂️ 내 서비스 (웹사이트·서비스 등록 — 에이전트가 인지)
 ipcMain.handle('services:list', () => loadConfig().services);
@@ -557,6 +668,33 @@ ipcMain.handle('brain:exportTraining', (_e, hf: { token?: string; model?: string
 // ⚡ 단기 기억 = GitHub 동기화 / 🧬 장기 기억 = HuggingFace 업로드
 const connOf = (svc: string) => (loadConfig().apiConn || {})[svc] || {};
 const geminiKey = () => { const c = loadConfig(); return (c.apiConn?.gemini?.GEMINI_API_KEY) || (c.apiKeys?.gemini) || ''; };
+
+// 🔌 EZERAI 브릿지 시작 — 웹 브레인팩 마켓이 :4825로 지식·스킬·템플릿·디자인을 주입
+function startConnectBridge() {
+  startBridge({
+    status: () => { const c = loadConfig(); return { defaultModel: c.llmModel || '자동', brain: { fileCount: noteCount(), enabled: c.tools !== false } }; },
+    workspace: () => loadConfig().workspace || defaultWorkspace(),
+    addKnowledge: async (title: string, markdown: string) => {
+      const text = `# ${title}\n${markdown}`.slice(0, 8000);
+      let emb: number[] | null = null;
+      try { const t = await detectTarget({ base: loadConfig().llmBase, model: loadConfig().llmModel, key: geminiKey() }); if (t) emb = await embed(t.base, text); } catch { /* 임베딩 없어도 키워드 RAG */ }
+      brainAddNote(text, emb || undefined);
+    },
+    runExam: async (prompt: string) => {
+      const c = loadConfig();
+      const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() });
+      if (!target) return '⚠️ AI 모델(LM Studio/Ollama)을 먼저 켜주세요.';
+      try { return (await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), prompt, { temperature: 0.5 })).trim(); } catch (e: any) { return `오류: ${e?.message || e}`; }
+    },
+    onInject: (kind: string, label: string, dir?: string) => {
+      const emoji: any = { knowledge: '🧠', skill: '🐍', template: '📦', design: '🎨' };
+      notify(`${emoji[kind] || '🔌'} EZERAI 주입`, `${label} — Connect AI에 들어왔어요`);
+      win?.webContents.send('engine:event', { kind: 'status', text: `${emoji[kind] || '🔌'} EZERAI 브레인팩 주입: ${label}` });
+      win?.webContents.send('bridge:inject', { kind, label, dir });   // 렌더러: 파일트리 새로고침 + FX
+    },
+  });
+}
+app.on('before-quit', stopBridge);
 ipcMain.handle('github:push', async () => {
   const g = connOf('github');
   return await pushKnowledge(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, allNotes());

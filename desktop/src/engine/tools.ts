@@ -24,6 +24,9 @@ export function parseTools(text: string): ToolCall[] {
   while ((m = reRead.exec(text))) calls.push({ tool: 'read_file', path: m[1].trim() });
   const reWrite = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
   while ((m = reWrite.exec(text))) calls.push({ tool: 'write_file', path: m[1].trim(), content: m[2] });
+  // 일부 모델은 path 속성 대신 첫 줄에 경로를 쓴다: <write_file>\n경로\n내용...</write_file>
+  const reWrite2 = /<write_file>\s*\n?\s*([^\n<]+?)\s*\n([\s\S]*?)<\/write_file>/g;
+  while ((m = reWrite2.exec(text))) calls.push({ tool: 'write_file', path: m[1].trim(), content: m[2].replace(/\n$/, '') });
   const reRun = /<run>([\s\S]*?)<\/run>/g;
   while ((m = reRun.exec(text))) calls.push({ tool: 'run_command', path: m[1].trim() });
   const reFind = /<find>([\s\S]*?)<\/find>/g;
@@ -34,7 +37,7 @@ export const stripTools = (text: string) =>
   text.replace(/<list_dir>[\s\S]*?<\/list_dir>/g, '').replace(/<read_file>[\s\S]*?<\/read_file>/g, '')
       .replace(/<write_file[\s\S]*?<\/write_file>/g, '').replace(/<run>[\s\S]*?<\/run>/g, '').replace(/<find>[\s\S]*?<\/find>/g, '')
       .replace(/<team>[\s\S]*?<\/team>/g, '').replace(/<task>[\s\S]*?<\/task>/g, '').replace(/<approve[^>]*>[\s\S]*?<\/approve>/g, '')
-      .replace(/<web_search>[\s\S]*?<\/web_search>/g, '').replace(/<fetch_url>[\s\S]*?<\/fetch_url>/g, '').replace(/<\/?revenue\s*\/?>/g, '').replace(/<\/?screenshot\s*\/?>/g, '').replace(/<\/?clipboard\s*\/?>/g, '').replace(/<open>[\s\S]*?<\/open>/g, '').trim();
+      .replace(/<web_search>[\s\S]*?<\/web_search>/g, '').replace(/<fetch_url>[\s\S]*?<\/fetch_url>/g, '').replace(/<\/?revenue\s*\/?>/g, '').replace(/<\/?screenshot\s*\/?>/g, '').replace(/<\/?clipboard\s*\/?>/g, '').replace(/<open>[\s\S]*?<\/open>/g, '').replace(/<serve(?:_server)?>[\s\S]*?<\/serve(?:_server)?>/g, '').replace(/\[END_TOOL_REQUEST\]/g, '').trim();
 
 // 🔎 이름으로 파일 검색 — 바탕화면·문서·다운로드·동영상·음악·사진(+작업폴더) 재귀(깊이4).
 function findFiles(query: string, workspace: string): ToolResult {
@@ -108,7 +111,8 @@ export function toolGuide(workspace: string): string {
     `- 파일 읽기(텍스트/코드만, 정확한 경로 하나): <read_file>경로</read_file>`,
     `- 🚀 파일/앱/주소 열기·실행·재생 (영상·이미지·음악·문서·웹은 이걸로!): <open>경로 또는 URL</open>`,
     `- 파일 쓰기/생성: <write_file path="경로">내용</write_file>`,
-    `- 명령 실행(코딩·자동화): <run>명령어</run>`,
+    `- 명령 실행(코딩·자동화 — 금방 끝나는 것): <run>명령어</run>`,
+    `- 🖥️ 개발 서버·로컬호스트 띄우기 (npm run dev·vite·next·flask·http.server 등 계속 떠있는 것): <serve>명령어</serve> → 백그라운드로 실행하고 브라우저를 자동으로 연다`,
     `- 웹 검색(최신 정보·리서치): <web_search>검색어</web_search>`,
     `- 웹페이지 읽기: <fetch_url>https://주소</fetch_url>`,
     `- 💰 내 매출/수익 확인 (PayPal 실데이터 — 파일 찾지 말고 반드시 이 도구!): <revenue></revenue>`,
@@ -130,8 +134,10 @@ export function toolGuide(workspace: string): string {
     `- 사용자의 파일/폴더가 궁금하면 추측하지 말고 find·list_dir·read_file 로 실제로 확인해라. 존재하지 않는 파일명을 지어내지 마라.`,
     `- 💰 "매출/수익/돈 얼마" 물으면 절대 파일(csv 등)을 찾지 말고 <revenue> 도구를 써라. 등록된 내 서비스/웹사이트는 servicesInfo 또는 fetch_url 로 확인해라.`,
     `- 🚀 "실행해/열어/틀어/재생해" 하면 <open>경로</open> 로 열어라. 영상(mp4·mov)·이미지(png·jpg)·음악(mp3)·PDF는 절대 read_file 하지 마라(바이너리라 못 읽는다). 못 본 영상/파일 내용을 지어내지 마라.`,
-    `- 무언가 "만들어줘"라고 하면 텍스트만 출력하지 말고 write_file 로 실제 파일을 만들어라.`,
+    `- ⛔ "지금 만들겠습니다/잠시만 기다려주세요" 같은 예고만 하고 끝내는 것 금지. "만들어줘"라고 하면 그 답변 안에서 즉시 <write_file> 로 실제 파일을 만들어라(텍스트 설명만 X).`,
+    `- 웹사이트/앱을 만들면: <write_file> 로 index.html 등을 만들고 → 바로 <serve>python3 -m http.server 8000</serve> (또는 npm 프로젝트면 <run>npm install</run> 후 <serve>npm run dev</serve>) 로 띄워서 브라우저로 보여줘라. 한 답변 안에서 만들고 실행까지.`,
     `- 코딩: write_file 로 코드 파일을 만들고 <run> 으로 실행·테스트·패키지 설치·git 까지 직접 해라. (예: <run>python3 app.py</run>, <run>npm install</run>)`,
+    `- 🖥️ 웹사이트·앱을 만들어 "실행/미리보기" 해달라면: 파일 만들고 → 설치는 <run>npm install</run> → 서버는 <serve>npm run dev</serve> 로 띄워라. <run> 으로 서버 띄우면 멈추니 반드시 <serve> 를 써라.`,
     `- 명령은 작업폴더에서 실행됨. 위험한 명령(rm -rf, 시스템 변경 등)은 하지 마라.`,
     `- 도구를 쓴 턴에는 결과를 받은 뒤 다음 턴에서 사용자에게 자연스럽게 보고해라.`,
   ].join('\n');

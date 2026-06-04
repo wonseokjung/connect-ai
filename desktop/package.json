@@ -1,6 +1,6 @@
 {
   "name": "connect-ai-desktop",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Connect AI — 자비스 같은 1인 기업 AI 비서 (데스크톱 앱, 비개발자용)",
   "main": "out/main.js",
   "author": "EZER AI",

@@ -26,6 +26,8 @@
       <span class="hdr-clock" id="hdrClock"></span>
     </div>
     <div class="header-right">
+      <button class="btn-icon on" id="filesBtn" title="파일 탐색기 접기/펴기">📁</button>
+      <button class="btn-icon" id="termBtn" title="터미널 접기/펴기">⌨️</button>
       <button class="btn-icon" id="officeBtn" title="가상 사무실 — 에이전트들이 일하는 모습">🏢</button>
       <button class="btn-icon" id="brainBtn" title="지식 네트워크 — 단기/장기 기억">🧠</button>
       <button class="btn-icon" id="plazaBtn" title="AI Agent University">🏫</button>
@@ -36,23 +38,59 @@
   </div>
   <div class="thinking-bar" id="thinkingBar"></div>
 
-  <!-- 🧠 두뇌 비주얼 (메인) + 대화 오버레이 -->
-  <div class="main-stage" id="mainStage">
-    <canvas id="brainGlobe" class="brain-bg"></canvas>
-    <div class="chat" id="chat"></div>
-  </div>
-
-  <!-- 입력 (익스텐션 .input-wrap/.input-box 그대로) -->
-  <div class="input-wrap"><div class="input-box">
-    <textarea id="input" rows="1" placeholder="무엇을 만들어 드릴까요?"></textarea>
-    <div class="input-footer">
-      <span class="input-hint" id="inputHint">Enter 전송 · Shift+Enter 줄바꿈</span>
-      <div class="input-btns">
-        <button class="stop-btn" id="stopBtn" title="생성 중단" hidden>■</button>
-        <button class="send-btn" id="sendBtn" title="전송 (Enter)">↑</button>
+  <!-- 메인: 📁 파일(좌) · 💬채팅+📄에디터(중앙) · ⌨️터미널(하단) -->
+  <div class="work-split" id="workSplit">
+    <!-- 좌측: 파일 탐색기 (접기 가능) -->
+    <aside class="side-files" id="sideFiles">
+      <div class="side-head"><span class="side-title">📁 탐색기</span>
+        <span class="side-btns">
+          <button class="code-mini" id="codeRefresh" title="새로고침">↻</button>
+          <button class="code-mini" id="codePickWs" title="작업 폴더 변경">📂</button>
+        </span>
       </div>
+      <div class="side-path" id="codePath"></div>
+      <div class="code-tree" id="codeTree"></div>
+    </aside>
+
+    <!-- 중앙 -->
+    <div class="center-col">
+      <div class="center-main" id="centerMain">
+        <div class="main-stage" id="mainStage">
+          <canvas id="brainGlobe" class="brain-bg"></canvas>
+          <div class="chat" id="chat"></div>
+        </div>
+        <!-- 📄 에디터 (파일 클릭 시 채팅 위로 등장) -->
+        <div class="editor-panel" id="codeView"></div>
+      </div>
+
+      <!-- ⌨️ 터미널 (하단, 접기 가능) -->
+      <div class="code-term collapsed" id="codeTerm">
+        <div class="term-head">⌨️ 터미널 <span class="term-path" id="termCwd"></span>
+          <span class="term-btns">
+            <button class="code-mini" id="termKillBtn" title="실행 중지">⏹</button>
+            <button class="code-mini" id="termClearBtn" title="지우기">🧹</button>
+            <button class="code-mini" id="termCollapse" title="터미널 접기">⌄</button>
+          </span>
+        </div>
+        <pre class="term-out" id="termOut"></pre>
+        <div class="term-input-row"><span class="term-prompt">$</span><input id="termInput" spellcheck="false" placeholder="명령어 입력 후 Enter (예: ls · npm install)" /></div>
+      </div>
+
+      <div class="input-wrap"><div class="input-box" id="inputBox">
+        <div class="attach-chips" id="attachChips"></div>
+        <textarea id="input" rows="1" placeholder="무엇을 만들어 드릴까요?  (파일·이미지를 끌어다 놓아도 돼요)"></textarea>
+        <div class="input-footer">
+          <span class="input-hint" id="inputHint">Enter 전송 · Shift+Enter 줄바꿈 · 📎 끌어다 놓기</span>
+          <div class="input-btns">
+            <button class="attach-btn" id="attachBtn" title="파일/이미지 첨부">📎</button>
+            <input type="file" id="fileInput" multiple hidden />
+            <button class="stop-btn" id="stopBtn" title="생성 중단" hidden>■</button>
+            <button class="send-btn" id="sendBtn" title="전송 (Enter)">↑</button>
+          </div>
+        </div>
+      </div></div>
     </div>
-  </div></div>
+  </div>
 
   <!-- 광장 오버레이 -->
   <div class="overlay hidden" id="plazaPanel">

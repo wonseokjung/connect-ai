@@ -206,10 +206,43 @@ async function loadModels() {
 }
 $('modelSel').addEventListener('change', async (e) => { cfg = await connect.setConfig({ llmModel: (e.target as HTMLSelectElement).value }); hint('모델: ' + cfg.llmModel); });
 
+// ── 📎 첨부 (파일·이미지 끌어다 놓기) ─────────────────────
+type Attach = { path: string; name: string; image?: string };
+let attachments: Attach[] = [];
+const isImg = (name: string) => /\.(png|jpe?g|gif|webp|bmp|heic)$/i.test(name);
+function renderChips() {
+  const box = $('attachChips'); if (!box) return;
+  box.innerHTML = attachments.map((a, i) =>
+    `<span class="chip">${a.image ? '🖼️' : '📄'} ${escapeHtml(a.name)} <b data-rm="${i}">✕</b></span>`).join('');
+  box.querySelectorAll('[data-rm]').forEach(el => el.addEventListener('click', (e) => {
+    attachments.splice(parseInt((e.target as HTMLElement).dataset.rm!, 10), 1); renderChips();
+  }));
+  (box as HTMLElement).style.display = attachments.length ? 'flex' : 'none';
+}
+async function addFiles(files: FileList | File[]) {
+  for (const f of Array.from(files)) {
+    const p = (connect.pathForFile ? connect.pathForFile(f) : (f as any).path) || '';
+    const a: Attach = { path: p, name: f.name };
+    if (isImg(f.name)) { try { a.image = await new Promise<string>((res) => { const r = new FileReader(); r.onload = () => res(r.result as string); r.readAsDataURL(f); }); } catch { /* */ } }
+    attachments.push(a);
+  }
+  renderChips();
+}
+// 드래그&드롭 (창 전체에서 받기)
+['dragover', 'drop'].forEach(ev => document.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); }));
+document.addEventListener('dragover', () => $('inputBox')?.classList.add('drag'));
+document.addEventListener('dragleave', () => $('inputBox')?.classList.remove('drag'));
+document.addEventListener('drop', (e: any) => { $('inputBox')?.classList.remove('drag'); if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files); });
+$('attachBtn')?.addEventListener('click', () => ($('fileInput') as HTMLInputElement).click());
+$('fileInput')?.addEventListener('change', (e: any) => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = ''; });
+
 // ── 전송 ─────────────────────────────────────────────
 async function ask(text: string) {
-  text = text.trim(); if (!text || busy) return;
-  busy = true; addLog('사장님', text, true);
+  text = text.trim();
+  if ((!text && !attachments.length) || busy) return;
+  const att = attachments; attachments = []; renderChips();
+  const chipLine = att.length ? `\n\n📎 ${att.map(a => a.name).join(', ')}` : '';
+  busy = true; addLog('사장님', (text || '(첨부 파일 참고)') + chipLine, true);
   ($('sendBtn') as HTMLElement).hidden = true; ($('stopBtn') as HTMLElement).hidden = false;
   $('thinkingBar').classList.add('active'); $('brandSuffix').textContent = '· 생각 중…';
   brainEnergy(0.7);  // 🧠 두뇌 활성화
@@ -222,16 +255,17 @@ async function ask(text: string) {
     else if (e.kind === 'agentChunk') { officeStream(e.id, e.text); brainEnergy(0.85); }
     else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); officeSet(e.id, 'done', e.output); }
     else if (e.kind === 'agentConfer') { officeConfer(e); brainEnergy(0.8); }
-    else if (e.kind === 'tool') { const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9); }
+    else if (e.kind === 'tool') { const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행', serve: '🖥️ 서버 실행' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9);
+      if (e.name === 'write_file') codeBump(true); else if (e.name === 'run_command' || e.name === 'serve') codeBump(false); }
     else if (e.kind === 'token') { finalText += e.text; if (!liveEl) liveEl = addLog(agentTag(), '', false, true); setBody(liveEl, finalText, true); brainEnergy(0.88); }
     else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); if (teamEngaged) { officeSet('ceo', 'done', finalText); $('officeStatus').textContent = '보고 완료'; } }
     else if (e.kind === 'error') { addLog(agentTag(), e.text, false, true); speak(e.text); }
   });
-  try { await connect.run(text); }
+  try { await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) }); }
   finally { off(); busy = false; ($('stopBtn') as HTMLElement).hidden = true; ($('sendBtn') as HTMLElement).hidden = false; $('thinkingBar').classList.remove('active'); $('brandSuffix').textContent = cfg.company ? `· ${cfg.company}` : ''; setTimeout(() => { if (!busy && !speechSynthesis.speaking) brainEnergy(0.13); }, 600); }
 }
 const inputEl = $('input') as HTMLTextAreaElement;
-function sendFromInput() { ask(inputEl.value); inputEl.value = ''; inputEl.style.height = 'auto'; }
+function sendFromInput() { if (!inputEl.value.trim() && !attachments.length) return; ask(inputEl.value); inputEl.value = ''; inputEl.style.height = 'auto'; }
 $('sendBtn').addEventListener('click', sendFromInput);
 $('stopBtn').addEventListener('click', () => { connect.stop(); hint('중단하는 중…'); });
 inputEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFromInput(); } });
@@ -595,6 +629,140 @@ function officeReset() {
   $('conferFeed').innerHTML = '';
 }
 $('officeBtn').addEventListener('click', () => { buildOffice(); openOverlay('officePanel'); });
+
+// ── 💻 작업실 (파일 트리 + 코드 뷰어) ──────────────────────
+let codeWs = '';
+let codeCurrentFile = '';
+const NEW_MS = 25000;
+function fileIcon(name: string) {
+  const e = (name.split('.').pop() || '').toLowerCase();
+  const map: any = { js: '🟨', mjs: '🟨', ts: '🔷', jsx: '🟨', tsx: '🔷', py: '🐍', html: '🌐', css: '🎨', json: '📦', md: '📝', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️', mp4: '🎬', mov: '🎬', mp3: '🎵', pdf: '📕', sh: '⚙️', txt: '📄', yml: '⚙️', yaml: '⚙️' };
+  return map[e] || '📄';
+}
+function renderTreeNodes(nodes: any[], depth: number): string {
+  return nodes.map(n => {
+    const pad = `padding-left:${8 + depth * 13}px`;
+    if (n.dir) return `<div class="tnode tdir" style="${pad}"><span class="tcaret">▸</span>📁 ${escapeHtml(n.name)}</div>`
+      + `<div class="tchildren" hidden>${renderTreeNodes(n.children || [], depth + 1)}</div>`;
+    const fresh = (Date.now() - (n.mtime || 0)) < NEW_MS ? ' <b class="tnew">✨</b>' : '';
+    return `<div class="tnode tfile" data-file="${escapeHtml(n.path)}" style="${pad}">${fileIcon(n.name)} <span>${escapeHtml(n.name)}</span>${fresh}</div>`;
+  }).join('');
+}
+async function loadTree(autoOpenNewest = false) {
+  const tree = await connect.fsTree(codeWs || undefined);
+  codeWs = tree.root;
+  $('codePath').textContent = (tree.root || '').split(/[\\/]/).filter(Boolean).pop() || tree.root;
+  const treeEl = $('codeTree');
+  treeEl.innerHTML = tree.children?.length ? renderTreeNodes(tree.children, 0) : '<div class="code-empty-tree">빈 폴더예요.<br/>에이전트에게 "웹사이트 만들어줘" 해보세요.</div>';
+  treeEl.querySelectorAll('.tdir').forEach(el => el.addEventListener('click', () => {
+    const kids = el.nextElementSibling as HTMLElement; const caret = el.querySelector('.tcaret');
+    if (!kids) return; const hidden = kids.hasAttribute('hidden');
+    if (hidden) { kids.removeAttribute('hidden'); if (caret) caret.textContent = '▾'; } else { kids.setAttribute('hidden', ''); if (caret) caret.textContent = '▸'; }
+  }));
+  treeEl.querySelectorAll('.tfile').forEach(el => el.addEventListener('click', () => openFile((el as HTMLElement).dataset.file!)));
+  if (autoOpenNewest) {
+    let bestP = ''; let bestM = -1;
+    const scan = (nodes: any[]) => nodes.forEach((n: any) => { if (n.dir) scan(n.children || []); else if ((n.mtime || 0) > bestM) { bestM = n.mtime || 0; bestP = n.path; } });
+    scan(tree.children || []);
+    if (bestP && (Date.now() - bestM) < NEW_MS) { openFile(bestP); revealInTree(bestP); }
+  }
+}
+function revealInTree(p: string) {
+  const el = $('codeTree').querySelector(`.tfile[data-file="${(window as any).CSS?.escape ? CSS.escape(p) : p}"]`) as HTMLElement;
+  let par = el?.parentElement; while (par && par.id !== 'codeTree') { if (par.classList?.contains('tchildren') && par.hasAttribute('hidden')) { par.removeAttribute('hidden'); const c = par.previousElementSibling?.querySelector('.tcaret'); if (c) c.textContent = '▾'; } par = par.parentElement; }
+  el?.scrollIntoView({ block: 'nearest' });
+}
+function closeEditor() { $('codeView').classList.remove('open'); $('codeView').innerHTML = ''; }
+function edHead(name: string, rightBtns: string) {
+  return `<div class="code-fname">${fileIcon(name)} <span class="cf-name">${escapeHtml(name)}</span><span class="cf-btns">${rightBtns}<button class="code-mini cf-x" id="cvClose" title="닫기 (채팅으로)">✕</button></span></div>`;
+}
+function wireHead() { $('cvClose')?.addEventListener('click', closeEditor); }
+async function openFile(p: string) {
+  codeCurrentFile = p;
+  $('codeTree').querySelectorAll('.tfile').forEach(el => el.classList.toggle('sel', (el as HTMLElement).dataset.file === p));
+  $('codeView').classList.add('open');
+  const r = await connect.fsRead(p);
+  const view = $('codeView');
+  const nm = r.name || (p.split(/[\\/]/).pop() || '');
+  if (r.error) { view.innerHTML = edHead(nm, '') + `<div class="code-empty">⚠️ ${escapeHtml(r.error)}</div>`; wireHead(); return; }
+  if (r.image) { view.innerHTML = edHead(nm, `<button class="code-mini" id="cvReveal">🔍</button>`) + `<div class="code-img"><img src="${r.image}"/></div>`; wireHead(); $('cvReveal')?.addEventListener('click', () => connect.fsReveal(p)); return; }
+  if (r.binary) { view.innerHTML = edHead(nm, `<button class="code-mini" id="cvReveal">🔍 Finder</button>`) + `<div class="code-empty">바이너리 파일이라 미리보기를 못 해요.</div>`; wireHead(); $('cvReveal')?.addEventListener('click', () => connect.fsReveal(p)); return; }
+  renderFileView(nm, r.content || '');
+}
+function renderFileView(name: string, content: string) {
+  const lines = content.split('\n');
+  const gutter = lines.map((_l: string, i: number) => i + 1).join('\n');
+  $('codeView').classList.add('open');
+  $('codeView').innerHTML = edHead(name, `<span class="cf-lines">${lines.length}줄</span><button class="code-mini" id="cvEdit">✏️ 편집</button>`)
+    + `<div class="code-scroll"><pre class="code-gutter">${gutter}</pre><pre class="code-text">${escapeHtml(content)}</pre></div>`;
+  wireHead();
+  $('cvEdit')?.addEventListener('click', () => enterEdit(name, content));
+}
+function enterEdit(name: string, content: string) {
+  $('codeView').innerHTML = edHead(name, `<span class="edit-tag">● 편집중</span><button class="code-mini cv-save" id="cvSave">💾 저장</button><button class="code-mini" id="cvCancel">취소</button>`)
+    + `<textarea class="code-edit" id="cvText" spellcheck="false"></textarea>`;
+  wireHead();
+  const ta = $('cvText') as HTMLTextAreaElement; ta.value = content; ta.focus();
+  $('cvSave')?.addEventListener('click', saveFile);
+  $('cvCancel')?.addEventListener('click', () => openFile(codeCurrentFile));
+  ta.addEventListener('keydown', (e: any) => { if ((e.metaKey || e.ctrlKey) && e.key === 's') { e.preventDefault(); saveFile(); } });
+}
+async function saveFile() {
+  const ta = $('cvText') as HTMLTextAreaElement; if (!ta) return;
+  const r = await connect.fsWrite(codeCurrentFile, ta.value);
+  if (r?.ok) { hint('💾 저장됐어요'); renderFileView(codeCurrentFile.split(/[\\/]/).pop() || '', ta.value); loadTree(false); }
+  else { hint('저장 실패: ' + (r?.error || '')); }
+}
+// 📁 파일 사이드바 토글
+function showFiles(v: boolean) { $('sideFiles').classList.toggle('collapsed', !v); ($('filesBtn') as HTMLElement).classList.toggle('on', v); if (v) loadTree(false); }
+$('filesBtn').addEventListener('click', () => showFiles($('sideFiles').classList.contains('collapsed')));
+// ⌨️ 터미널 토글 (하단)
+function showTerm(v: boolean) { $('codeTerm').classList.toggle('collapsed', !v); ($('termBtn') as HTMLElement).classList.toggle('on', v); if (v) setTimeout(() => ($('termInput') as HTMLInputElement)?.focus(), 50); }
+$('termBtn').addEventListener('click', () => showTerm($('codeTerm').classList.contains('collapsed')));
+$('termCollapse')?.addEventListener('click', () => showTerm(false));
+let codeBumpTimer: any = null;
+function codeBump(autoOpen: boolean) {
+  if (autoOpen) showFiles(true);                       // 파일 생기면 탐색기 보이게
+  clearTimeout(codeBumpTimer); codeBumpTimer = setTimeout(() => { if (!$('sideFiles').classList.contains('collapsed')) loadTree(false); }, 500);
+}
+$('codeRefresh').addEventListener('click', () => loadTree(false));
+$('codePickWs').addEventListener('click', async () => { const w = await connect.pickWorkspace(); codeWs = w; loadTree(false); hint('작업 폴더: ' + w); });
+
+// ⌨️ 통합 터미널
+function termAppend(d: any) {
+  const el = $('termOut'); if (!el || !d) return;
+  const span = document.createElement('span');
+  if (d.kind === 'cmd') span.className = 't-cmd';
+  else if (d.kind === 'exit') span.className = 't-exit';
+  const nl = String.fromCharCode(10);
+  span.textContent = (d.kind === 'cmd' ? nl : '') + (d.text || '') + (d.kind === 'cmd' || d.kind === 'exit' ? nl : '');
+  el.appendChild(span);
+  while (el.childNodes.length > 4000 && el.firstChild) el.removeChild(el.firstChild);
+  el.scrollTop = el.scrollHeight;
+}
+const termHist: string[] = []; let termHistIdx = -1;
+const termInputEl = $('termInput') as HTMLInputElement;
+termInputEl?.addEventListener('keydown', (e: any) => {
+  if (e.key === 'Enter') {
+    const cmd = termInputEl.value.trim(); if (!cmd) return;
+    termHist.push(cmd); termHistIdx = termHist.length;
+    connect.termRun(cmd, codeWs || undefined); termInputEl.value = '';
+  } else if (e.key === 'ArrowUp') { if (termHist.length) { termHistIdx = Math.max(0, termHistIdx - 1); termInputEl.value = termHist[termHistIdx] || ''; e.preventDefault(); } }
+  else if (e.key === 'ArrowDown') { if (termHist.length) { termHistIdx = Math.min(termHist.length, termHistIdx + 1); termInputEl.value = termHist[termHistIdx] || ''; e.preventDefault(); } }
+  else if (e.key === 'c' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); connect.termKill(); termAppend({ kind: 'exit', text: '^C 중지' }); }   // Ctrl+C → 실행 중지
+});
+$('termKillBtn')?.addEventListener('click', () => connect.termKill());
+$('termClearBtn')?.addEventListener('click', () => { const el = $('termOut'); if (el) el.textContent = ''; });
+connect.onTermData?.((d: any) => termAppend(d));
+connect.onTermShow?.(() => showTerm(true));   // 에이전트가 서버/명령 실행하면 터미널 자동 표시
+// 🔌 EZERAI 브레인팩 주입 → 매트릭스 FX + 작업실 파일트리 새로고침
+connect.onBridgeInject?.((d: any) => {
+  const emoji: any = { knowledge: '🧠', skill: '🐍', template: '📦', design: '🎨' };
+  playInjection(`${emoji[d.kind] || '🔌'} EZERAI → ${d.kind === 'knowledge' ? '두뇌' : '작업실'}`, [d.label || '브레인팩 주입']);
+  if (d.kind !== 'knowledge') { showFiles(true); setTimeout(() => loadTree(true), 400); }   // 스킬/템플릿/디자인 = 파일 생김
+});
+// 시작: 파일 탐색기 상시 표시(트리 로드), 터미널은 접힌 상태(⌨️로 펴기)
+showFiles(true);
 
 // 👤 캐릭터 클릭 → 에이전트 상세
 const PROFILE: Record<string, string> = { youtube: 'youtube.png', developer: 'developer.png', business: 'business.jpeg', editor: 'editor.png', secretary: 'secretary.jpeg' };

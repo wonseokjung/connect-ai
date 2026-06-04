@@ -45,7 +45,7 @@ async function probe(base: string): Promise<{ engine: 'lmstudio' | 'ollama'; mod
   } catch { return null; }
 }
 
-// 채팅 가능 모델만, 로드된 것 먼저.
+// 채팅 가능 모델만, 로드된 것(=사용자가 LM Studio에 띄운 것) 먼저. 단순하게 로드된 걸 그대로 쓴다.
 function rank(models: ModelInfo[]): ModelInfo[] {
   return models.filter(m => m.chat).sort((a, b) => (b.loaded ? 1 : 0) - (a.loaded ? 1 : 0));
 }
@@ -99,7 +99,25 @@ export async function embed(base: string, text: string): Promise<number[] | null
 }
 
 export interface ChatOpts { temperature?: number; onToken?: (t: string) => void; signal?: AbortSignal; frequencyPenalty?: number; presencePenalty?: number; }
-export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string | any[]; }   // 배열 content = 비전(이미지) 지원
+export interface ChatMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | any[] | null; tool_calls?: any[]; tool_call_id?: string; name?: string; }   // 배열 content = 비전, tool 역할/tool_calls = 네이티브 함수 호출
+
+// 네이티브 함수(도구) 호출 — OpenAI 호환(LM Studio/Ollama/Gemini). 모델이 tool_calls 를 구조화해서 반환.
+export interface ToolSchema { type: 'function'; function: { name: string; description: string; parameters: any }; }
+export interface ToolUse { id: string; name: string; args: any; }
+export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], tools: ToolSchema[], opts: ChatOpts = {}): Promise<{ content: string; toolCalls: ToolUse[]; message: any }> {
+  const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
+  const headers: any = t.key ? { Authorization: `Bearer ${t.key}` } : {};
+  const body: any = { model: t.model, messages, tools, tool_choice: 'auto', temperature: opts.temperature ?? 0.4, stream: false };
+  const r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+  const msg = r.data?.choices?.[0]?.message || {};
+  const toolCalls: ToolUse[] = (msg.tool_calls || []).map((tc: any, i: number) => {
+    let args: any = {};
+    const raw = tc?.function?.arguments;
+    try { args = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {}); } catch { args = {}; }
+    return { id: tc.id || `call_${i}`, name: tc?.function?.name || '', args };
+  });
+  return { content: msg.content || '', toolCalls, message: msg };
+}
 
 // 한 번의 system+user 호출. onToken 주면 스트리밍.
 export async function chat(t: LlmTarget, system: string, user: string, opts: ChatOpts = {}): Promise<string> {

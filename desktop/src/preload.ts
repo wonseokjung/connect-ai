@@ -1,5 +1,5 @@
 // 렌더러에 안전하게 노출되는 API (contextIsolation).
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 contextBridge.exposeInMainWorld('connect', {
   // 설정
@@ -13,7 +13,20 @@ contextBridge.exposeInMainWorld('connect', {
   openDiagnostics: () => ipcRenderer.invoke('diag:open'),
 
   // 비서 엔진
-  run: (text: string) => ipcRenderer.invoke('company:run', text),         // 통합 에이전트 (혼자 처리 or 팀 위임 자동 판단)
+  run: (text: string, attach?: any) => ipcRenderer.invoke('company:run', text, attach),  // 통합 에이전트 (+첨부 파일/이미지)
+  pathForFile: (file: File) => webUtils.getPathForFile(file),              // 드롭된 파일의 실제 경로 (Electron 33)
+  // 💻 작업실 — 파일 트리/읽기/Finder
+  fsTree: (root?: string) => ipcRenderer.invoke('fs:tree', root),
+  fsRead: (p: string) => ipcRenderer.invoke('fs:read', p),
+  fsWrite: (p: string, content: string) => ipcRenderer.invoke('fs:write', p, content),
+  fsReveal: (p: string) => ipcRenderer.invoke('fs:reveal', p),
+  // ⌨️ 터미널 (서버도 여기서 실행·중지)
+  termRun: (cmd: string, ws?: string) => ipcRenderer.invoke('term:run', cmd, ws),
+  termKill: () => ipcRenderer.invoke('term:kill'),
+  onTermData: (cb: (s: string) => void) => { const h = (_e: any, s: string) => cb(s); ipcRenderer.on('term:data', h); return () => ipcRenderer.removeListener('term:data', h); },
+  onTermShow: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('term:show', h); return () => ipcRenderer.removeListener('term:show', h); },
+  // 🔌 EZERAI 브레인팩 주입 알림
+  onBridgeInject: (cb: (d: any) => void) => { const h = (_e: any, d: any) => cb(d); ipcRenderer.on('bridge:inject', h); return () => ipcRenderer.removeListener('bridge:inject', h); },
   stop: () => ipcRenderer.invoke('company:stop'),                          // 생성 중단
   reset: () => ipcRenderer.invoke('company:reset'),
   listModels: () => ipcRenderer.invoke('models:list'),

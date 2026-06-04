@@ -17,6 +17,8 @@ export class BrainViz {
     this.build();
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    // 레이아웃 변경(사이드바 토글 등)으로 캔버스 크기가 바뀔 때도 리사이즈 — 안 그러면 찌그러짐
+    try { new ResizeObserver(() => this.resize()).observe(this.canvas); } catch { /* */ }
   }
   setEnergy(v: number) { this.target = Math.max(0, Math.min(1, v)); }
   start() { if (!this.raf) this.loop(); }

@@ -47,6 +47,109 @@
 .overlay-x:hover { color: var(--accent); }
 .overlay-card label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-dim); }
 .overlay-card label.row { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+/* 🖥️ IDE 레이아웃 — 📁파일(좌) · 💬채팅+📄에디터(중앙) · ⌨️터미널(하단) */
+.work-split { flex: 1; display: flex; min-height: 0; }
+.center-col { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.center-main { flex: 1; min-height: 0; position: relative; display: flex; flex-direction: column; }
+
+/* 📁 파일 탐색기 (좌측 사이드바) */
+.side-files { width: 240px; flex-shrink: 0; display: flex; flex-direction: column; min-height: 0;
+  background: linear-gradient(180deg, rgba(57,255,20,.035), rgba(0,0,0,.18) 60%);
+  border-right: 1px solid var(--border2, rgba(255,255,255,.09)); transition: width .22s ease, opacity .18s; }
+.side-files.collapsed { width: 0; opacity: 0; overflow: hidden; border-right: none; pointer-events: none; }
+.side-head { display: flex; align-items: center; gap: 6px; padding: 11px 12px 9px; flex-shrink: 0; }
+.side-title { font-size: 12px; font-weight: 800; letter-spacing: .02em; color: var(--text-bright, #fff); white-space: nowrap; }
+.side-btns { margin-left: auto; display: flex; gap: 5px; }
+.side-path { padding: 0 12px 8px; font-size: 11px; color: var(--accent, #39ff14); opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid rgba(255,255,255,.06); }
+.code-tree { flex: 1; overflow: auto; padding: 7px 0 14px; font-size: 13px; }
+.code-mini { background: rgba(255,255,255,.04); border: 1px solid var(--border2, rgba(255,255,255,.13)); color: var(--text-bright, #eee); min-width: 26px; height: 26px; padding: 0 6px; border-radius: 7px; cursor: pointer; font-size: 12px; transition: all .12s; }
+.code-mini:hover { background: var(--accent-glow, rgba(57,255,20,.18)); border-color: var(--accent, #39ff14); }
+
+/* 파일 트리 노드 */
+.tnode { display: flex; align-items: center; gap: 5px; padding: 4px 10px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text, #cdd); border-left: 2px solid transparent; }
+.tnode:hover { background: rgba(255,255,255,.05); }
+.tnode.tfile.sel { background: var(--accent-glow, rgba(57,255,20,.14)); color: var(--text-bright, #fff); border-left-color: var(--accent, #39ff14); }
+.tnode span { overflow: hidden; text-overflow: ellipsis; }
+.tcaret { display: inline-block; width: 12px; font-size: 10px; opacity: .7; }
+.tnew { color: #39ff14; font-size: 11px; animation: tnewpulse 1.6s ease-in-out infinite; }
+@keyframes tnewpulse { 0%,100% { opacity: .45; } 50% { opacity: 1; } }
+.code-empty-tree { padding: 26px 16px; text-align: center; color: var(--text-dim, #889); font-size: 12px; line-height: 1.7; }
+
+/* 📄 에디터 (채팅 위로 슬라이드) */
+.editor-panel { position: absolute; inset: 0; z-index: 6; display: none; flex-direction: column;
+  background: linear-gradient(180deg, #0c100e, #090c0a); backdrop-filter: blur(4px); }
+.editor-panel.open { display: flex; animation: edIn .18s ease; }
+@keyframes edIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.code-fname { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--border2, rgba(255,255,255,.1)); font-size: 13px; font-weight: 700; color: var(--text-bright, #fff); flex-shrink: 0;
+  background: linear-gradient(90deg, rgba(57,255,20,.06), transparent); }
+.cf-name { overflow: hidden; text-overflow: ellipsis; }
+.cf-lines { font-weight: 400; font-size: 11px; color: var(--text-dim, #889); }
+.cf-btns { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.cf-btns .code-mini { min-width: auto; padding: 0 9px; height: 26px; font-size: 12px; }
+.cf-x:hover { background: rgba(255,107,107,.18) !important; border-color: #ff6b6b !important; color: #ff6b6b !important; }
+.cv-save { border-color: var(--accent, #39ff14) !important; color: var(--accent, #39ff14) !important; font-weight: 700; }
+.edit-tag { color: #ffab40; font-size: 11px; }
+.code-empty { padding: 30px 18px; text-align: center; color: var(--text-dim, #889); font-size: 13px; line-height: 1.7; }
+.code-scroll { flex: 1; overflow: auto; display: flex; background: rgba(0,0,0,.25); }
+.code-gutter { margin: 0; padding: 12px 8px 12px 14px; text-align: right; color: rgba(57,255,20,.3); user-select: none; font: 12.5px/1.55 'SF Mono', ui-monospace, Menlo, monospace; }
+.code-text { margin: 0; padding: 12px 16px; flex: 1; color: #d6e2dd; font: 12.5px/1.55 'SF Mono', ui-monospace, Menlo, monospace; white-space: pre; tab-size: 2; }
+.code-edit { flex: 1; width: 100%; border: none; outline: none; resize: none; background: rgba(0,0,0,.3); color: #d6e2dd; padding: 12px 16px; font: 12.5px/1.55 'SF Mono', ui-monospace, Menlo, monospace; tab-size: 2; }
+.code-img { padding: 18px; overflow: auto; text-align: center; }
+.code-img img { max-width: 100%; border-radius: 8px; box-shadow: 0 8px 30px rgba(0,0,0,.4); }
+
+/* ⌨️ 터미널 (하단, 접기 가능) */
+.code-term { height: 230px; flex-shrink: 0; display: flex; flex-direction: column; overflow: hidden;
+  border-top: 1px solid var(--accent-glow, rgba(57,255,20,.22)); background: linear-gradient(180deg, #0a0e0c, #070a08); transition: height .22s ease; }
+.code-term.collapsed { height: 0; border-top: none; }
+.term-head { display: flex; align-items: center; gap: 8px; padding: 7px 12px; font-size: 12px; font-weight: 700; color: #9fefb0; border-bottom: 1px solid rgba(255,255,255,.06); flex-shrink: 0; }
+.term-path { font-weight: 400; font-size: 11px; color: var(--text-dim, #789); }
+.term-btns { margin-left: auto; display: flex; gap: 5px; }
+.term-btns .code-mini { min-width: 24px; height: 23px; font-size: 12px; }
+.term-out { flex: 1; margin: 0; overflow: auto; padding: 8px 12px; font: 12px/1.5 'SF Mono', ui-monospace, Menlo, monospace; color: #c8d6cd; white-space: pre-wrap; word-break: break-all; }
+.term-out .t-cmd { color: #39ff14; font-weight: 700; }
+.term-out .t-exit { color: #ffab40; }
+.term-input-row { display: flex; align-items: center; gap: 7px; padding: 7px 12px; border-top: 1px solid rgba(255,255,255,.07); flex-shrink: 0; }
+.term-prompt { color: #39ff14; font: 13px 'SF Mono', ui-monospace, monospace; font-weight: 700; }
+.term-input-row input { flex: 1; background: transparent; border: none; outline: none; color: #eaf3ee; font: 12.5px 'SF Mono', ui-monospace, Menlo, monospace; }
+/* 🖥️ 실행 중 서버 알약 */
+/* ════════ 🟢 MATRIX · JARVIS IDE FX ════════ */
+/* 사이드바 우측 흐르는 라인 + 헤더 글로우 */
+.side-files { position: relative; }
+.side-files::after { content: ''; position: absolute; top: 0; right: 0; width: 1px; height: 100%; background: linear-gradient(180deg, transparent, var(--accent, #39ff14), transparent); animation: flowLine 3.6s ease-in-out infinite; }
+@keyframes flowLine { 0%, 100% { opacity: .12; } 50% { opacity: .55; } }
+.side-title { text-shadow: 0 0 10px rgba(57,255,20,.25); }
+/* 파일 노드 등장 + 새 파일 글로우 */
+.code-tree .tnode { animation: nodeIn .28s ease both; }
+@keyframes nodeIn { from { opacity: 0; transform: translateX(-7px); } to { opacity: 1; transform: none; } }
+.tnode.tfile:has(.tnew) { border-left-color: rgba(57,255,20,.6); background: linear-gradient(90deg, rgba(57,255,20,.1), transparent); }
+.tnew { text-shadow: 0 0 9px #39ff14; }
+/* 헤더 IDE 버튼 활성 — 글로우 링 */
+.header-right .btn-icon.on { color: #0a0; border-color: var(--accent, #39ff14); box-shadow: 0 0 14px var(--accent-glow, rgba(57,255,20,.4)); background: rgba(57,255,20,.1); }
+/* 터미널 — 인광 + 스캔라인 + 부팅 글로우 */
+.code-term { position: relative; }
+.code-term:not(.collapsed)::before { content: ''; position: absolute; inset: 0; pointer-events: none; z-index: 1; background: repeating-linear-gradient(0deg, rgba(57,255,20,.022) 0 1px, transparent 1px 3px); mix-blend-mode: screen; }
+.term-head { text-shadow: 0 0 8px rgba(57,255,20,.3); }
+.term-out { text-shadow: 0 0 6px rgba(57,255,20,.12); position: relative; z-index: 2; }
+.term-input-row input { caret-color: #39ff14; }
+.term-prompt { animation: promptPulse 1.3s ease-in-out infinite; }
+@keyframes promptPulse { 0%, 100% { text-shadow: 0 0 4px #39ff14; } 50% { text-shadow: 0 0 12px #39ff14, 0 0 20px rgba(57,255,20,.5); } }
+/* 에디터 — 슬라이드 + 스캔 sweep + 파일명 언더라인 흐름 */
+.editor-panel.open { position: absolute; }
+.editor-panel.open::after { content: ''; position: absolute; left: 0; right: 0; top: 0; height: 2px; z-index: 9; background: linear-gradient(90deg, transparent, var(--accent, #39ff14), transparent); box-shadow: 0 0 14px var(--accent, #39ff14); animation: scanSweep 1s ease-out forwards; }
+@keyframes scanSweep { 0% { top: 0; opacity: 1; } 100% { top: 100%; opacity: 0; } }
+.code-fname { position: relative; overflow: hidden; }
+.code-fname::after { content: ''; position: absolute; bottom: 0; left: 0; height: 1px; width: 38%; background: linear-gradient(90deg, transparent, var(--accent, #39ff14), transparent); animation: fnFlow 2.8s linear infinite; }
+@keyframes fnFlow { from { transform: translateX(-100%); } to { transform: translateX(360%); } }
+/* 코드 빈 화면 — 매트릭스 힌트 점멸 */
+.code-empty span, .code-empty-tree { animation: tnewpulse 2.4s ease-in-out infinite; }
+/* 📎 첨부 칩 + 드래그 */
+.attach-chips { display: none; flex-wrap: wrap; gap: 6px; padding: 6px 4px 2px; }
+.attach-chips .chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; background: var(--input-bg, rgba(255,255,255,.06)); border: 1px solid var(--border2, rgba(255,255,255,.12)); color: var(--text-bright, #eaeaea); padding: 4px 9px; border-radius: 999px; max-width: 240px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.attach-chips .chip b { cursor: pointer; opacity: .6; font-weight: 700; }
+.attach-chips .chip b:hover { opacity: 1; color: #ff6b6b; }
+.attach-btn { background: transparent; border: none; cursor: pointer; font-size: 16px; opacity: .7; padding: 0 4px; }
+.attach-btn:hover { opacity: 1; }
+.input-box.drag { outline: 2px dashed var(--accent, #39ff14); outline-offset: 3px; border-radius: 12px; }
 .overlay-card .set-section { font-size: 12px; font-weight: 800; color: var(--text-bright); letter-spacing: .02em; margin-top: 2px; }
 .overlay-card .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .overlay-card input[type=text], .overlay-card input:not([type]) { background: var(--input-bg); border: 1px solid var(--border2);
