@@ -54,6 +54,9 @@ jobs:
           path: |
             desktop/release/*.dmg
             desktop/release/*.exe
+            desktop/release/*.zip
+            desktop/release/*.yml
+            desktop/release/*.blockmap
           if-no-files-found: warn
 
       - name: Attach to GitHub Release
