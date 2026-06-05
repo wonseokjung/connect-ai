@@ -10,6 +10,8 @@ import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
+import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions } from './engine/localengine';
+import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED } from './engine/hfmodels';
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
@@ -44,14 +46,22 @@ interface Config {
   voiceQuality: string;   // 🔊 'browser'(기본·빠름) | 'qwen'(Qwen3-TTS 고품질·클라우드)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
   ttsLocalUrl: string;    // 🖥️ 로컬 Qwen3-TTS 서버 주소 (완전 로컬·무료)
+  localModelPath: string; // 🧠 내장 추론 모델(GGUF) 경로 — 있으면 LM Studio 없이 앱이 직접 실행
+  localAuto: boolean;     // 부팅 시 내장 엔진 자동 시작
+  localFlashAttn: boolean; // ⚡ Flash Attention (속도)
+  localCtxSize: number;    // 📏 대화 기억 길이(컨텍스트 토큰)
+  localTemp: number;       // 🌡️ 창의성(temperature)
+  localMaxTokens: number; localTopP: number; localTopK: number; localMinP: number; localRepeatPenalty: number;   // 샘플링
 }
 const DEFAULTS: Config = {
   company: '1인 기업', agentName: '에이전트', userTitle: '사장님', plazaEmoji: '🖥️', greeting: '', workspace: '', tools: true,
-  voiceName: '', jarvis: true, plazaDbUrl: '', llmBase: '', llmModel: '', voice: true,
+  voiceName: '', jarvis: false, plazaDbUrl: '', llmBase: '', llmModel: '', voice: false,
   services: [], telegramToken: '', telegramChatId: '', apiKeys: {}, paypalClientId: '', paypalSecret: '',
   hfToken: '', hfModel: '', apiConn: {},
   briefingOn: true, briefingHour: 9, briefingMin: 0, lastBriefing: '', trainNotebookUrl: '',
   autoSync: true, lastSyncCount: 0, lastTrainHintCount: 0, mcpConfig: {}, voiceQuality: 'browser', qwenVoice: 'Sohee', ttsLocalUrl: '',
+  localModelPath: '', localAuto: true, localFlashAttn: true, localCtxSize: 4096, localTemp: 0.7,
+  localMaxTokens: 1024, localTopP: 0.9, localTopK: 40, localMinP: 0.05, localRepeatPenalty: 1.1,
 };
 const defaultWorkspace = () => path.join(os.homedir(), 'Desktop');
 
@@ -271,6 +281,8 @@ app.whenReady().then(() => {
   scheduleBriefing();
   scheduleAuto();
   startConnectBridge();   // 🔌 EZERAI ↔ Connect AI 두뇌 브릿지 (:4825)
+  // 🧠 내장 추론 엔진 — 설정에 모델이 있으면 부팅 시 자동 시작(LM Studio 없이 동작)
+  setTimeout(() => { const c = loadConfig(); if (c.localAuto && c.localModelPath && fs.existsSync(c.localModelPath)) bootLocalEngine(c.localModelPath); }, 1500);
   setTimeout(setupAutoUpdate, 4000);   // ⬆️ 자동 업데이트 체크(부팅 4초 후)
   app.on('activate', () => { showWindow(); });
 });
@@ -301,6 +313,38 @@ ipcMain.handle('safemode:set', (_e, on: boolean) => {
   return true;
 });
 ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
+
+// ─────────────────────────── 🧠 내장 추론 엔진 + 🤗 HuggingFace 모델 (LM Studio 불필요)
+const modelsDir = () => path.join(app.getPath('userData'), 'models');
+const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } };
+async function bootLocalEngine(modelPath: string) {
+  const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty });
+  try { sendLocal({ ...localStatus(), loading: true }); await startLocalEngine(modelPath); saveConfig({ localModelPath: modelPath }); sendLocal(localStatus()); }
+  catch (e: any) { sendLocal({ ...localStatus(), loading: false, error: String(e?.message || e) }); }
+}
+ipcMain.handle('local:status', () => localStatus());
+ipcMain.handle('local:base', () => LOCAL_BASE);
+ipcMain.handle('local:start', async (_e, modelPath: string) => { await bootLocalEngine(modelPath); return localStatus(); });
+ipcMain.handle('local:stop', async () => { await stopLocalEngine(); saveConfig({ localModelPath: '' }); const s = localStatus(); sendLocal(s); return s; });
+ipcMain.handle('local:models', () => listLocalModels(modelsDir()));
+ipcMain.handle('local:options', () => getLocalOptions());
+ipcMain.handle('local:setOptions', async (_e, o: any) => {
+  const prev = getLocalOptions(); setLocalOptions(o); const g = getLocalOptions();
+  saveConfig({ localFlashAttn: g.flashAttn, localCtxSize: g.ctxSize, localTemp: g.temp, localMaxTokens: g.maxTokens, localTopP: g.topP, localTopK: g.topK, localMinP: g.minP, localRepeatPenalty: g.repeatPenalty });
+  const needReload = (o.flashAttn !== undefined && o.flashAttn !== prev.flashAttn) || (o.ctxSize !== undefined && o.ctxSize !== prev.ctxSize);
+  const s = localStatus();
+  if (needReload && s.running && s.modelPath) { sendLocal({ ...s, loading: true }); try { await startLocalEngine(s.modelPath, true); } catch { /* */ } sendLocal(localStatus()); }
+  return getLocalOptions();
+});
+ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
+ipcMain.handle('hf:recommended', () => RECOMMENDED);
+ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
+ipcMain.handle('hf:files', async (_e, repo: string) => { try { return { ok: true, files: await listGGUF(repo) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
+ipcMain.handle('hf:download', async (_e, repo: string, file: string) => {
+  try { const p = await downloadGGUF(repo, file, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo, file, ...pr }); } catch { /* */ } }); return { ok: true, path: p }; }
+  catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
+});
+app.on('before-quit', () => { stopLocalEngine(); });
 
 // ─────────────────────────── 💰 매출 대시보드 (별도 창 + PayPal 실연동)
 let revenueWin: BrowserWindow | null = null;

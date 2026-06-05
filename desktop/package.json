@@ -1,6 +1,6 @@
 {
   "name": "connect-ai-desktop",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "Connect AI — 자비스 같은 1인 기업 AI 비서 (데스크톱 앱, 비개발자용)",
   "main": "out/main.js",
   "author": "EZER AI",
@@ -21,6 +21,7 @@
     "axios": "^1.7.0",
     "electron-updater": "^6.8.3",
     "msedge-tts": "^2.0.5",
+    "node-llama-cpp": "^3.18.1",
     "nodemailer": "^8.0.10"
   },
   "devDependencies": {
@@ -40,8 +41,16 @@
       "out/**",
       "src/renderer/**",
       "assets/**",
-      "package.json"
+      "package.json",
+      "node_modules/node-llama-cpp/**",
+      "!node_modules/node-llama-cpp/llama/localBuilds/**",
+      "node_modules/@node-llama-cpp/**"
     ],
+    "asarUnpack": [
+      "node_modules/node-llama-cpp/**",
+      "node_modules/@node-llama-cpp/**"
+    ],
+    "npmRebuild": false,
     "publish": [
       {
         "provider": "github",

@@ -10,7 +10,8 @@ await Promise.all([
     entryPoints: ['src/main.ts'],
     outfile: 'out/main.js',
     platform: 'node',
-    external: ['electron'],
+    // node-llama-cpp 는 ESM·네이티브 → 번들 금지(런타임 동적 import). @node-llama-cpp/* 프리빌드도 외부.
+    external: ['electron', 'node-llama-cpp', '@node-llama-cpp/*'],
   }),
   build({
     ...common,

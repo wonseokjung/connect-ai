@@ -30,6 +30,7 @@
       <button class="btn-icon" id="termBtn" title="터미널 접기/펴기">⌨️</button>
       <button class="btn-icon" id="officeBtn" title="가상 사무실 — 에이전트들이 일하는 모습">🏢</button>
       <button class="btn-icon" id="brainBtn" title="지식 네트워크 — 단기/장기 기억">🧠</button>
+      <button class="btn-icon" id="aiBtn" title="AI 고르기 — 어떤 두뇌로 일할지 (내장/LM Studio)">🤖</button>
       <button class="btn-icon" id="plazaBtn" title="AI Agent University">🏫</button>
       <button class="btn-icon" id="manageBtn" title="관리 — 대시보드·서비스·연동·API">🗂️</button>
       <button class="btn-icon" id="newChatBtn" title="새 대화">+</button>
@@ -248,6 +249,40 @@
   </div>
 
   <!-- 🏢 사무실 (1인 기업 모드 시각화) -->
+  <!-- 🤖 AI 선택 — 비서가 어떤 두뇌로 일할지 (내장 / LM Studio / Ollama / Gemini) -->
+  <div class="overlay hidden" id="aiPanel">
+    <div class="overlay-card ai-card">
+      <div class="overlay-head">내 AI <button class="overlay-x" data-close="aiPanel">✕</button></div>
+      <div class="ai-current" id="aiCurrent"></div>
+      <div class="ai-sec">내 모델</div>
+      <div class="local-models" id="localModels"></div>
+      <div class="ai-sec">검색</div>
+      <div class="hf-search">
+        <input id="hfQuery" placeholder="qwen, llama, gemma…" autocomplete="off" />
+        <button id="hfSearchBtn" class="oc-primary">검색</button>
+      </div>
+      <div class="hf-results" id="hfResults"></div>
+      <div class="hf-dl" id="hfDl" hidden>
+        <div class="hf-dl-bar"><div class="hf-dl-fill" id="hfDlFill"></div></div>
+        <div class="muted small" id="hfDlText"></div>
+      </div>
+      <div class="ai-sec">생성 파라미터</div>
+      <div class="ai-params">
+        <div class="ap-slider"><span class="ap-name">창의성 <em>temp</em></span><input type="range" id="apTemp" min="0" max="200" step="5" /><span class="ap-val" id="apTempVal">0.70</span></div>
+        <div class="ap-slider"><span class="ap-name">다양성 <em>top-p</em></span><input type="range" id="apTopP" min="0" max="100" step="1" /><span class="ap-val" id="apTopPVal">0.90</span></div>
+        <div class="ap-slider"><span class="ap-name">어휘 폭 <em>top-k</em></span><input type="range" id="apTopK" min="1" max="100" step="1" /><span class="ap-val" id="apTopKVal">40</span></div>
+        <div class="ap-slider"><span class="ap-name">최소 확률 <em>min-p</em></span><input type="range" id="apMinP" min="0" max="50" step="1" /><span class="ap-val" id="apMinPVal">0.05</span></div>
+        <div class="ap-slider"><span class="ap-name">반복 억제 <em>rep</em></span><input type="range" id="apRep" min="100" max="150" step="1" /><span class="ap-val" id="apRepVal">1.10</span></div>
+      </div>
+      <div class="ai-sec">성능</div>
+      <div class="ai-params">
+        <label class="ap-row"><span class="ap-name">빠른 응답 <em>flash-attn</em></span><input type="checkbox" id="apFlash" /></label>
+        <div class="ap-row"><span class="ap-name">기억 길이 <em>ctx</em></span><div class="ap-seg" id="apCtx"><button data-ctx="2048">2K</button><button data-ctx="4096">4K</button><button data-ctx="8192">8K</button></div></div>
+        <div class="ap-row"><span class="ap-name">응답 길이 <em>max</em></span><div class="ap-seg" id="apMax"><button data-max="512">짧음</button><button data-max="1024">보통</button><button data-max="2048">김</button></div></div>
+      </div>
+      <button class="ap-reset" id="apReset">기본값으로 되돌리기</button>
+    </div>
+  </div>
   <div class="overlay hidden" id="officePanel">
     <div class="overlay-card office-card">
       <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><button class="code-mini" id="officePop" title="별도 창으로 띄우기 (옆에 놓고 보기)">🪟</button><button class="overlay-x" data-close="officePanel">✕</button></div>

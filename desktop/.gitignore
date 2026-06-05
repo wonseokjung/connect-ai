@@ -6,3 +6,5 @@ release/
 build/icon.iconset/
 build/icon_1024.png
 .notarize.env
+test-localengine.mjs
+test-localserver.mjs

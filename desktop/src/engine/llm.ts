@@ -5,7 +5,8 @@ import axios from 'axios';
 export interface LlmTarget { base: string; model: string; engine: 'lmstudio' | 'ollama' | 'gemini'; key?: string; }
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/openai';
 
-const isLMStudio = (base: string) => /:1234(\/|$)/.test(base) || /lm[-_]?studio/i.test(base);
+// 1234=LM Studio, 1235=Connect AI 내장 엔진(localengine) — 둘 다 OpenAI 호환이라 동일 경로로 처리.
+const isLMStudio = (base: string) => /:(1234|1235)(\/|$)/.test(base) || /lm[-_]?studio/i.test(base);
 
 // 채팅용이 아닌 모델 — 임베딩·오디오·이미지·rerank 등은 비서 모델로 부적합. 자동 선택에서 제외.
 const NON_CHAT = /embed|ace-step|whisper|\btts\b|rerank|\bclip\b|sdxl|stable-diffusion|\bflux\b|bark|musicgen|nomic|reranker/i;
@@ -56,7 +57,7 @@ export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget
   if (pref?.model && /^gemini/i.test(pref.model) && pref?.key) {
     return { base: GEMINI_BASE, model: pref.model, engine: 'gemini', key: pref.key };
   }
-  const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434'].filter(Boolean) as string[];
+  const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434', 'http://127.0.0.1:1235'].filter(Boolean) as string[];
   for (const base of candidates) {
     const p = await probe(base);
     if (!p) continue;
@@ -69,7 +70,7 @@ export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget
 
 // 드롭다운용 목록 — 채팅 모델만, 로드된 것 먼저. loaded = 현재 로드된 모델 이름.
 export async function listModels(pref?: Partial<LlmTarget>): Promise<{ base: string; engine: 'lmstudio' | 'ollama'; models: string[]; loaded: string | null } | null> {
-  const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434'].filter(Boolean) as string[];
+  const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434', 'http://127.0.0.1:1235'].filter(Boolean) as string[];
   for (const base of candidates) {
     const p = await probe(base);
     if (!p) continue;

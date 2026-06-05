@@ -300,6 +300,120 @@ function switchMtab(tab: string) {
   if (tab === 'dash') renderDash();
   if (tab === 'mcp') loadMcp();
 }
+// 🤖 AI 선택 패널
+const LOCAL_BASE = 'http://127.0.0.1:1235';
+$('aiBtn').addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
+async function loadAiPanel() { await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams()]); }
+async function renderAiCurrent() {
+  const cfg = await connect.getConfig();
+  const ls = _localStatus || (await connect.localStatus?.());
+  const el = $('aiCurrent'); if (!el) return;
+  let icon = '🧠', name = '', tag = '', on = false;
+  if (ls?.loading) { icon = '⏳'; name = '불러오는 중'; }
+  else if (ls?.running && (cfg.llmBase || '').includes(':1235')) { name = ls.modelName; tag = '내장 · ' + (ls.gpu === 'metal' ? 'GPU' : ls.gpu || 'CPU'); on = true; }
+  else if (cfg.llmModel) { const g = /gemini/i.test(cfg.llmModel); icon = g ? '☁️' : '🧠'; name = cfg.llmModel; tag = g ? 'Gemini' : (cfg.llmBase || '').includes('11434') ? 'Ollama' : 'LM Studio'; }
+  else { icon = '🧠'; name = 'AI를 골라주세요'; tag = '아래에서 받아 사용'; }
+  el.innerHTML = `<div class="aic-icon">${icon}</div><div class="aic-info"><div class="aic-name">${name}</div><div class="aic-tag">${tag}</div></div>`;
+  el.className = 'ai-current' + (on ? ' on' : '');
+}
+// ⚙️ 추론 파라미터 (프로 콘솔)
+let _params: any = {};
+const SLIDERS = [
+  { id: 'apTemp', val: 'apTempVal', key: 'temp', sc: 100, dp: 2 },
+  { id: 'apTopP', val: 'apTopPVal', key: 'topP', sc: 100, dp: 2 },
+  { id: 'apTopK', val: 'apTopKVal', key: 'topK', sc: 1, dp: 0 },
+  { id: 'apMinP', val: 'apMinPVal', key: 'minP', sc: 100, dp: 2 },
+  { id: 'apRep', val: 'apRepVal', key: 'repeatPenalty', sc: 100, dp: 2 },
+];
+const DEF_PARAMS = { temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1, flashAttn: true, ctxSize: 4096, maxTokens: 1024 };
+const applyParams = async (patch: any) => { _params = await connect.localSetOptions?.(patch); await renderAiCurrent(); };
+async function loadParams() {
+  _params = (await connect.localOptions?.()) || _params;
+  ($('apFlash') as HTMLInputElement).checked = !!_params.flashAttn;
+  document.querySelectorAll('#apCtx button').forEach(b => b.classList.toggle('on', Number((b as HTMLElement).dataset.ctx) === _params.ctxSize));
+  document.querySelectorAll('#apMax button').forEach(b => b.classList.toggle('on', Number((b as HTMLElement).dataset.max) === _params.maxTokens));
+  for (const d of SLIDERS) { const v = _params[d.key] ?? 0; const el = $(d.id) as HTMLInputElement; if (el) el.value = String(Math.round(v * d.sc)); const vv = $(d.val); if (vv) vv.textContent = v.toFixed(d.dp); }
+}
+$('apFlash')?.addEventListener('change', (e) => applyParams({ flashAttn: (e.target as HTMLInputElement).checked }));
+const segPick = (id: string, key: string, attr: string) => $(id)?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (!b) return; document.querySelectorAll('#' + id + ' button').forEach(x => x.classList.toggle('on', x === b)); applyParams({ [key]: Number((b as HTMLElement).dataset[attr]) }); });
+segPick('apCtx', 'ctxSize', 'ctx'); segPick('apMax', 'maxTokens', 'max');
+for (const d of SLIDERS) {
+  const el = $(d.id); if (!el) continue;
+  el.addEventListener('input', (e) => { const v = Number((e.target as HTMLInputElement).value) / d.sc; $(d.val).textContent = v.toFixed(d.dp); });
+  el.addEventListener('change', (e) => applyParams({ [d.key]: Number((e.target as HTMLInputElement).value) / d.sc }));
+}
+$('apReset')?.addEventListener('click', async () => { _params = await connect.localSetOptions?.({ ...DEF_PARAMS }); await loadParams(); await renderAiCurrent(); });
+
+// ─────────── 🧠 내장 AI (LM Studio 불필요) + 🤗 HuggingFace 모델 ───────────
+const fmtGB = (b: number) => b >= 1e9 ? (b / 1e9).toFixed(1) + 'GB' : Math.max(1, Math.round(b / 1e6)) + 'MB';
+let _localStatus: any = null;
+function renderLocalStatus() {
+  const s = _localStatus || {};
+  const el = $('localStatus'); if (!el) return;
+  if (s.loading) { el.innerHTML = '⏳ 모델 로딩 중…'; el.className = 'local-status loading'; }
+  else if (s.running) { el.innerHTML = `🟢 <b>${s.modelName}</b> 실행 중 <span class="ls-badge">LM Studio 불필요 · ${s.gpu === 'metal' ? 'GPU' : s.gpu || 'CPU'}</span> <button id="localStopBtn" class="upd-ghost">끄기</button>`; el.className = 'local-status on'; }
+  else if (s.error) { el.innerHTML = `⚠️ ${s.error}`; el.className = 'local-status err'; }
+  else { el.innerHTML = '⚪ 내장 AI 꺼짐 — 아래에서 모델을 받아 <b>사용</b>을 누르세요.'; el.className = 'local-status'; }
+  const stop = $('localStopBtn'); if (stop) stop.addEventListener('click', async () => { _localStatus = await connect.localStop?.(); renderLocalStatus(); loadLocalAI(); });
+}
+async function loadLocalAI() {
+  try { _localStatus = await connect.localStatus?.(); } catch { /* */ } renderLocalStatus();
+  // 내 모델
+  const models = (await connect.localModels?.()) || [];
+  const cur = _localStatus?.modelPath;
+  $('localModels').innerHTML = models.length ? models.map((m: any) =>
+    `<div class="lm-row ${m.path === cur ? 'active' : ''}"><span class="lm-name">${m.name}</span><span class="muted small">${fmtGB(m.size)}</span>` +
+    `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === cur ? '사용 중' : '사용'}</button>` +
+    (m.removable ? `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" title="삭제">🗑️</button>` : '') + `</div>`).join('')
+    : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받거나 LM Studio 모델을 쓰세요.</div>';
+  $('localModels').querySelectorAll('.lm-use').forEach(b => b.addEventListener('click', async () => {
+    const p = decodeURIComponent((b as HTMLElement).dataset.path!); (b as HTMLElement).textContent = '⏳ 켜는 중…';
+    _localStatus = await connect.localStart?.(p);
+    // 비서가 내장 엔진을 쓰도록 설정 (LM Studio보다 우선)
+    if (_localStatus?.running) await connect.setConfig({ llmBase: LOCAL_BASE, llmModel: _localStatus.modelName });
+    renderLocalStatus(); await loadLocalAI(); await renderAiCurrent(); await loadModels(); refreshMem?.();
+  }));
+  $('localModels').querySelectorAll('.lm-del').forEach(b => b.addEventListener('click', async () => {
+    const p = decodeURIComponent((b as HTMLElement).dataset.del!); await connect.localDelete?.(p); loadLocalAI();
+  }));
+}
+$('hfSearchBtn')?.addEventListener('click', doHfSearch);
+$('hfQuery')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') doHfSearch(); });
+async function doHfSearch() {
+  const q = ($('hfQuery') as HTMLInputElement).value.trim();
+  $('hfResults').innerHTML = '<div class="muted small">🔍 검색 중…</div>';
+  const r = await connect.hfSearch?.(q);
+  if (!r?.ok) { $('hfResults').innerHTML = `<div class="muted small">⚠️ ${r?.error || '검색 실패'}</div>`; return; }
+  $('hfResults').innerHTML = (r.models || []).map((m: any) =>
+    `<div class="hf-row" data-repo="${m.id}"><span class="hf-id">${m.id}</span><span class="muted small">⬇ ${m.downloads.toLocaleString()}</span></div>`).join('') || '<div class="muted small">결과 없음</div>';
+  $('hfResults').querySelectorAll('.hf-row').forEach(b => b.addEventListener('click', () => pickRepo((b as HTMLElement).dataset.repo!)));
+}
+async function pickRepo(repo: string) {
+  $('hfResults').innerHTML = `<div class="muted small">📂 ${repo} 파일 불러오는 중…</div>`;
+  const r = await connect.hfFiles?.(repo);
+  if (!r?.ok) { $('hfResults').innerHTML = `<div class="muted small">⚠️ ${r?.error || '실패'}</div>`; return; }
+  const files = r.files || [];
+  $('hfResults').innerHTML = `<div class="hf-back muted small">← ${repo}</div>` + (files.length ? files.map((f: any) =>
+    `<div class="hf-row file"><span class="hf-q">${f.quant}</span><span class="muted small">${fmtGB(f.size)}</span>` +
+    `<button class="hf-get oc-primary" data-repo="${repo}" data-file="${encodeURIComponent(f.path)}">받기</button></div>`).join('')
+    : '<div class="muted small">이 레포에 GGUF 파일이 없어요.</div>');
+  $('hfResults').querySelector('.hf-back')?.addEventListener('click', doHfSearch);
+  $('hfResults').querySelectorAll('.hf-get').forEach(b => b.addEventListener('click', () => doDownload((b as HTMLElement).dataset.repo!, decodeURIComponent((b as HTMLElement).dataset.file!), b as HTMLElement)));
+}
+async function doDownload(repo: string, file: string, btn: HTMLElement) {
+  btn.textContent = '⏳'; (btn as HTMLButtonElement).disabled = true;
+  $('hfDl').hidden = false; $('hfDlText').textContent = `${file} 받는 중…`;
+  const r = await connect.hfDownload?.(repo, file);
+  $('hfDl').hidden = true;
+  if (!r?.ok) { $('hfDlText').textContent = ''; btn.textContent = '재시도'; (btn as HTMLButtonElement).disabled = false; alert('다운로드 실패: ' + (r?.error || '')); return; }
+  btn.textContent = '✓ 받음'; await loadLocalAI();
+}
+connect.onHfProgress?.((p: any) => {
+  if ($('hfDl').hidden) $('hfDl').hidden = false;
+  ($('hfDlFill') as HTMLElement).style.width = (p.percent || 0) + '%';
+  $('hfDlText').textContent = `${p.percent || 0}% · ${fmtGB(p.received)}${p.total ? ' / ' + fmtGB(p.total) : ''}`;
+});
+connect.onLocalStatus?.((s: any) => { _localStatus = s; renderLocalStatus(); renderAiCurrent(); });
 // 🧩 MCP
 async function loadMcp() {
   const cfg = await connect.mcpGet();
