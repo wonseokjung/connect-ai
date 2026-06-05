@@ -441,7 +441,7 @@ const API_SERVICES: any[] = [
     { key: 'GITHUB_DEFAULT_REPO', label: '지식 저장소', type: 'text', placeholder: 'owner/repo' } ] },
   { id: 'huggingface', name: 'HuggingFace — 🧬 장기 기억', icon: '🤗', summary: '쌓인 지식을 데이터셋으로 업로드 → 모델에 파인튜닝(체득). 학습된 모델을 회사 뇌로 사용.', helpUrl: 'https://huggingface.co/settings/tokens', fields: [
     { key: 'HF_TOKEN', label: 'Access Token (write)', type: 'password', help: 'huggingface.co/settings/tokens → write 권한' },
-    { key: 'HF_REPO', label: '데이터셋 레포', type: 'text', placeholder: 'user/connect-ai-brain' } ] },
+    { key: 'HF_REPO', label: '데이터셋 이름', type: 'text', placeholder: 'connect-ai-brain', help: '이름만 적으면 돼요 (아이디는 토큰에서 자동). HF에서 미리 안 만들어도 자동 생성.' } ] },
   { id: 'replicate', name: 'Replicate — 🔊 고품질 음성/AI', icon: '🔊', summary: 'Qwen3-TTS(사람 같은 한국어 음성) 등 AI 모델 호출. 설정에서 고품질 음성 켜면 사용.', helpUrl: 'https://replicate.com/account/api-tokens', fields: [
     { key: 'REPLICATE_API_TOKEN', label: 'API Token', type: 'password', help: 'replicate.com/account/api-tokens 에서 발급 (r8_...)' } ] },
   { id: 'email', name: '이메일 (SMTP)', icon: '📧', summary: '에이전트가 승인 후 메일을 보냅니다. Gmail은 앱 비밀번호 사용.', helpUrl: 'https://support.google.com/accounts/answer/185833', fields: [
@@ -923,15 +923,28 @@ function openAgentDetail(id: string) {
 $('voffice').addEventListener('click', (e) => { const el = (e.target as HTMLElement).closest('.vo-agent'); if (el) openAgentDetail(el.id.replace('vo-', '')); });
 
 // ── 🧠 지식 네트워크 (두뇌) ───────────────────────────
-$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBridge(); await renderBrain(); });
-$('brainAddBtn').addEventListener('click', addKnowledge);
+$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBridge(); await renderBrain(); renderMethods(); });
+// 🗂️ 지식 목록은 평소 숨김(그래프로 충분) — 정리(삭제)할 때만 펼침
+$('notesToggle').addEventListener('click', () => { const n = $('brainNotes'); n.classList.toggle('hidden'); ($('notesToggle') as HTMLElement).classList.toggle('on', !n.classList.contains('hidden')); });
+// 🧠 제이 브레인 링크 — 멘토 두뇌 연동(구독자) / 게시(대장)
+$('mentorLinkBtn').addEventListener('click', async () => {
+  const repo = ($('mentorRepo') as HTMLInputElement).value.trim(), pw = ($('mentorPw') as HTMLInputElement).value;
+  $('mentorStatus').textContent = '🧠 멘토 두뇌 연동 중…';
+  const r = await connect.brainLinkBrain(repo, pw);
+  if (!r.ok) { $('mentorStatus').textContent = `⚠️ ${r.error}`; return; }
+  $('mentorStatus').textContent = `✅ 제이 브레인 ${r.added}개 연동 (총 ${r.total}개)`;
+  if (r.added) { playInjection('🧠 제이 브레인 링크', [`${r.added}개 지식 연동`], '#00e5ff'); await renderBrain(); }
+});
 // 단기(GitHub)/장기(HuggingFace) 연결 상태 표시
 async function refreshMem() {
   const m = await connect.memStatus();
   $('ghRepo').textContent = m.githubReady ? `🔗 ${m.githubRepo}` : '미연결 (🗂️ 연동에서 GitHub)';
   $('ghRepo').className = 'mem-repo' + (m.githubReady ? ' on' : '');
-  $('hfRepo').textContent = m.hfReady ? `🔗 ${m.hfRepo}` : '미연결 (🗂️ 연동에서 HuggingFace)';
-  $('hfRepo').className = 'mem-repo' + (m.hfReady ? ' on' : '');
+  const hfEl = $('hfRepo') as HTMLElement;
+  hfEl.textContent = m.hfReady ? `🔗 ${m.hfRepo}${m.hfUrl ? ' ↗' : ''}` : '미연결 (🗂️ 연동에서 HuggingFace)';
+  hfEl.className = 'mem-repo' + (m.hfReady ? ' on' : '') + (m.hfUrl ? ' link' : '');
+  hfEl.title = m.hfUrl ? 'HuggingFace에서 데이터셋 열어 확인' : '';
+  (hfEl as any).onclick = m.hfUrl ? () => connect.openExternal(m.hfUrl) : null;
 }
 // 탭 전환
 document.querySelectorAll('.btab').forEach(b => b.addEventListener('click', () => {
@@ -953,44 +966,106 @@ $('ghPullBtn').addEventListener('click', async () => {
   else $('ghStatus').textContent = `⚠️ ${r.error}`;
   if (r.ok && r.added) { playInjection('GitHub → 두뇌 동기화', [`${r.added}개 지식 주입`]); await renderBrain(); }
 });
-// 🧬 장기 = HuggingFace
+// 🧬 장기기억 만들기: ① 변환 → ② 업로드 → ③ 모델 이름·학습
+const LONG_FX = '#a78bfa';   // 장기기억 = 보라
+// ① 변환/생성 — SFT: 지식→Q&A · AI자동피드백: AI가 좋은답/나쁜답 생성 (라이브)
+$('dsConvertBtn').addEventListener('click', async () => {
+  const isDpo = currentMethod === 'dpo';
+  const btn = $('dsConvertBtn') as HTMLButtonElement; btn.disabled = true; btn.textContent = isDpo ? 'AI 생성 중…' : '변환 중…';
+  $('dsProg').classList.remove('hidden'); $('dsPreview').innerHTML = ''; ($('dsFill') as HTMLElement).style.width = '0%';
+  const off = connect.onDatasetProgress((d: any) => {
+    ($('dsFill') as HTMLElement).style.width = Math.round(d.done / d.total * 100) + '%';
+    $('dsCnt').textContent = isDpo ? `🤖 AI가 좋은답/나쁜답 만드는 중… ${d.done}/${d.total}` : `🤖 AI가 학습 문제 출제 중… ${d.done}/${d.total}`;
+    if (d.q) { const el = document.createElement('div'); el.className = 'ds-q'; el.textContent = '❓ ' + d.q; const p = $('dsPreview'); p.prepend(el); while (p.children.length > 4) p.lastChild!.remove(); }
+  });
+  const r = isDpo ? await connect.brainBuildPreference() : await connect.brainBuildDataset(($('augChk') as HTMLInputElement).checked);
+  off?.();
+  btn.disabled = false; btn.textContent = isDpo ? '다시 생성' : '다시 변환';
+  if (!r.ok) { $('dsCnt').textContent = ''; $('hfStatus').textContent = `⚠️ ${r.error}`; return; }
+  if (isDpo) {
+    $('dsCnt').textContent = `✅ 선호쌍 ${r.pairs}개 생성 (좋은답 ✅ vs 나쁜답 ❌)`;
+    $('dsPreview').innerHTML = (r.sample || []).map((s: any) => `<div class="ds-q">❓ ${escapeHtml(s.q)}<div class="ds-a">✅ ${escapeHtml(s.chosen)}…</div><div class="ds-a" style="color:#e88">❌ ${escapeHtml(s.rejected)}…</div></div>`).join('');
+  } else {
+    $('dsCnt').textContent = `✅ Q&A ${r.pairs}쌍 생성 (지식 ${r.notes}개${r.augment ? ' · 🔬증강' : ''} · ${r.llm ? 'AI 질문생성' : '템플릿'})`;
+    $('dsPreview').innerHTML = (r.sample || []).map((s: any) => `<div class="ds-q">❓ ${escapeHtml(s.q)}<div class="ds-a">→ ${escapeHtml(s.a)}…</div></div>`).join('');
+  }
+  playInjection(isDpo ? '⚖️ AI 자동 피드백 생성' : '📦 학습 데이터로 변환', [`${r.pairs}개`], LONG_FX);
+  $('lfStep1').classList.add('lf-done');
+  $('lfStep2').classList.remove('lf-locked'); ($('hfUploadBtn') as HTMLButtonElement).disabled = false;
+});
+// ② 업로드 — HF에 데이터셋(방식별)
 $('hfUploadBtn').addEventListener('click', async () => {
   $('hfStatus').textContent = '🤗 HuggingFace에 업로드 중…';
-  const r = await connect.hfUpload();
-  $('hfStatus').innerHTML = r.ok ? `✅ 업로드 완료 — <a href="#" id="hfLink">${escapeHtml(r.url)}</a>` : `⚠️ ${escapeHtml(r.error || '실패')}`;
-  if (r.ok) { playInjection('🧬 장기 기억 — HuggingFace', ['데이터셋 업로드 완료', r.url || '']); $('hfLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.url); }); }
+  const r = currentMethod === 'dpo' ? await connect.hfUploadPreference() : await connect.hfUploadBrain();
+  if (!r.ok) { $('hfStatus').innerHTML = `⚠️ ${escapeHtml(r.error || '실패')}`; return; }
+  $('hfStatus').innerHTML = `✅ 데이터셋 업로드 완료 — <a href="#" id="hfLink">${escapeHtml(r.url)}</a>`;
+  $('hfLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.url); });
+  playInjection('🤗 클라우드에 각인', ['데이터셋 업로드 완료'], LONG_FX);
+  $('lfStep2').classList.add('lf-done');
+  $('lfStep3').classList.remove('lf-locked');
+  const nm = await connect.brainModelName(); const inp = $('modelNameInput') as HTMLInputElement; inp.disabled = false; inp.value = nm.suggested; ($('hfTrainBtn') as HTMLButtonElement).disabled = false;
 });
-$('hfExportBtn').addEventListener('click', async () => {
-  $('hfStatus').textContent = '📦 내보내는 중…';
-  const r = await connect.brainExportTraining({});
-  $('hfStatus').textContent = r.ok ? `✅ ${r.count}개 → 바탕화면/connect-ai-knowledge.jsonl` : `⚠️ ${r.reason}`;
-});
+// 학습 강도 프리셋 (lr·epochs 묶음) — 한 번에 최적값
+const TS_PRESET: Record<string, { lr: number; epochs: number; hint: string }> = {
+  safe: { lr: 2e-4, epochs: 6, hint: '🛡️ 안전 — 과적합 방지 우선 (lr 2e-4, 적게 학습)' },
+  balanced: { lr: 3e-4, epochs: 8, hint: '⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)' },
+  strong: { lr: 5e-4, epochs: 10, hint: '🔥 강하게 — 확실히 외움 (lr 5e-4 · 과적합 주의)' },
+};
+let tsPreset = 'balanced';
+document.querySelectorAll('.ts-preset').forEach(b => b.addEventListener('click', () => {
+  tsPreset = (b as HTMLElement).dataset.preset!;
+  document.querySelectorAll('.ts-preset').forEach(x => x.classList.toggle('on', x === b));
+  $('tsHint').textContent = TS_PRESET[tsPreset].hint;
+}));
+// ③ 모델 이름 정하고 학습
 $('hfTrainBtn').addEventListener('click', async () => {
+  const name = ($('modelNameInput') as HTMLInputElement).value.trim();
+  const p = TS_PRESET[tsPreset];
+  const sv = (id: string) => ($(id) as HTMLSelectElement).value;
+  const steps = parseInt(($('tsSteps') as HTMLInputElement).value, 10) || 0;
+  const al = sv('tsAlpha'), lrv = sv('tsLr'), ep = sv('tsEpochs');
+  const opts = {
+    method: currentMethod,
+    rank: +sv('tsRank'), alpha: al === 'auto' ? undefined : +al, dropout: +sv('tsDropout'),
+    learningRate: lrv ? +lrv : p.lr, epochs: ep ? +ep : p.epochs,
+    maxSeq: +sv('tsSeq'), scheduler: sv('tsSched'), quant: sv('tsQuant'),
+    maxSteps: steps > 0 ? steps : undefined,
+  };
   $('hfStatus').textContent = '🚀 학습 노트북 만드는 중…';
-  const r = await connect.trainNotebook();
-  if (r.ok) {
-    $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
-    $('colabLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.colab); });
-    if (r.colab) connect.openExternal(r.colab);
-  } else { $('hfStatus').textContent = `⚠️ ${r.error}`; }
+  const r = await connect.trainNotebook(name, opts);
+  if (!r.ok) { $('hfStatus').textContent = `⚠️ ${r.error}`; return; }
+  $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
+  $('colabLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.colab); });
+  if (r.colab) connect.openExternal(r.colab);
+  playInjection('🧠 장기기억 각인 시작', [name || '내 두뇌'], LONG_FX);
+  $('lfStep3').classList.add('lf-done');
 });
-$('brainInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter') addKnowledge(); });
-// 입력하는 동안 어느 분야 두뇌로 갈지 실시간 미리보기 (디바운스)
-let catHintTimer = 0; let pendingCat = '';
-$('brainInput').addEventListener('input', () => {
-  const t = ($('brainInput') as HTMLInputElement).value.trim();
-  const hint = $('catHint'); if (!t) { hint.textContent = ''; pendingCat = ''; return; }
-  clearTimeout(catHintTimer);
-  catHintTimer = window.setTimeout(async () => {
-    try { const c = await connect.brainClassify(t); const m = CAT_META[c.id] || CAT_META.general; pendingCat = c.id; hint.textContent = `${m.emoji} ${m.label}`; (hint as HTMLElement).style.cssText = `color:${m.color};border-color:${m.color}55;background:${m.color}1a`; } catch { /* */ }
-  }, 250);
-});
-async function addKnowledge() {
-  const i = $('brainInput') as HTMLInputElement; const t = i.value.trim(); if (!t) return;
-  const cat = pendingCat || undefined;
-  const m = cat ? (CAT_META[cat] || CAT_META.general) : CAT_META.general;
-  i.value = ''; $('catHint').textContent = ''; pendingCat = '';
-  playInjection(`${m.emoji} ${m.label} 두뇌 주입`, [t], m.color); await connect.brainAdd(t, cat); await renderBrain();
+$('hfExportBtn').addEventListener('click', async () => { $('hfStatus').textContent = '📦 바탕화면 connect-ai-brain.jsonl 확인 (변환 시 자동 저장)'; });
+
+// 🎓 학습 방법론 — 선택 시 교육 카드 + SFT/배움용 뷰 전환
+let currentMethod = 'sft', methodsRendered = false, methodList: any[] = [];
+async function renderMethods() {
+  if (methodsRendered) return; methodsRendered = true;
+  methodList = await connect.methodsList();
+  $('methodPick').innerHTML = methodList.map((m: any) => `<button class="m-chip${m.id === 'sft' ? ' on' : ''}" data-m="${m.id}">${m.emoji} ${m.label}<span class="m-lv">${m.level}</span></button>`).join('');
+  document.querySelectorAll('.m-chip').forEach(b => b.addEventListener('click', () => selectMethod((b as HTMLElement).dataset.m!)));
+  selectMethod('sft');
+}
+function selectMethod(id: string) {
+  currentMethod = id;
+  const m = methodList.find(x => x.id === id); if (!m) return;
+  document.querySelectorAll('.m-chip').forEach(c => c.classList.toggle('on', (c as HTMLElement).dataset.m === id));
+  $('methodCard').innerHTML = `<div class="mc-what">${m.emoji} <b>${escapeHtml(m.label)}</b> — ${escapeHtml(m.what)}</div><div class="mc-row">📌 <b>언제</b>: ${escapeHtml(m.when)}</div><div class="mc-row">📦 <b>데이터</b>: ${escapeHtml(m.data)}</div>${m.note ? `<div class="mc-note">💡 ${escapeHtml(m.note)}</div>` : ''}`;
+  const isDpo = id === 'dpo';
+  $('step1Title').textContent = isDpo ? '⚖️ AI 자동 피드백 생성' : '📦 학습 데이터로 변환';
+  $('step1Sub').textContent = isDpo ? 'AI가 좋은답 ✅ vs 나쁜답 ❌ 을 스스로 생성 (사람 클릭 0)' : '지식 → AI가 Q&A 문제로 자동 출제';
+  ($('dsConvertBtn') as HTMLButtonElement).textContent = isDpo ? '생성' : '변환';
+  ($('augToggle') as HTMLElement).style.display = isDpo ? 'none' : '';
+  // 단계 초기화
+  ['lfStep1', 'lfStep2', 'lfStep3'].forEach(s => $(s).classList.remove('lf-done'));
+  $('lfStep2').classList.add('lf-locked'); $('lfStep3').classList.add('lf-locked');
+  ($('hfUploadBtn') as HTMLButtonElement).disabled = true; ($('hfTrainBtn') as HTMLButtonElement).disabled = true;
+  $('dsProg').classList.add('hidden');
 }
 // 🧠 매트릭스 브레인 인젝션 FX — 지식이 분야 두뇌로 다운로드되는 연출(분야 색으로 물듦)
 let injectRaf = 0;
@@ -1049,7 +1124,7 @@ function playInjection(label: string, lines: string[] = [], color = '#00ff41') {
       ctx.font = (fontSize * (0.65 + near * 0.8)) + 'px monospace'; ctx.fillText(q.g, x, y);
     }
     if (p < 1 && !fx.classList.contains('hidden')) injectRaf = requestAnimationFrame(tick);
-    else { fx.classList.add('out'); setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); brainEnergy(0.3); }, 520); }
+    else { $('ihCore')?.classList.add('blast'); setTimeout(() => $('ihCore')?.classList.remove('blast'), 600); fx.classList.add('out'); setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); brainEnergy(0.3); }, 620); }   // 주입 완료 충격파
   };
   injectRaf = requestAnimationFrame(tick);
 }
@@ -1062,14 +1137,20 @@ const CAT_META: Record<string, { label: string; emoji: string; color: string }> 
   business: { label: '사업', emoji: '💼', color: '#f5c518' },
   general: { label: '일반', emoji: '🗂️', color: '#00ff41' },
 };
+// 노트의 한 줄 제목 — 마크다운 첫 제목/첫 줄만 (카드가 본문 전체를 토하지 않게)
+function noteTitle(t: string): string {
+  const first = (t.split('\n').map(l => l.trim()).find(l => l && l !== '---') || t).replace(/^#+\s*/, '').replace(/[*_`>#]/g, '').trim();
+  return first.slice(0, 64) + (first.length > 64 ? '…' : '');
+}
 async function renderBrain() {
   const [g, list, count, stats] = await Promise.all([connect.brainGraph(), connect.brainList(), connect.brainCount(), connect.brainStats()]);
   $('brainCount').textContent = `${count}개`;
+  const lsc = $('longShortCount'); if (lsc) lsc.textContent = String(count);   // 장기 탭의 단기 개수
   drawGraph(g);
   renderGrowth(stats);
   $('brainNotes').innerHTML = list.length
-    ? list.map((n: any) => { const c = CAT_META[n.category] || CAT_META.general; return `<div class="bn" style="border-left:3px solid ${c.color}" title="${c.label} 두뇌"><span class="bn-t">${escapeHtml(n.text)}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`; }).join('')
-    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. 위에 <b>원자적 사실 하나씩</b> 입력하면 분야별로 자동 분류돼요.</div>';
+    ? list.map((n: any) => { const c = CAT_META[n.category] || CAT_META.general; return `<div class="bn" style="border-left:3px solid ${c.color}" title="${escapeHtml(n.text.slice(0, 500))}"><span class="bn-t">${escapeHtml(noteTitle(n.text))}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`; }).join('')
+    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. ⬇ GitHub 불러오기, 에제르 주입, 또는 대화 중 에이전트가 자동으로 쌓아요.</div>';
   $('brainNotes').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.brainDelete((b as HTMLElement).dataset.id); await renderBrain(); }));
 }
 
@@ -1083,7 +1164,7 @@ function renderGrowth(stats: any[]) {
     return `<div class="cg-row${ready ? ' ready' : ''}" title="${c.label} 두뇌 · ${s.count}개${s.verified ? ` (검증 ${s.verified})` : ''}">
       <span class="cg-ico" style="color:${c.color}">${c.emoji}</span>
       <span class="cg-lab">${c.label}</span>
-      <span class="cg-bar"><span class="cg-fill" style="width:${s.pct}%;background:${c.color};box-shadow:0 0 8px ${c.color}99"></span></span>
+      <span class="cg-bar"><span class="cg-fill" style="width:${s.pct}%;background:linear-gradient(90deg,${c.color}88,${c.color});box-shadow:0 0 ${ready ? 12 : 7}px ${c.color}${ready ? '' : '99'}"></span></span>
       <span class="cg-num" style="color:${ready ? c.color : ''}">${ready ? '🔥' : ''}${s.count}</span>
     </div>`;
   }).join('');
@@ -1115,8 +1196,8 @@ function drawGraph(g: any) {
     fg = FG()(el)
       .backgroundColor('rgba(0,0,0,0)')
       .nodeRelSize(3).nodeColor((n: any) => n.color || '#00FF41').nodeLabel((n: any) => n.label)   // 기본 노드 항상 그림(안전) + 텍스트는 hover만
-      .linkColor(() => 'rgba(130,255,190,0.16)').linkWidth((l: any) => Math.max(0.6, (l.w || 0.3) * 1.6))
-      .linkDirectionalParticles(2).linkDirectionalParticleWidth(2).linkDirectionalParticleColor(() => 'rgba(165,255,215,0.85)')   // 흐르는 시냅스
+      .linkColor((l: any) => hexA(l.source?.color || '#00FF41', 0.2)).linkWidth((l: any) => Math.max(0.6, (l.w || 0.3) * 1.6))   // 시냅스 = 분야 색
+      .linkDirectionalParticles(2).linkDirectionalParticleWidth(2).linkDirectionalParticleColor((l: any) => l.source?.color || '#a5ffd7')   // 흐르는 신호 = 분야 색
       .nodeCanvasObjectMode(() => 'after')
       .nodeCanvasObject((node: any, ctx: any) => {
         if (!isFinite(node.x) || !isFinite(node.y)) return;               // 좌표 준비 전 프레임 가드

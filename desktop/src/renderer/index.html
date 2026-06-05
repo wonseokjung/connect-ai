@@ -282,30 +282,101 @@
         <div class="mem-status" id="ghStatus"></div>
         <!-- 🔌 에제르 브릿지 상태 — 주입이 안 보이는 이유를 알려줌 -->
         <div class="bridge-row hidden" id="bridgeRow"></div>
+        <!-- 🧠 제이 브레인 링크 — 멘토 두뇌를 비번으로 받기(구독자). 게시(대장)는 스크립트로 처리. -->
+        <div class="mentor-bar">
+          <div class="mentor-title">🧠 <b>제이 브레인 링크</b> <span class="muted">멘토 두뇌 가져오기</span></div>
+          <div class="mentor-form">
+            <input id="mentorRepo" placeholder="멘토 레포 (예: wonseokjung/memory)" autocomplete="off" />
+            <input id="mentorPw" type="password" placeholder="비밀번호" autocomplete="off" />
+            <button id="mentorLinkBtn" class="oc-primary">📥 받기</button>
+          </div>
+        </div>
+        <div class="mem-status" id="mentorStatus"></div>
         <!-- 📊 분야별 두뇌 성장 — "어떻게 쌓이는지"가 눈에 보이는 곳 -->
         <div class="cat-growth" id="catGrowth"></div>
-        <div class="oc-row brain-add-row">
-          <input id="brainInput" placeholder="원자적 사실 하나씩 (예: 내 채널 주제는 AI 교육이다)" autocomplete="off" />
-          <span class="cat-hint" id="catHint" title="자동 분류된 분야"></span>
-          <button id="brainAddBtn" class="oc-primary">+ 기억</button>
-        </div>
         <div id="brainGraph" class="brain-graph"></div>
-        <div class="muted" style="font-size:11px;text-align:center">노드 = 지식 · 선 = 의미 연결 · 색 = 분야 · 끌어서 움직임 · GitHub에 자동 동기화 (토큰/레포는 🗂️ 연동에서)</div>
-        <div class="brain-notes" id="brainNotes"></div>
+        <div class="graph-cap"><span class="muted">노드 = 지식 · 선 = 연결 · 색 = 분야</span><button id="notesToggle" class="notes-toggle">🗂️ 목록·정리</button></div>
+        <div class="brain-notes hidden" id="brainNotes"></div>
       </div>
-      <!-- 장기 기억 = HuggingFace 학습 -->
+      <!-- 장기 기억 = HuggingFace 학습 (단기 → 장기 변환 흐름) -->
       <div class="bsec hidden" id="bsec-long">
-        <div class="muted" style="font-size:12px;line-height:1.6">🧬 <b>장기 기억 = HuggingFace</b> — 쌓인 지식을 <b>데이터셋으로 올리고 모델에 파인튜닝</b>해서 가중치에 체득시킵니다. 단기가 "메모"라면 장기는 "몸에 밴" 지식. 학습된 모델은 설정에서 회사 뇌로 지정.</div>
-        <div class="mem-bar">
-          <div class="mem-info">🧬 데이터셋 <span class="mem-repo" id="hfRepo">미연결</span></div>
-          <div class="mem-acts"><button id="hfUploadBtn" class="oc-primary">🤗 업로드</button><button id="hfTrainBtn" class="oc-primary">🚀 학습 시작 (Colab)</button><button id="hfExportBtn" class="oc-primary">📦 로컬 JSONL</button></div>
+        <div class="muted" style="font-size:12px;line-height:1.6">🧬 <b>단기(메모) → 장기(몸에 밴 지식).</b> 쌓인 단기 지식을 <b>데이터셋으로 바꿔 내 모델에 파인튜닝</b>합니다.</div>
+        <!-- 🎓 학습 방식 -->
+        <div class="method-pick" id="methodPick"></div>
+        <div class="method-card" id="methodCard"></div>
+        <!-- 흐름: ①변환/생성 ②업로드 ③학습 (방식별 분기) -->
+        <div id="sftFlow">
+        <div class="long-flow">
+          <div class="lf-src">⚡ 단기 지식 <b id="longShortCount">0</b>개 <span class="muted">— 이걸 장기 기억으로 각인합니다</span></div>
+          <div class="lf-arrow">↓</div>
+
+          <!-- ① 변환/생성 -->
+          <div class="lf-step" id="lfStep1">
+            <span class="lf-num">1</span>
+            <div class="lf-body"><b id="step1Title">📦 학습 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → AI가 Q&amp;A 문제로 자동 출제</div>
+              <label class="aug-toggle" id="augToggle"><input type="checkbox" id="augChk" /> 🔬 다양하게 (증강 · echo 방지)</label>
+            </div>
+            <button id="dsConvertBtn" class="oc-primary">변환</button>
+          </div>
+          <div class="ds-prog hidden" id="dsProg">
+            <div class="ds-bar"><div class="ds-fill" id="dsFill"></div></div>
+            <div class="ds-cnt" id="dsCnt"></div>
+            <div class="ds-preview" id="dsPreview"></div>
+          </div>
+
+          <div class="lf-arrow">↓</div>
+          <!-- ② 업로드 -->
+          <div class="lf-step lf-locked" id="lfStep2">
+            <span class="lf-num">2</span>
+            <div class="lf-body"><b>🤗 HuggingFace 업로드</b><div class="muted small">데이터셋을 클라우드에 <span class="mem-repo" id="hfRepo">미연결</span></div></div>
+            <button id="hfUploadBtn" class="oc-primary" disabled>업로드</button>
+          </div>
+
+          <div class="lf-arrow">↓</div>
+          <!-- ③ 모델 이름 + 학습 설정 -->
+          <div class="lf-step lf-locked" id="lfStep3">
+            <span class="lf-num">3</span>
+            <div class="lf-body"><b>🧠 모델 이름 정하고 학습</b>
+              <input id="modelNameInput" class="ds-name" placeholder="내두뇌-v1" disabled />
+              <div class="train-set">
+                <div class="ts-row"><span class="ts-lab">학습 강도</span>
+                  <div class="ts-presets">
+                    <button class="ts-preset" data-preset="safe">🛡️ 안전</button>
+                    <button class="ts-preset on" data-preset="balanced">⚖️ 기본</button>
+                    <button class="ts-preset" data-preset="strong">🔥 강하게</button>
+                  </div>
+                </div>
+                <div class="ts-hint" id="tsHint">⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)</div>
+                <details class="ts-adv">
+                  <summary>🎓 전문가 설정 (파라미터 직접 조정 · 배우면서)</summary>
+                  <div class="ts-f"><span class="ts-k">LoRA rank (r)<i>학습 용량. 클수록 많이 외움(메모리↑). 페르소나엔 8~16 충분</i></span>
+                    <select id="tsRank"><option value="8">8 · 가벼움</option><option value="16" selected>16 · 권장</option><option value="32">32 · 깊게</option><option value="64">64 · 대용량</option></select></div>
+                  <div class="ts-f"><span class="ts-k">lora_alpha<i>학습 강도. 보통 rank의 2배가 정석</i></span>
+                    <select id="tsAlpha"><option value="auto" selected>자동(r×2)</option><option value="16">16</option><option value="32">32</option><option value="64">64</option></select></div>
+                  <div class="ts-f"><span class="ts-k">lora_dropout<i>과적합 방지. 데이터 적으면 0, 많으면 0.05~0.1</i></span>
+                    <select id="tsDropout"><option value="0" selected>0 · 없음</option><option value="0.05">0.05</option><option value="0.1">0.1</option></select></div>
+                  <div class="ts-f"><span class="ts-k">learning_rate<i>학습 속도. 크면 빨리 배우나 망가지기 쉬움</i></span>
+                    <select id="tsLr"><option value="" selected>강도 프리셋 따름</option><option value="0.0002">2e-4 · 안전</option><option value="0.0003">3e-4 · 권장</option><option value="0.0005">5e-4 · 강함</option></select></div>
+                  <div class="ts-f"><span class="ts-k">epochs<i>같은 데이터 반복 횟수. 많으면 외우다 과적합</i></span>
+                    <select id="tsEpochs"><option value="">프리셋 따름</option><option value="6">6 · 적게</option><option value="8" selected>8 · 권장</option><option value="10">10 · 많이</option></select></div>
+                  <div class="ts-f"><span class="ts-k">max_seq_length<i>한 번에 보는 토큰 길이. 길수록 메모리 제곱 증가</i></span>
+                    <select id="tsSeq"><option value="512">512 · 가벼움</option><option value="1024" selected>1024 · 권장</option><option value="2048">2048 · 긴 문맥</option></select></div>
+                  <div class="ts-f"><span class="ts-k">lr_scheduler<i>학습률 감소 곡선. cosine이 후반 더 부드러움</i></span>
+                    <select id="tsSched"><option value="linear" selected>linear</option><option value="cosine">cosine</option></select></div>
+                  <div class="ts-f"><span class="ts-k">양자화 (quant)<i>모델 크기·속도. q4_k_m이 균형 최고</i></span>
+                    <select id="tsQuant"><option value="q4_k_m" selected>q4_k_m · 빠름(권장)</option><option value="q8_0">q8_0 · 고품질</option><option value="f16">f16 · 원본</option></select></div>
+                  <div class="ts-f"><span class="ts-k">max_steps<i>총 학습 횟수. 0이면 데이터수·epochs로 자동</i></span>
+                    <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
+                </details>
+              </div>
+              <div class="muted small">내 모델 위에 누적 학습 → Colab 무료 GPU → .gguf</div>
+            </div>
+            <button id="hfTrainBtn" class="oc-primary" disabled>학습</button>
+          </div>
         </div>
+        </div><!-- /#sftFlow -->
         <div class="mem-status" id="hfStatus"></div>
-        <ol class="muted small" style="line-height:1.7;padding-left:18px;margin:4px 0">
-          <li><b>🤗 업로드</b> — 지식을 HF 데이터셋으로 올림</li>
-          <li><b>🚀 학습 시작</b> — 미리 채운 Unsloth 노트북을 만들어 <b>Colab(무료 GPU)에서 원클릭</b>으로 엶 → "모두 실행"</li>
-          <li>나온 <code>.gguf</code> 모델을 LM Studio/Ollama에 올리고 ⚙️ 설정에서 선택 → <b>장기기억 완성</b></li>
-        </ol>
+        <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 바탕화면 JSONL 보기</button></div>
       </div>
     </div>
   </div>

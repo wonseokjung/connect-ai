@@ -41,19 +41,24 @@ contextBridge.exposeInMainWorld('connect', {
   brainGraph: () => ipcRenderer.invoke('brain:graph'),
   brainList: () => ipcRenderer.invoke('brain:list'),
   brainCount: () => ipcRenderer.invoke('brain:count'),
-  brainAdd: (text: string, category?: string) => ipcRenderer.invoke('brain:add', text, category),
   brainDelete: (id: string) => ipcRenderer.invoke('brain:delete', id),
   brainStats: () => ipcRenderer.invoke('brain:stats'),                                  // 📊 분야별 성장
-  brainClassify: (text: string) => ipcRenderer.invoke('brain:classify', text),          // 입력 중 분야 미리보기
-  brainSetCategory: (id: string, category: string) => ipcRenderer.invoke('brain:setCategory', id, category),
   bridgeStatus: () => ipcRenderer.invoke('bridge:status'),                              // 🔌 에제르 브릿지 상태
-  brainExportTraining: (hf: any) => ipcRenderer.invoke('brain:exportTraining', hf),  // 🧬 장기 기억 (로컬 JSONL)
+  brainPublishPack: (password: string) => ipcRenderer.invoke('brain:publishPack', password),       // 📤 제이 브레인 게시(대장)
+  brainLinkBrain: (repo: string, password: string) => ipcRenderer.invoke('brain:linkBrain', repo, password),  // 🧠 제이 브레인 연동(구독자)
   // ⚡ 단기=GitHub · 🧬 장기=HuggingFace
   memStatus: () => ipcRenderer.invoke('memstatus'),
   githubPush: () => ipcRenderer.invoke('github:push'),
   githubPull: () => ipcRenderer.invoke('github:pull'),
-  hfUpload: () => ipcRenderer.invoke('hf:upload'),
-  trainNotebook: () => ipcRenderer.invoke('train:notebook'),
+  trainNotebook: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:notebook', modelName, opts),
+  // 🧬 장기기억 만들기: ① 변환 ② 업로드 ③ 모델이름
+  brainBuildDataset: (augment?: boolean) => ipcRenderer.invoke('brain:buildDataset', augment),
+  hfUploadBrain: () => ipcRenderer.invoke('hf:uploadBrain'),
+  brainBuildPreference: () => ipcRenderer.invoke('brain:buildPreference'),   // ⚖️ AI 자동 피드백
+  hfUploadPreference: () => ipcRenderer.invoke('hf:uploadPreference'),
+  brainModelName: () => ipcRenderer.invoke('brain:modelName'),
+  methodsList: () => ipcRenderer.invoke('methods:list'),               // 🎓 학습 방법론 목록
+  onDatasetProgress: (cb: (d: any) => void) => { const h = (_e: any, d: any) => cb(d); ipcRenderer.on('dataset:progress', h); return () => ipcRenderer.removeListener('dataset:progress', h); },
   // 📋 아침 브리핑(능동성) + 트레이
   briefingRun: () => ipcRenderer.invoke('briefing:run'),
   onBriefing: (cb: (t: string) => void) => { const h = (_e: any, t: string) => cb(t); ipcRenderer.on('briefing:show', h); return () => ipcRenderer.removeListener('briefing:show', h); },

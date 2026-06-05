@@ -6,7 +6,7 @@ export class BrainViz {
   private ctx: CanvasRenderingContext2D;
   private pts: P[] = [];
   private edges: [number, number][] = [];
-  private pulses: { a: number; b: number; t: number; sp: number }[] = [];
+  private pulses: { a: number; b: number; t: number; sp: number; c: number[] }[] = [];
   private w = 0; private h = 0; private dpr = 1;
   private rot = 0; private tilt = 0; private t = 0;
   private energy = 0; private target = 0;
@@ -75,10 +75,12 @@ export class BrainViz {
     });
 
     ctx.clearRect(0, 0, this.w, this.h);
-    // 외곽 아우라
-    const aura = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.5);
-    aura.addColorStop(0, `rgba(0,255,140,${0.05 + this.energy * 0.13})`);
-    aura.addColorStop(0.6, `rgba(0,120,255,${0.02 + this.energy * 0.05})`);
+    // 외곽 아우라 — 바이오루미네선트(초록 코어 + 청록/보라 변주, 은은히 호흡)
+    const pulseA = 0.5 + 0.5 * Math.sin(this.t * 0.8);
+    const aura = ctx.createRadialGradient(cx, cy, R * 0.15, cx, cy, R * 1.55);
+    aura.addColorStop(0, `rgba(0,255,150,${0.07 + this.energy * 0.15 + pulseA * 0.02})`);
+    aura.addColorStop(0.5, `rgba(0,150,255,${0.025 + this.energy * 0.06})`);
+    aura.addColorStop(0.8, `rgba(150,90,255,${0.012 + pulseA * 0.01})`);
     aura.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = aura; ctx.fillRect(0, 0, this.w, this.h);
 
@@ -94,22 +96,25 @@ export class BrainViz {
       ctx.beginPath(); ctx.moveTo(a.sx, a.sy); ctx.lineTo(b.sx, b.sy); ctx.stroke();
     }
 
-    // ⚡ 신경 신호 펄스 — 시냅스를 타고 흐르는 빛 (차분하게)
-    const spawn = 0.05 + this.energy * 0.3;
+    // ⚡ 신경 신호 펄스 — 시냅스를 타고 흐르는 빛. 쉴 때도 항상 흐름(살아있는 두뇌).
+    const spawn = 0.16 + this.energy * 0.34;
     if (this.edges.length && Math.random() < spawn) {
       const e = this.edges[(Math.random() * this.edges.length) | 0];
-      this.pulses.push({ a: e[0], b: e[1], t: 0, sp: 0.012 + Math.random() * 0.014 + this.energy * 0.008 });
+      const r = Math.random();   // 바이오 변주: 대부분 민트, 가끔 청록/보라 발광
+      const c = r < 0.1 ? [0, 229, 255] : r < 0.17 ? [200, 140, 255] : [130, 255, 195];
+      this.pulses.push({ a: e[0], b: e[1], t: 0, sp: 0.012 + Math.random() * 0.014 + this.energy * 0.008, c });
     }
     for (let k = this.pulses.length - 1; k >= 0; k--) {
       const pu = this.pulses[k]; pu.t += pu.sp;
       if (pu.t >= 1) { this.pulses.splice(k, 1); continue; }
       const a = proj[pu.a], b = proj[pu.b], px = a.sx + (b.sx - a.sx) * pu.t, py = a.sy + (b.sy - a.sy) * pu.t;
-      ctx.fillStyle = `rgba(180,255,210,${0.9 * (1 - pu.t)})`;
-      ctx.shadowColor = '#5dffb0'; ctx.shadowBlur = 8;
-      ctx.beginPath(); ctx.arc(px, py, 1.6, 0, Math.PI * 2); ctx.fill();
+      const al = 0.9 * (1 - pu.t);
+      ctx.fillStyle = `rgba(${pu.c[0]},${pu.c[1]},${pu.c[2]},${al})`;
+      ctx.shadowColor = `rgb(${pu.c[0]},${pu.c[1]},${pu.c[2]})`; ctx.shadowBlur = 9;
+      ctx.beginPath(); ctx.arc(px, py, 1.7, 0, Math.PI * 2); ctx.fill();
     }
     ctx.shadowBlur = 0;
-    if (this.pulses.length > 140) this.pulses.splice(0, this.pulses.length - 140);
+    if (this.pulses.length > 160) this.pulses.splice(0, this.pulses.length - 160);
 
     // 노드 — 앞쪽이 크고 밝게
     for (const i of order) {

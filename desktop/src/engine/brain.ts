@@ -122,19 +122,35 @@ export function search(query: string, topK = 4, queryEmb?: number[], prefer?: Ca
     .filter(x => x.s > 0).sort((a, b) => b.s - a.s).slice(0, topK).map(x => x.n);
 }
 
-// 그래프 데이터: 노드 + 엣지(임베딩 유사도 또는 공유 태그). 노드에 분야 포함(색칠용).
+// 그래프 데이터: 노드 + 엣지. 노드에 분야 포함(색칠용).
+//   엣지는 kNN(각 노드를 "가장 닮은 상위 K개"에만 연결) 방식.
+//   ⚠️ 고정 임계값(예: 0.45)은 못 씀 — nomic 임베딩은 한국어 문장 유사도가 전부 0.65~0.9에 몰려서
+//   임계값을 어떻게 잡아도 전부-전부 연결(털뭉치)되거나 전부 끊김. kNN은 절대 척도와 무관하게 깔끔한 군집을 만든다.
+const GRAPH_K = 3;
 export function graph(): { nodes: { id: string; label: string; tags: string[]; category: Category }[]; links: { source: string; target: string; w: number }[] } {
   const notes = load();
   const nodes = notes.map(n => ({ id: n.id, label: n.text.replace(/\[\[|\]\]/g, '').slice(0, 22), tags: n.tags, category: normCat(n.category) }));
+  const seen = new Set<string>();
   const links: { source: string; target: string; w: number }[] = [];
+  const addLink = (i: number, j: number, w: number) => {
+    const key = i < j ? `${i}-${j}` : `${j}-${i}`;
+    if (seen.has(key)) return; seen.add(key);
+    links.push({ source: notes[i].id, target: notes[j].id, w });
+  };
   for (let i = 0; i < notes.length; i++) {
-    for (let j = i + 1; j < notes.length; j++) {
-      const a = notes[i], b = notes[j];
+    const a = notes[i];
+    // 유사도(임베딩 있으면 코사인, 없으면 공유 태그) 상위 K개를 이웃으로 연결
+    const sims: { j: number; w: number }[] = [];
+    for (let j = 0; j < notes.length; j++) {
+      if (i === j) continue;
+      const b = notes[j];
       let w = 0;
       if (a.emb && b.emb) w = cosine(a.emb, b.emb);
       else { const shared = a.tags.filter(t => b.tags.includes(t)).length; w = shared ? Math.min(1, shared / 2) : 0; }
-      if (w > 0.45) links.push({ source: a.id, target: b.id, w });
+      if (w > 0) sims.push({ j, w });
     }
+    sims.sort((x, y) => y.w - x.w);
+    for (const { j, w } of sims.slice(0, GRAPH_K)) addLink(i, j, w);
   }
   return { nodes, links };
 }

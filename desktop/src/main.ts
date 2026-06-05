@@ -8,12 +8,15 @@ import * as os from 'os';
 import { talkToMyAgent, agentWithTools, ChatTurn } from './engine/company';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
-import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, setCategory as brainSetCategory, classify, CATEGORIES, type Category } from './engine/brain';
+import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown } from './engine/github';
-import { uploadDataset, notesToJsonl } from './engine/hf';
+import { encryptPack, decryptPack } from './engine/cryptopack';
+import { uploadDataset, hfUsername } from './engine/hf';
 import { buildNotebook } from './engine/train';
+import { METHODS, buildMethodNotebook } from './engine/methods';
+import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
 import { sendEmail } from './engine/email';
 import { fetchChannel, ytAccessToken, fetchAnalytics } from './engine/youtube';
 import { setMcpConfig, testMcp, listMcpTools } from './engine/mcp';
@@ -558,16 +561,6 @@ ipcMain.handle('brain:delete', (_e, id: string) => { deleteNote(id); return note
 // 📊 분야별 두뇌 성장 통계 (마케팅·코딩·디자인·사업·일반) — 개수·검증·파인튜닝 준비 여부
 ipcMain.handle('brain:stats', () => categoryStats());
 // 분야 미리보기(입력 중 자동분류 표시) — 저장 안 함
-ipcMain.handle('brain:classify', (_e, text: string) => { const id = classify(text || '') as Category; return { id, label: CATEGORIES[id].label, emoji: CATEGORIES[id].emoji, brain: CATEGORIES[id].brain }; });
-ipcMain.handle('brain:setCategory', (_e, id: string, category: Category) => { brainSetCategory(id, category); return categoryStats(); });
-ipcMain.handle('brain:add', async (_e, text: string, category?: Category) => {
-  const c = loadConfig();
-  let e: number[] | null = null;
-  try { e = await embed(c.llmBase || 'http://127.0.0.1:1234', text); } catch { /* */ }
-  brainAddNote(text, e || undefined, { category, source: 'me', verified: true });   // 직접 입력 = 검증된 출처
-  autoSyncSoon();
-  return noteCount();
-});
 // 🔌 에제르 브릿지 상태 — 수신중/양보(다른 앱 점유)/꺼짐
 ipcMain.handle('bridge:status', () => bridgeStatus());
 
@@ -712,22 +705,6 @@ ipcMain.handle('tasks:add', (_e, title: string) => addTask(title, { owner: 'user
 ipcMain.handle('tasks:done', (_e, id: string) => { setTaskStatus(id, 'done'); return listTasks(); });
 ipcMain.handle('tasks:cancel', (_e, id: string) => { setTaskStatus(id, 'cancelled'); return listTasks(); });
 
-// 🧬 장기 기억 (베타) — 지식 노트를 파인튜닝용 JSONL로 내보내기 (Unsloth/허깅페이스 학습용)
-ipcMain.handle('brain:exportTraining', (_e, hf: { token?: string; model?: string }) => {
-  if (hf) saveConfig({ hfToken: hf.token || '', hfModel: hf.model || '' });
-  const notes = allNotes();
-  if (!notes.length) return { ok: false, reason: '학습할 지식이 없어요. 먼저 단기 기억에 지식을 쌓으세요.' };
-  const sys = '너는 사장님의 1인 기업 AI 비서다. 아래 지식을 체득해 답변에 활용한다.';
-  const lines = notes.map(n => JSON.stringify({ messages: [
-    { role: 'system', content: sys },
-    { role: 'user', content: '내 사업/지식에 대해 기억하고 있는 것을 알려줘.' },
-    { role: 'assistant', content: n.text },
-  ] })).join('\n');
-  const out = path.join(os.homedir(), 'Desktop', 'connect-ai-knowledge.jsonl');
-  try { fs.writeFileSync(out, lines, 'utf8'); shell.showItemInFolder(out); return { ok: true, path: out, count: notes.length }; }
-  catch (e: any) { return { ok: false, reason: e?.message || String(e) }; }
-});
-
 // ⚡ 단기 기억 = GitHub 동기화 / 🧬 장기 기억 = HuggingFace 업로드
 const connOf = (svc: string) => (loadConfig().apiConn || {})[svc] || {};
 const geminiKey = () => { const c = loadConfig(); return (c.apiConn?.gemini?.GEMINI_API_KEY) || (c.apiKeys?.gemini) || ''; };
@@ -776,15 +753,121 @@ ipcMain.handle('github:pull', async () => {
   if (!r.ok && !md.ok) return { ok: false, error: md.error || r.error };
   return { ok: true, added, total: noteCount(), scanned, skipped, capped };
 });
-ipcMain.handle('hf:upload', async () => {
-  const h = connOf('huggingface');
+
+// ── 🧠 제이 브레인 링크 — 멘토(대장)가 지식을 비번으로 암호화 게시 → 구독자만 연동 ──────
+const parseRepo = (repo: string) => { const s = (repo || '').trim().replace(/^https?:\/\/(www\.)?github\.com\//i, '').replace(/^git@github\.com:/i, '').replace(/\.git$/i, ''); const p = s.split('/').filter(Boolean); return { owner: p[0] || '', name: (p[1] || '').replace(/[#?].*$/, '') }; };
+// 📤 게시(대장) — 내 지식을 비번으로 잠가 공개 레포에 (암호화돼서 공개여도 안전)
+ipcMain.handle('brain:publishPack', async (_e, password: string) => {
+  const g = connOf('github');
+  const notes = allNotes();
+  if (!notes.length) return { ok: false, error: '게시할 지식이 없어요. 먼저 지식을 쌓으세요.' };
+  if (!password || password.length < 4) return { ok: false, error: '비밀번호를 4자 이상 입력하세요.' };
+  const slim = notes.map((n: any) => ({ text: n.text, tags: n.tags, category: n.category, ts: n.ts }));
+  const blob = encryptPack(JSON.stringify(slim), password);
+  const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, 'connect-ai/brain.enc', blob, `🔒 제이 브레인 링크 게시 (${notes.length}개)`);
+  if (!r.ok) return r;
+  const { owner, name } = parseRepo(g.GITHUB_DEFAULT_REPO);
+  return { ok: true, repo: `${owner}/${name}`, count: notes.length };
+});
+// 🧠 연동(구독자) — 멘토 레포의 암호화 두뇌를 비번으로 복호화해 가져옴
+ipcMain.handle('brain:linkBrain', async (_e, repoOrUrl: string, password: string) => {
+  const { owner, name } = parseRepo(repoOrUrl);
+  if (!owner || !name) return { ok: false, error: '멘토 레포를 owner/repo 로 입력하세요 (예: wonseokjung/memory).' };
+  if (!password) return { ok: false, error: '비밀번호를 입력하세요.' };
+  let blob = '';
+  for (const br of ['main', 'master']) {
+    try { const res = await axios.get(`https://raw.githubusercontent.com/${owner}/${name}/${br}/connect-ai/brain.enc`, { timeout: 15000, responseType: 'text', transformResponse: [(d: any) => d] }); blob = res.data; break; }
+    catch (e: any) { if (e?.response?.status !== 404) return { ok: false, error: '다운로드 실패: ' + (e?.message || e) }; }
+  }
+  if (!blob) return { ok: false, error: '멘토 브레인이 아직 게시 안 됐어요 (connect-ai/brain.enc 없음).' };
+  let plain = '';
+  try { plain = decryptPack(blob, password); } catch { return { ok: false, error: '비밀번호가 틀렸어요. (또는 만료된 비번)' }; }
+  let notes: any[] = [];
+  try { notes = JSON.parse(plain); } catch { return { ok: false, error: '데이터 형식 오류' }; }
+  const added = importNotes(notes, { source: 'jay', verified: true });
+  return { ok: true, added, total: noteCount() };
+});
+// ── 🧬 장기기억 만들기: ① 변환 → ② 업로드 → ③ 모델 이름·학습 ───────────────
+let lastBrainJsonl = '';          // 변환 결과(세 단계가 공유)
+let lastBrainPairs = 0;
+async function genQuestion(target: any, n: any, temp: number): Promise<string> {
+  try {
+    const sys = '너는 학습 데이터 출제자다. 주어진 지식을 사용자가 물어볼 법한 자연스러운 한국어 질문 하나만 만들어라. 질문만 한 줄, 따옴표 없이.';
+    const u = `분야: ${CATEGORIES[(n.category || 'general') as Category]?.label || '일반'}\n지식: ${dsTitle(n.text)} — ${n.text.slice(0, 300)}`;
+    const r = await chat(target, sys, u, { temperature: temp });
+    return ((r || '').split('\n').map((s: string) => s.trim()).filter(Boolean)[0] || '').replace(/^["'?\-•\s]+|["'\s]+$/g, '').slice(0, 120);
+  } catch { return ''; }
+}
+// ① 변환 — 단기 지식 → conversations Q&A. 🔬증강 시 노트당 질문 2개(다양성=echo 방지).
+ipcMain.handle('brain:buildDataset', async (_e, augment?: boolean) => {
   const notes = allNotes();
   if (!notes.length) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓으세요.' };
-  return await uploadDataset(h.HF_TOKEN, h.HF_REPO, notesToJsonl(notes));
+  const c = loadConfig();
+  let target: any = null;
+  try { target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }); } catch { /* */ }
+  const pairs: { q: string; a: string }[] = [];
+  let i = 0;
+  for (const n of notes) {
+    i++;
+    const qs: string[] = [];
+    const want = augment ? 2 : 1;
+    for (let k = 0; k < want; k++) {
+      let q = target ? await genQuestion(target, n, 0.6 + k * 0.3) : '';
+      if (!q) q = fallbackQuestion(n);
+      if (!qs.includes(q)) qs.push(q);
+    }
+    for (const q of qs) pairs.push({ q, a: trimAnswer(n.text) });
+    win?.webContents.send('dataset:progress', { done: i, total: notes.length, q: qs[0].slice(0, 60) });
+  }
+  lastBrainJsonl = toConversationsJsonl(pairs);
+  lastBrainPairs = lastBrainJsonl ? lastBrainJsonl.split('\n').filter(Boolean).length : 0;
+  try { fs.writeFileSync(path.join(os.homedir(), 'Desktop', 'connect-ai-brain.jsonl'), lastBrainJsonl, 'utf8'); } catch { /* */ }
+  return { ok: true, notes: notes.length, pairs: lastBrainPairs, llm: !!target, augment: !!augment, sample: pairs.slice(0, 3).map(p => ({ q: p.q, a: p.a.slice(0, 90) })) };
 });
-ipcMain.handle('memstatus', () => {
+// ② 업로드 — 변환된 데이터셋을 HF에
+ipcMain.handle('hf:uploadBrain', async () => {
+  const h = connOf('huggingface');
+  if (!lastBrainJsonl) return { ok: false, error: '먼저 ① 변환을 눌러 데이터셋을 만드세요.' };
+  return await uploadDataset(h.HF_TOKEN, h.HF_REPO, lastBrainJsonl, 'connect-ai-brain.jsonl');
+});
+// ── ⚖️ AI 자동 피드백 (RLAIF·DPO) — AI가 좋은답/나쁜답을 스스로 만들어 선호쌍 생성 ──────
+let lastDpoJsonl = '';
+ipcMain.handle('brain:buildPreference', async () => {
+  const notes = allNotes();
+  if (!notes.length) return { ok: false, error: '지식이 없어요. 먼저 단기 기억에 쌓으세요.' };
+  const c = loadConfig();
+  let target: any = null;
+  try { target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }); } catch { /* */ }
+  if (!target) return { ok: false, error: 'AI 모델을 먼저 켜주세요 (LM Studio/Ollama). AI가 좋은답/나쁜답을 생성합니다.' };
+  const rows: { prompt: string; chosen: string; rejected: string }[] = [];
+  let i = 0;
+  for (const n of notes) {
+    i++;
+    let q = await genQuestion(target, n, 0.6); if (!q) q = fallbackQuestion(n);
+    const chosen = trimAnswer(n.text);   // 지식 기반 = 좋은 답(구체적)
+    let rejected = '';
+    try { rejected = (await chat(target, '너는 일부러 두루뭉술하고 구체성·실행안 없이 짧게 답하는 봇이다. 한두 문장.', q, { temperature: 0.9 })).trim().slice(0, 300); } catch { /* */ }
+    if (!rejected || rejected === chosen) rejected = '음, 상황마다 다르죠. 알아서 잘 해보세요.';
+    rows.push({ prompt: q, chosen, rejected });
+    win?.webContents.send('dataset:progress', { done: i, total: notes.length, q: q.slice(0, 60) });
+  }
+  lastDpoJsonl = rows.map(r => JSON.stringify(r)).join('\n');
+  try { fs.writeFileSync(path.join(os.homedir(), 'Desktop', 'connect-ai-dpo.jsonl'), lastDpoJsonl, 'utf8'); } catch { /* */ }
+  return { ok: true, notes: notes.length, pairs: rows.length, sample: rows.slice(0, 3).map(r => ({ q: r.prompt, chosen: r.chosen.slice(0, 70), rejected: r.rejected.slice(0, 70) })) };
+});
+ipcMain.handle('hf:uploadPreference', async () => {
+  const h = connOf('huggingface');
+  if (!lastDpoJsonl) return { ok: false, error: '먼저 ① AI 피드백 생성을 누르세요.' };
+  return await uploadDataset(h.HF_TOKEN, h.HF_REPO, lastDpoJsonl, 'connect-ai-dpo.jsonl');
+});
+// ③ 모델 이름 제안(이전 버전 → 다음 버전)
+ipcMain.handle('brain:modelName', () => { const c: any = loadConfig(); return { suggested: nextModelName(c.brainModelName), prev: c.brainModelName || '' }; });
+ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');
-  return { githubRepo: g.GITHUB_DEFAULT_REPO || '', githubReady: !!(g.GITHUB_TOKEN && g.GITHUB_DEFAULT_REPO), hfRepo: h.HF_REPO || '', hfReady: !!(h.HF_TOKEN && h.HF_REPO), notes: noteCount() };
+  let hfRepo = h.HF_REPO || '', hfUrl = '';
+  if (hfRepo && !hfRepo.includes('/') && h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) hfRepo = `${me}/${hfRepo}`; }   // 이름만 → 풀네임
+  if (hfRepo.includes('/')) hfUrl = `https://huggingface.co/datasets/${hfRepo}`;
+  return { githubRepo: g.GITHUB_DEFAULT_REPO || '', githubReady: !!(g.GITHUB_TOKEN && g.GITHUB_DEFAULT_REPO), hfRepo, hfUrl, hfReady: !!(h.HF_TOKEN && h.HF_REPO), notes: noteCount() };
 });
 
 // 🔄 자동 루프 — 지식 쌓이면 GitHub 자동 커밋(디바운스) + 충분히 쌓이면 장기학습 추천 알림
@@ -867,23 +950,35 @@ async function realtimeFor(agentId: string): Promise<string> {
   return '';
 }
 // 🚀 학습 노트북 생성 → GitHub 커밋 → Colab 원클릭 URL
-ipcMain.handle('train:notebook', async () => {
-  const c = loadConfig();
-  // 내 학습 노트북이 설정돼 있으면 그걸 그대로 (데이터셋은 이미 HF에 올라가 있음)
-  if ((c.trainNotebookUrl || '').startsWith('http')) return { ok: true, colab: c.trainNotebookUrl, note: '내 학습 노트북' };
+// 🎓 학습 방법론 목록 (배움용)
+ipcMain.handle('methods:list', () => METHODS);
+ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
+  const c: any = loadConfig();
   const g = connOf('github'), h = connOf('huggingface');
-  const dataset = h.HF_REPO || '';
-  if (!dataset.includes('/')) return { ok: false, error: '먼저 🗂️ 연동에서 HuggingFace 데이터셋 레포를 설정하고 🧬 업로드 하세요.' };
-  if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 업로드하세요.' };
-  const owner = dataset.split('/')[0];
-  const nb = buildNotebook(dataset, h.HF_BASE_MODEL || 'unsloth/gemma-2-2b-it-bnb-4bit', `${owner}/connect-ai-brain`);
+  let dataset = h.HF_REPO || '';
+  if (dataset && !dataset.includes('/') && h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) dataset = `${me}/${dataset}`; }   // 이름만 입력 → 아이디 자동 보충
+  const method = (opts?.method || 'sft') as string;
+  // SFT만 내 데이터셋 필요. DPO는 배움용(노트북에 샘플 포함)이라 없이도 생성.
+  if (method === 'sft') {
+    if (!dataset.includes('/')) return { ok: false, error: '먼저 🗂️ 연동에서 HuggingFace 데이터셋 레포를 설정하고 ② 업로드 하세요.' };
+    if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 변환·업로드하세요.' };
+  }
+  const owner = dataset.split('/')[0] || 'my-hf-id';
+  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9가-힣._-]/g, '-') || nextModelName(c.brainModelName);
+  const trainOpts = { rank: opts?.rank, alpha: opts?.alpha, dropout: opts?.dropout, learningRate: opts?.learningRate, maxSteps: opts?.maxSteps, epochs: opts?.epochs, warmup: opts?.warmup, maxSeq: opts?.maxSeq, scheduler: opts?.scheduler, quant: opts?.quant };
+  saveConfig({ brainModelName: name, trainOpts, trainMethod: method } as any);
+  const outRepo = name.includes('/') ? name : `${owner}/${name}`;
+  const base = guessBase(c.llmModel);                          // 내가 로드한 모델 위에 누적 학습
+  const nb = buildMethodNotebook(method, dataset, base, outRepo, lastBrainPairs || noteCount(), trainOpts);
+  const fileName = `connect-ai/train-${method}.ipynb`;
   // GitHub 연결돼 있으면 커밋 → Colab 원클릭
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
-    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, 'connect-ai/train.ipynb', nb, '🚀 Connect AI 장기기억 학습 노트북');
-    if (r.ok) { const [o, n] = g.GITHUB_DEFAULT_REPO.split('/'); return { ok: true, colab: `https://colab.research.google.com/github/${o}/${n}/blob/main/connect-ai/train.ipynb`, github: r.url }; }
+    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🚀 Connect AI 학습 노트북 (${method.toUpperCase()})`);
+    // r.url 은 이미 정규화된 github blob 주소 → 그걸 그대로 colab 주소로 변환(전체 URL·.git 입력해도 안전)
+    if (r.ok && r.url) { return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url }; }
   }
   // 폴백: 바탕화면 저장 + Colab 업로드 페이지
-  const out = path.join(os.homedir(), 'Desktop', 'connect-ai-train.ipynb');
+  const out = path.join(os.homedir(), 'Desktop', `connect-ai-train-${method}.ipynb`);
   try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
