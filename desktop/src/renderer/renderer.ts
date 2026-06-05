@@ -308,13 +308,20 @@ async function renderAiCurrent() {
   const cfg = await connect.getConfig();
   const ls = _localStatus || (await connect.localStatus?.());
   const el = $('aiCurrent'); if (!el) return;
-  let icon = '🧠', name = '', tag = '', on = false;
-  if (ls?.loading) { icon = '⏳'; name = '불러오는 중'; }
+  let icon = '🧠', name = '', tag = '', on = false, busy = false;
+  if (ls?.loading) { icon = '⏳'; name = ls.modelName ? ls.modelName : '불러오는 중'; tag = '불러오는 중…'; busy = true; }
   else if (ls?.running && (cfg.llmBase || '').includes(':1235')) { name = ls.modelName; tag = '내장 · ' + (ls.gpu === 'metal' ? 'GPU' : ls.gpu || 'CPU'); on = true; }
+  else if (ls?.error) { icon = '⚠️'; name = '모델을 못 켰어요'; tag = String(ls.error).slice(0, 44); }
   else if (cfg.llmModel) { const g = /gemini/i.test(cfg.llmModel); icon = g ? '☁️' : '🧠'; name = cfg.llmModel; tag = g ? 'Gemini' : (cfg.llmBase || '').includes('11434') ? 'Ollama' : 'LM Studio'; }
   else { icon = '🧠'; name = 'AI를 골라주세요'; tag = '아래에서 받아 사용'; }
-  el.innerHTML = `<div class="aic-icon">${icon}</div><div class="aic-info"><div class="aic-name">${name}</div><div class="aic-tag">${tag}</div></div>`;
+  const off = on ? `<button class="aic-off" id="aicOff">끄기</button>` : '';
+  el.innerHTML = `<div class="aic-icon${busy ? ' spin' : ''}">${icon}</div><div class="aic-info"><div class="aic-name">${name}</div><div class="aic-tag">${tag}</div></div>${off}`;
   el.className = 'ai-current' + (on ? ' on' : '');
+  $('aicOff')?.addEventListener('click', async () => {
+    _localStatus = { ...(_localStatus || {}), loading: true, running: false }; renderAiCurrent();
+    await connect.localStop?.(); await connect.setConfig({ llmBase: '', llmModel: '' });
+    _localStatus = await connect.localStatus?.(); await loadLocalAI(); await renderAiCurrent();
+  });
 }
 // ⚙️ 추론 파라미터 (프로 콘솔)
 let _params: any = {};
@@ -324,13 +331,26 @@ const SLIDERS = [
   { id: 'apTopK', val: 'apTopKVal', key: 'topK', sc: 1, dp: 0 },
   { id: 'apMinP', val: 'apMinPVal', key: 'minP', sc: 100, dp: 2 },
   { id: 'apRep', val: 'apRepVal', key: 'repeatPenalty', sc: 100, dp: 2 },
+  { id: 'apFreq', val: 'apFreqVal', key: 'freqPenalty', sc: 100, dp: 2 },
+  { id: 'apPres', val: 'apPresVal', key: 'presPenalty', sc: 100, dp: 2 },
+  { id: 'apLastN', val: 'apLastNVal', key: 'repeatLastN', sc: 1, dp: 0 },
 ];
-const DEF_PARAMS = { temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1, flashAttn: true, ctxSize: 4096, maxTokens: 1024 };
+const DEF_PARAMS = { temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1, freqPenalty: 0, presPenalty: 0, repeatLastN: 64, flashAttn: true, ctxSize: 8192, maxTokens: 1024 };
 const applyParams = async (patch: any) => { _params = await connect.localSetOptions?.(patch); await renderAiCurrent(); };
+const kctx = (n: number) => n >= 1024 ? Math.round(n / 1024) + 'K' : String(n);
 async function loadParams() {
   _params = (await connect.localOptions?.()) || _params;
+  const st = _localStatus || (await connect.localStatus?.()) || {};
+  const maxCtx = Number(st.maxCtx) || 0;
   ($('apFlash') as HTMLInputElement).checked = !!_params.flashAttn;
-  document.querySelectorAll('#apCtx button').forEach(b => b.classList.toggle('on', Number((b as HTMLElement).dataset.ctx) === _params.ctxSize));
+  document.querySelectorAll('#apCtx button').forEach(b => {
+    const v = Number((b as HTMLElement).dataset.ctx); const over = !!maxCtx && v > maxCtx;
+    b.classList.toggle('on', v === _params.ctxSize && !over);
+    b.classList.toggle('dim', over); (b as HTMLButtonElement).disabled = over;
+    (b as HTMLElement).title = over ? '이 모델 최대 컨텍스트 초과' : '';
+  });
+  const ctxEm = document.querySelector('#apCtx')?.closest('.ap-row')?.querySelector('.ap-name em');
+  if (ctxEm) ctxEm.textContent = maxCtx ? `ctx · 모델최대 ${kctx(maxCtx)}` : 'ctx';
   document.querySelectorAll('#apMax button').forEach(b => b.classList.toggle('on', Number((b as HTMLElement).dataset.max) === _params.maxTokens));
   for (const d of SLIDERS) { const v = _params[d.key] ?? 0; const el = $(d.id) as HTMLInputElement; if (el) el.value = String(Math.round(v * d.sc)); const vv = $(d.val); if (vv) vv.textContent = v.toFixed(d.dp); }
 }
@@ -367,11 +387,14 @@ async function loadLocalAI() {
     (m.removable ? `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" title="삭제">🗑️</button>` : '') + `</div>`).join('')
     : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받거나 LM Studio 모델을 쓰세요.</div>';
   $('localModels').querySelectorAll('.lm-use').forEach(b => b.addEventListener('click', async () => {
-    const p = decodeURIComponent((b as HTMLElement).dataset.path!); (b as HTMLElement).textContent = '⏳ 켜는 중…';
+    if ((b as HTMLButtonElement).disabled) return;
+    const p = decodeURIComponent((b as HTMLElement).dataset.path!);
+    const nm = (b as HTMLElement).closest('.lm-row')?.querySelector('.lm-name')?.textContent || '';
+    document.querySelectorAll('.lm-use').forEach(x => ((x as HTMLButtonElement).disabled = true));   // 중복 클릭 방지
+    _localStatus = { ...(_localStatus || {}), loading: true, modelName: nm, running: false, error: '' }; await renderAiCurrent();   // 즉시 로딩 표시
     _localStatus = await connect.localStart?.(p);
-    // 비서가 내장 엔진을 쓰도록 설정 (LM Studio보다 우선)
-    if (_localStatus?.running) await connect.setConfig({ llmBase: LOCAL_BASE, llmModel: _localStatus.modelName });
-    renderLocalStatus(); await loadLocalAI(); await renderAiCurrent(); await loadModels(); refreshMem?.();
+    if (_localStatus?.running) await connect.setConfig({ llmBase: LOCAL_BASE, llmModel: _localStatus.modelName });   // 비서가 내장 엔진 쓰게
+    await loadLocalAI(); await renderAiCurrent(); await loadModels(); refreshMem?.();
   }));
   $('localModels').querySelectorAll('.lm-del').forEach(b => b.addEventListener('click', async () => {
     const p = decodeURIComponent((b as HTMLElement).dataset.del!); await connect.localDelete?.(p); loadLocalAI();
@@ -413,7 +436,7 @@ connect.onHfProgress?.((p: any) => {
   ($('hfDlFill') as HTMLElement).style.width = (p.percent || 0) + '%';
   $('hfDlText').textContent = `${p.percent || 0}% · ${fmtGB(p.received)}${p.total ? ' / ' + fmtGB(p.total) : ''}`;
 });
-connect.onLocalStatus?.((s: any) => { _localStatus = s; renderLocalStatus(); renderAiCurrent(); });
+connect.onLocalStatus?.((s: any) => { _localStatus = s; renderLocalStatus(); renderAiCurrent(); if (!$('aiPanel').classList.contains('hidden')) loadParams(); });
 // 🧩 MCP
 async function loadMcp() {
   const cfg = await connect.mcpGet();

@@ -273,11 +273,14 @@
         <div class="ap-slider"><span class="ap-name">어휘 폭 <em>top-k</em></span><input type="range" id="apTopK" min="1" max="100" step="1" /><span class="ap-val" id="apTopKVal">40</span></div>
         <div class="ap-slider"><span class="ap-name">최소 확률 <em>min-p</em></span><input type="range" id="apMinP" min="0" max="50" step="1" /><span class="ap-val" id="apMinPVal">0.05</span></div>
         <div class="ap-slider"><span class="ap-name">반복 억제 <em>rep</em></span><input type="range" id="apRep" min="100" max="150" step="1" /><span class="ap-val" id="apRepVal">1.10</span></div>
+        <div class="ap-slider"><span class="ap-name">빈도 억제 <em>freq</em></span><input type="range" id="apFreq" min="0" max="200" step="5" /><span class="ap-val" id="apFreqVal">0.00</span></div>
+        <div class="ap-slider"><span class="ap-name">존재 억제 <em>pres</em></span><input type="range" id="apPres" min="0" max="200" step="5" /><span class="ap-val" id="apPresVal">0.00</span></div>
+        <div class="ap-slider"><span class="ap-name">반복 범위 <em>last-n</em></span><input type="range" id="apLastN" min="0" max="512" step="8" /><span class="ap-val" id="apLastNVal">64</span></div>
       </div>
       <div class="ai-sec">성능</div>
       <div class="ai-params">
         <label class="ap-row"><span class="ap-name">빠른 응답 <em>flash-attn</em></span><input type="checkbox" id="apFlash" /></label>
-        <div class="ap-row"><span class="ap-name">기억 길이 <em>ctx</em></span><div class="ap-seg" id="apCtx"><button data-ctx="2048">2K</button><button data-ctx="4096">4K</button><button data-ctx="8192">8K</button></div></div>
+        <div class="ap-row"><span class="ap-name">문맥 길이 <em>ctx</em></span><div class="ap-seg" id="apCtx"><button data-ctx="4096">4K</button><button data-ctx="8192">8K</button><button data-ctx="16384">16K</button><button data-ctx="32768">32K</button></div></div>
         <div class="ap-row"><span class="ap-name">응답 길이 <em>max</em></span><div class="ap-seg" id="apMax"><button data-max="512">짧음</button><button data-max="1024">보통</button><button data-max="2048">김</button></div></div>
       </div>
       <button class="ap-reset" id="apReset">기본값으로 되돌리기</button>

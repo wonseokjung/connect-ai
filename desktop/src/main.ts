@@ -52,6 +52,7 @@ interface Config {
   localCtxSize: number;    // 📏 대화 기억 길이(컨텍스트 토큰)
   localTemp: number;       // 🌡️ 창의성(temperature)
   localMaxTokens: number; localTopP: number; localTopK: number; localMinP: number; localRepeatPenalty: number;   // 샘플링
+  localFreqPenalty: number; localPresPenalty: number; localRepeatLastN: number;
 }
 const DEFAULTS: Config = {
   company: '1인 기업', agentName: '에이전트', userTitle: '사장님', plazaEmoji: '🖥️', greeting: '', workspace: '', tools: true,
@@ -60,8 +61,9 @@ const DEFAULTS: Config = {
   hfToken: '', hfModel: '', apiConn: {},
   briefingOn: true, briefingHour: 9, briefingMin: 0, lastBriefing: '', trainNotebookUrl: '',
   autoSync: true, lastSyncCount: 0, lastTrainHintCount: 0, mcpConfig: {}, voiceQuality: 'browser', qwenVoice: 'Sohee', ttsLocalUrl: '',
-  localModelPath: '', localAuto: true, localFlashAttn: true, localCtxSize: 4096, localTemp: 0.7,
+  localModelPath: '', localAuto: true, localFlashAttn: true, localCtxSize: 8192, localTemp: 0.7,
   localMaxTokens: 1024, localTopP: 0.9, localTopK: 40, localMinP: 0.05, localRepeatPenalty: 1.1,
+  localFreqPenalty: 0, localPresPenalty: 0, localRepeatLastN: 64,
 };
 const defaultWorkspace = () => path.join(os.homedir(), 'Desktop');
 
@@ -318,7 +320,7 @@ ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 const modelsDir = () => path.join(app.getPath('userData'), 'models');
 const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } };
 async function bootLocalEngine(modelPath: string) {
-  const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty });
+  const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN });
   try { sendLocal({ ...localStatus(), loading: true }); await startLocalEngine(modelPath); saveConfig({ localModelPath: modelPath }); sendLocal(localStatus()); }
   catch (e: any) { sendLocal({ ...localStatus(), loading: false, error: String(e?.message || e) }); }
 }
@@ -330,7 +332,7 @@ ipcMain.handle('local:models', () => listLocalModels(modelsDir()));
 ipcMain.handle('local:options', () => getLocalOptions());
 ipcMain.handle('local:setOptions', async (_e, o: any) => {
   const prev = getLocalOptions(); setLocalOptions(o); const g = getLocalOptions();
-  saveConfig({ localFlashAttn: g.flashAttn, localCtxSize: g.ctxSize, localTemp: g.temp, localMaxTokens: g.maxTokens, localTopP: g.topP, localTopK: g.topK, localMinP: g.minP, localRepeatPenalty: g.repeatPenalty });
+  saveConfig({ localFlashAttn: g.flashAttn, localCtxSize: g.ctxSize, localTemp: g.temp, localMaxTokens: g.maxTokens, localTopP: g.topP, localTopK: g.topK, localMinP: g.minP, localRepeatPenalty: g.repeatPenalty, localFreqPenalty: g.freqPenalty, localPresPenalty: g.presPenalty, localRepeatLastN: g.repeatLastN });
   const needReload = (o.flashAttn !== undefined && o.flashAttn !== prev.flashAttn) || (o.ctxSize !== undefined && o.ctxSize !== prev.ctxSize);
   const s = localStatus();
   if (needReload && s.running && s.modelPath) { sendLocal({ ...s, loading: true }); try { await startLocalEngine(s.modelPath, true); } catch { /* */ } sendLocal(localStatus()); }

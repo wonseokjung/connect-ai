@@ -20,7 +20,9 @@ let _seq: any = null;            // 고정 시퀀스 1개(요청마다 재생성
 let _session: any = null;        // 공유 LlamaChatSession(요청마다 setChatHistory 로 초기화)
 let _server: http.Server | null = null;
 let _Session: any = null;        // LlamaChatSession 클래스
+let _defineFn: any = null;       // defineChatSessionFunction (네이티브 도구호출용)
 let _modelPath = '', _modelName = '', _gpu = '';
+let _maxCtx = 0, _loadedCtx = 0;   // 모델이 지원하는 최대 컨텍스트 / 실제 로드된 컨텍스트
 let _loading = false, _error = '';
 let _chain: Promise<any> = Promise.resolve();   // 요청 직렬화(단일 컨텍스트 보호)
 
@@ -28,14 +30,15 @@ let _chain: Promise<any> = Promise.resolve();   // 요청 직렬화(단일 컨�
 export interface LocalOptions {
   flashAttn: boolean; ctxSize: number; maxTokens: number;
   temp: number; topP: number; topK: number; minP: number; repeatPenalty: number;
+  freqPenalty: number; presPenalty: number; repeatLastN: number;
 }
-let _opts: LocalOptions = { flashAttn: true, ctxSize: 4096, maxTokens: 1024, temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1 };
+let _opts: LocalOptions = { flashAttn: true, ctxSize: 8192, maxTokens: 1024, temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1, freqPenalty: 0, presPenalty: 0, repeatLastN: 64 };
 export function setLocalOptions(o: Partial<LocalOptions>) { _opts = { ..._opts, ...o }; }
 export function getLocalOptions(): LocalOptions { return { ..._opts }; }
 
-export interface LocalStatus { running: boolean; loading: boolean; modelName: string; modelPath: string; port: number; base: string; gpu: string; error: string; }
+export interface LocalStatus { running: boolean; loading: boolean; modelName: string; modelPath: string; port: number; base: string; gpu: string; error: string; maxCtx: number; ctxSize: number; }
 export function localStatus(): LocalStatus {
-  return { running: !!(_server && _model), loading: _loading, modelName: _modelName, modelPath: _modelPath, port: LOCAL_PORT, base: LOCAL_BASE, gpu: _gpu, error: _error };
+  return { running: !!(_server && _model), loading: _loading, modelName: _modelName, modelPath: _modelPath, port: LOCAL_PORT, base: LOCAL_BASE, gpu: _gpu, error: _error, maxCtx: _maxCtx, ctxSize: _loadedCtx };
 }
 
 // node-llama-cpp 는 ESM 전용 → CJS(메인 번들)에서 런타임 동적 import 로 불러온다.
@@ -49,8 +52,8 @@ export async function startLocalEngine(modelPath: string, force = false): Promis
   if (!force && _model && _modelPath === modelPath && _server) return localStatus();
   _loading = true; _error = '';
   try {
-    const { getLlama, LlamaChatSession } = await nlc();
-    _Session = LlamaChatSession;
+    const { getLlama, LlamaChatSession, defineChatSessionFunction } = await nlc();
+    _Session = LlamaChatSession; _defineFn = defineChatSessionFunction;
     if (!_llama) { _llama = await getLlama({ build: 'never' }); _gpu = String(_llama.gpu); }   // 프리빌드만, 컴파일 금지
     // 기존 모델 정리 후 새 모델 로드
     try { _seq?.dispose?.(); } catch { /* */ }
@@ -58,7 +61,9 @@ export async function startLocalEngine(modelPath: string, force = false): Promis
     try { await _model?.dispose?.(); } catch { /* */ }
     _seq = null; _session = null; _ctx = null; _model = null;
     _model = await _llama.loadModel({ modelPath });
-    _ctx = await _model.createContext({ contextSize: _opts.ctxSize, flashAttention: _opts.flashAttn });   // ⚡ flashAttn=속도
+    try { _maxCtx = Number(_model.trainContextSize) || 0; } catch { _maxCtx = 0; }   // 모델이 지원하는 최대 컨텍스트
+    _loadedCtx = _maxCtx ? Math.min(_opts.ctxSize, _maxCtx) : _opts.ctxSize;          // 모델 최대를 넘지 않게
+    _ctx = await _model.createContext({ contextSize: _loadedCtx, flashAttention: _opts.flashAttn });   // ⚡ flashAttn=속도
     _seq = _ctx.getSequence();
     _session = new _Session({ contextSequence: _seq });   // 공유 세션 1개
     _modelPath = modelPath;
@@ -82,7 +87,7 @@ export async function stopLocalEngine(): Promise<void> {
 // ── OpenAI 호환 미니 서버 (127.0.0.1:1235) ─────────────────────
 function startServer(): Promise<void> {
   return new Promise((resolve) => {
-    _server = http.createServer((req, res) => { handle(req, res).catch((e) => sendJson(res, 500, { error: { message: String(e?.message || e) } })); });
+    _server = http.createServer((req, res) => { handle(req, res).catch((e) => { try { console.error('[localengine] 요청 에러:', e?.stack || e); } catch { /* */ } try { sendJson(res, 500, { error: { message: String(e?.message || e) } }); } catch { /* */ } }); });
     _server.on('error', (e) => { _error = 'server: ' + String((e as any)?.message || e); });
     _server.listen(LOCAL_PORT, '127.0.0.1', () => resolve());
   });
@@ -109,32 +114,93 @@ async function handle(req: http.IncomingMessage, res: http.ServerResponse) {
   sendJson(res, 404, { error: { message: 'not found' } });
 }
 
-// OpenAI messages[] → node-llama-cpp 세션(시스템+히스토리 복원) → 마지막 user 프롬프트
+// 생성 중단(throw·에러) 후 공유 세션을 깨끗하게 재생성 — 다음 요청이 꼬이지 않게.
+function resetSession() { try { if (_Session && _seq) _session = new _Session({ contextSequence: _seq }); } catch { /* */ } }
+// 함수호출 캡처용 — 핸들러에서 이걸 던지면 prompt() 가 멈추고 우리가 호출을 OpenAI tool_calls 로 반환.
+class ToolStop extends Error {}
+// OpenAI JSON Schema → node-llama-cpp GbnfJsonSchema (지원 키만 남김).
+function normSchema(s: any): any {
+  if (!s || typeof s !== 'object') return { type: 'object', properties: {} };
+  const out: any = {};
+  if (s.type) out.type = s.type;
+  if (s.enum) out.enum = s.enum;
+  if (typeof s.description === 'string') out.description = s.description;
+  if (s.properties) { out.properties = {}; for (const k of Object.keys(s.properties)) out.properties[k] = normSchema(s.properties[k]); }
+  if (s.items) out.items = normSchema(s.items);
+  if ((out.type === 'object' || out.properties) && !out.properties) out.properties = {};
+  if (!out.type && out.properties) out.type = 'object';
+  if (!out.type) out.type = 'string';
+  return out;
+}
+
+// OpenAI messages[] → node-llama-cpp 세션. tools 있으면 네이티브 함수호출로 tool_calls 반환.
 async function chatCompletion(body: any, res: http.ServerResponse) {
   const messages: any[] = Array.isArray(body?.messages) ? body.messages : [];
-  const stream = !!body?.stream;
-  const maxTokens = Math.min(Number(body?.max_tokens) || _opts.maxTokens, _opts.ctxSize);
+  const tools: any[] = Array.isArray(body?.tools) ? body.tools : [];
+  const useTools = tools.length > 0 && !!_defineFn;
+  const stream = !!body?.stream && !useTools;   // 도구 모드는 비스트림(호출 캡처)
+  const maxTokens = Math.min(Number(body?.max_tokens) || _opts.maxTokens, _loadedCtx || _opts.ctxSize);
   const temperature = body?.temperature != null ? Number(body.temperature) : _opts.temp;
-  const sampling: any = { maxTokens, temperature, topP: _opts.topP, topK: _opts.topK, minP: _opts.minP, repeatPenalty: { penalty: _opts.repeatPenalty } };
+  const sampling: any = { maxTokens, temperature, topP: _opts.topP, topK: _opts.topK, minP: _opts.minP, repeatPenalty: { penalty: _opts.repeatPenalty, frequencyPenalty: _opts.freqPenalty, presencePenalty: _opts.presPenalty, lastTokens: _opts.repeatLastN } };
 
   const sys = messages.filter((m) => m.role === 'system').map((m) => String(m.content || '')).join('\n').trim();
-  const conv = messages.filter((m) => m.role === 'user' || m.role === 'assistant');
-  const last = conv[conv.length - 1];
-  const prior = (last && last.role === 'user') ? conv.slice(0, -1) : conv;
-  const promptText = (last && last.role === 'user') ? String(last.content || '') : '';
+  const conv = messages.filter((m) => m.role !== 'system');
+  // tool_call_id → 도구 이름
+  const callName: Record<string, string> = {};
+  for (const m of conv) if (m.role === 'assistant' && Array.isArray(m.tool_calls)) for (const tc of m.tool_calls) callName[tc.id] = tc.function?.name || 'tool';
+  // 마지막 assistant 이후 = 현재 입력, 그 전 = 히스토리
+  let splitIdx = -1;
+  for (let i = 0; i < conv.length; i++) if (conv[i].role === 'assistant') splitIdx = i;
+  const historyMsgs = conv.slice(0, splitIdx + 1);
+  const promptMsgs = conv.slice(splitIdx + 1);
 
-  // 공유 세션 재사용 — 매 요청 setChatHistory 로 상태 초기화(시퀀스 풀 고갈 방지)
   const history: any[] = [];
   if (sys) history.push({ type: 'system', text: sys });
-  for (const m of prior) {
+  for (const m of historyMsgs) {
     if (m.role === 'user') history.push({ type: 'user', text: String(m.content || '') });
-    else history.push({ type: 'model', response: [String(m.content || '')] });
+    else if (m.role === 'assistant') {
+      let txt = String(m.content || '');
+      if (Array.isArray(m.tool_calls)) txt += (txt ? '\n' : '') + m.tool_calls.map((tc: any) => `[도구 실행: ${tc.function?.name} ${tc.function?.arguments || ''}]`).join('\n');
+      history.push({ type: 'model', response: [txt] });
+    } else if (m.role === 'tool') {
+      history.push({ type: 'user', text: `[도구 결과 ${callName[m.tool_call_id] || ''}]\n${String(m.content || '')}` });
+    }
   }
-  try { _session.setChatHistory(history); } catch { /* */ }
+  let promptText = '';
+  for (const m of promptMsgs) {
+    if (m.role === 'tool') promptText += `[도구 결과 ${callName[m.tool_call_id] || ''}]\n${String(m.content || '')}\n`;
+    else promptText += String(m.content || '') + '\n';
+  }
+  promptText = promptText.trim() || (useTools ? '도구 결과를 보고 이어서 답해줘.' : '');
 
+  try { _session.setChatHistory(history); } catch { /* */ }
   const id = 'chatcmpl-local-' + Date.now();
   const created = Math.floor(Date.now() / 1000);
 
+  // ── 도구 모드: 모델이 함수 부르면 캡처 → tool_calls 로 반환 ──
+  if (useTools) {
+    let captured: any = null;
+    let fns: any = {};
+    try {
+      for (const t of tools) {
+        const f = t.function; if (!f?.name) continue;
+        fns[f.name] = _defineFn({ description: f.description || '', params: normSchema(f.parameters), handler: (args: any) => { captured = { name: f.name, args: args || {} }; throw new ToolStop(); } });
+      }
+    } catch { fns = null; }   // 스키마 변환 실패 → 일반 채팅 폴백
+    if (fns) {
+      let answer = '', realErr: any = null;
+      try { answer = await _session.prompt(promptText, { ...sampling, functions: fns }); }
+      catch (e) { if (!(e instanceof ToolStop)) realErr = e; }
+      resetSession();   // ⚠️ 함수호출 throw·에러는 생성을 끊으므로 다음 요청 위해 세션 재생성
+      if (captured) {
+        return sendJson(res, 200, { id, object: 'chat.completion', created, model: _modelName, choices: [{ index: 0, message: { role: 'assistant', content: null, tool_calls: [{ id: 'call_' + Date.now(), type: 'function', function: { name: captured.name, arguments: JSON.stringify(captured.args) } }] }, finish_reason: 'tool_calls' }], usage: {} });
+      }
+      if (realErr) { console.error('[localengine] 도구 생성 에러:', realErr?.message || realErr); return sendJson(res, 200, { id, object: 'chat.completion', created, model: _modelName, choices: [{ index: 0, message: { role: 'assistant', content: '처리 중 문제가 생겼어요. 다시 한 번 말씀해 주세요.' }, finish_reason: 'stop' }], usage: {} }); }
+      return sendJson(res, 200, { id, object: 'chat.completion', created, model: _modelName, choices: [{ index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' }], usage: {} });
+    }
+  }
+
+  // ── 일반 채팅 ──
   if (stream) {
     res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
     const send = (delta: any, finish: any = null) => res.write(`data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model: _modelName, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`);

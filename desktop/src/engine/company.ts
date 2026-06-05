@@ -151,7 +151,7 @@ export async function agentWithTools(history: ChatTurn[], userText: string, opts
 const firstJson = (s: string) => { const m = s.match(/\{[\s\S]*\}/); try { return m ? JSON.parse(m[0]) : null; } catch { return null; } };
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const noEngine = (onEvent: (e: EngineEvent) => void) =>
-  onEvent({ kind: 'error', text: 'AI 엔진(LM Studio 또는 Ollama)을 찾지 못했어요. 사장님, 모델을 먼저 켜주세요.' });
+  onEvent({ kind: 'error', text: '아직 AI 모델이 안 켜졌어요. 위 🤖 에서 모델을 골라 "사용"을 눌러주세요. (모델 로딩에 10~20초)' });
 
 // 🔌 연결된 MCP 서버 도구를 프롬프트용 텍스트로
 async function buildMcpBlock(): Promise<string> {

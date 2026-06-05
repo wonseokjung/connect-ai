@@ -9,7 +9,10 @@ export interface ToolResult { tool: string; path: string; output: string; ok: bo
 
 // ~ 확장 + 절대경로화. workspace 기준 상대경로도 허용.
 function resolvePath(p: string, workspace: string): string {
-  p = (p || '').trim().replace(/^~(?=\/|$)/, os.homedir());
+  p = (p || '').trim();
+  // 🛡️ 약한 모델이 인자에 키 이름을 섞는 경우 방어: "path: /x", "경로: /x", 따옴표 등 제거
+  p = p.replace(/^["'`]+|["'`]+$/g, '').replace(/^\s*(path|경로|dir|directory|file)\s*[:=]\s*/i, '').trim();
+  p = p.replace(/^~(?=\/|$)/, os.homedir());
   if (!path.isAbsolute(p)) p = path.join(workspace || os.homedir(), p);
   return path.resolve(p);
 }
