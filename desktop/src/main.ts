@@ -361,7 +361,10 @@ function setupAutoUpdate() {
   setInterval(() => autoUpdater.checkForUpdates().catch(() => { /* */ }), 6 * 60 * 60 * 1000);   // 6시간마다
 }
 ipcMain.handle('update:check', async () => { if (!app.isPackaged) return { dev: true }; try { const r = await autoUpdater.checkForUpdates(); return { ok: true, version: r?.updateInfo?.version }; } catch (e: any) { return { ok: false, error: e?.message }; } });
-ipcMain.handle('update:install', () => { try { autoUpdater.quitAndInstall(); } catch { /* */ } });
+ipcMain.handle('update:install', () => {
+  quitting = true;   // ⚠️ 상주형 close 가드(win.on('close') preventDefault)를 풀어야 quitAndInstall 이 실제로 종료·설치됨
+  try { autoUpdater.quitAndInstall(false, true); } catch { /* */ }   // isForceRunAfter=true → 설치 후 자동 재실행
+});
 // 엔진 이벤트를 메인+사무실 창 둘 다에 (사무실 창이 살아 움직이게)
 const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };
 async function loadRevenue() {
