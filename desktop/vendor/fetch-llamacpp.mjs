@@ -12,9 +12,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BUILD = process.env.LLAMACPP_BUILD || 'b9548';
 const BASE = `https://github.com/ggml-org/llama.cpp/releases/download/${BUILD}`;
 
-// 플랫폼별 받을 에셋. 맥은 두 아키텍처 모두(arm64+x64 슬라이스 빌드), 윈도우는 CPU(드라이버 의존 없이 어디서나 기동).
+// 플랫폼별 받을 에셋. 맥은 두 아키텍처 모두(arm64+x64 슬라이스 빌드), 윈도우는 Vulkan(GPU 가속 + GPU 없으면 CPU 자동 폴백).
 const TARGETS = process.platform === 'win32'
-  ? [{ plat: 'win-x64', asset: `llama-${BUILD}-bin-win-cpu-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i }]
+  ? [{ plat: 'win-x64', asset: `llama-${BUILD}-bin-win-vulkan-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i }]   // vulkan = GPU(엔비디아·AMD·인텔) + CPU 폴백 내장
   : [
       { plat: 'mac-arm64', asset: `llama-${BUILD}-bin-macos-arm64.tar.gz`, exe: 'llama-server', libRe: /\.dylib$/ },
       { plat: 'mac-x64', asset: `llama-${BUILD}-bin-macos-x64.tar.gz`, exe: 'llama-server', libRe: /\.dylib$/ },
@@ -49,11 +49,15 @@ for (const t of TARGETS) {
   // llama-server + 모든 라이브러리(dylib/dll)만 복사 (다른 실행파일 제외)
   let copied = 0;
   for (const e of fs.readdirSync(srcDir, { withFileTypes: true })) {
-    if (e.name === t.exe || t.libRe.test(e.name) || e.name === 'LICENSE') {
-      fs.copyFileSync(path.join(srcDir, e.name), path.join(dest, e.name));
-      if (e.name === t.exe && process.platform !== 'win32') fs.chmodSync(path.join(dest, e.name), 0o755);
-      copied++;
+    if (!(e.name === t.exe || t.libRe.test(e.name) || e.name === 'LICENSE')) continue;
+    const src = path.join(srcDir, e.name), dst = path.join(dest, e.name);
+    if (fs.lstatSync(src).isSymbolicLink()) {
+      fs.symlinkSync(fs.readlinkSync(src), dst);   // dylib 심볼릭 링크 보존(실파일 복사 시 3배 부풀음 방지)
+    } else {
+      fs.copyFileSync(src, dst);
+      if (e.name === t.exe && process.platform !== 'win32') fs.chmodSync(dst, 0o755);
     }
+    copied++;
   }
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* */ }
   console.log(`✅ ${t.plat}: ${copied}개 파일 → vendor/llamacpp/${t.plat}/`);
