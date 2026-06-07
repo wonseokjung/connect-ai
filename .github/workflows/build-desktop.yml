@@ -34,6 +34,11 @@ jobs:
         working-directory: desktop
         run: npm run build
 
+      # 내장 추론 엔진(llama.cpp llama-server) 프리빌드를 플랫폼별로 받아 vendor/llamacpp/ 에 둠.
+      - name: Fetch llama.cpp runtime
+        working-directory: desktop
+        run: node vendor/fetch-llamacpp.mjs
+
       - name: Package installer (electron-builder)
         working-directory: desktop
         run: npx electron-builder --publish never

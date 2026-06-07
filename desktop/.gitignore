@@ -8,3 +8,7 @@ build/icon_1024.png
 .notarize.env
 test-localengine.mjs
 test-localserver.mjs
+test-llamasrv.mjs
+gtest.mjs
+# llama.cpp prebuilt 바이너리 — 빌드 시 vendor/fetch-llamacpp.mjs 로 받음(스크립트는 커밋, 바이너리는 제외)
+vendor/llamacpp/

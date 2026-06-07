@@ -246,10 +246,12 @@ async function runBriefing(manual = false) {
       c.services.length ? `서비스: ${c.services.map(s => s.name).join(', ')}` : '',
     ].filter(Boolean).join('\n');
     const title = c.userTitle || '사장님';
-    const user = `${title}께 드리는 **아침 브리핑**을 작성해줘.\n\n[현재 상황]\n${ctx}\n\n형식: 따뜻한 한 줄 인사 → 오늘 핵심 3가지(우선순위) → 추천 액션 1개. 너무 길지 않게, ${title}이(가) 바로 움직일 수 있게.`;
+    const user = `${title}께 드리는 **아침 브리핑**을 작성해줘.\n\n[현재 상황]\n${ctx}\n\n형식: 따뜻한 한 줄 인사 → 오늘 핵심 3가지(우선순위) → 추천 액션 1개. 너무 길지 않게, ${title}이(가) 바로 움직일 수 있게.\n\n⚠️ 이건 읽어주는 브리핑이야. 도구·함수·<태그>·코드는 절대 쓰지 말고 순수 한국어 문장으로만 작성해.`;
     notify('📋 브리핑 준비 중…', `${c.agentName}가 오늘 할 일을 정리하고 있어요.`);
     let text = '';
     try { text = await chat(target, agentPrompt(c.agentName, c.company, title), user, { temperature: 0.6 }); } catch (e: any) { text = `브리핑 생성 중 문제가 생겼어요. (${e?.message || e})`; }
+    // 🛡️ 브리핑에 도구 태그가 새면(모델이 멋대로) 그 지점부터 잘라냄 — 정보 전달용이라 실행 안 함
+    text = text.replace(/(제가\s*바로\s*실행[^\n]*)?<\/?(write_file|run|read_file|list_dir|find|web_search|fetch_url|mcp|tool)[\s\S]*$/i, '').trim();
     text = text.trim();
     saveConfig({ lastBriefing: todayStr() });
     showWindow();
@@ -408,8 +410,13 @@ function setupAutoUpdate() {
 }
 ipcMain.handle('update:check', async () => { if (!app.isPackaged) return { dev: true }; try { const r = await autoUpdater.checkForUpdates(); return { ok: true, version: r?.updateInfo?.version }; } catch (e: any) { return { ok: false, error: e?.message }; } });
 ipcMain.handle('update:install', () => {
-  quitting = true;   // ⚠️ 상주형 close 가드(win.on('close') preventDefault)를 풀어야 quitAndInstall 이 실제로 종료·설치됨
-  try { autoUpdater.quitAndInstall(false, true); } catch { /* */ }   // isForceRunAfter=true → 설치 후 자동 재실행
+  quitting = true;   // ⚠️ 상주형 close 가드 해제
+  // 상주 서버·자식 프로세스를 먼저 닫아야 프로세스가 깨끗이 종료돼 설치·재실행이 됨 (안 그러면 앱만 꺼지고 새버전 실행 안 됨)
+  try { stopBridge(); } catch { /* */ }
+  try { stopLocalEngine(); } catch { /* */ }
+  try { killTerm(); } catch { /* */ }
+  try { tray?.destroy(); } catch { /* */ }
+  setTimeout(() => { try { autoUpdater.quitAndInstall(false, true); } catch { /* */ } }, 400);   // isForceRunAfter=true → 설치 후 자동 재실행
 });
 // 엔진 이벤트를 메인+사무실 창 둘 다에 (사무실 창이 살아 움직이게)
 const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };

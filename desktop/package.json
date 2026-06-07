@@ -1,6 +1,6 @@
 {
   "name": "connect-ai-desktop",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "Connect AI — 자비스 같은 1인 기업 AI 비서 (데스크톱 앱, 비개발자용)",
   "main": "out/main.js",
   "author": "EZER AI",
@@ -41,14 +41,7 @@
       "out/**",
       "src/renderer/**",
       "assets/**",
-      "package.json",
-      "node_modules/node-llama-cpp/**",
-      "!node_modules/node-llama-cpp/llama/localBuilds/**",
-      "node_modules/@node-llama-cpp/**"
-    ],
-    "asarUnpack": [
-      "node_modules/node-llama-cpp/**",
-      "node_modules/@node-llama-cpp/**"
+      "package.json"
     ],
     "npmRebuild": false,
     "publish": [
@@ -60,6 +53,15 @@
     ],
     "mac": {
       "category": "public.app-category.productivity",
+      "extraResources": [
+        {
+          "from": "vendor/llamacpp",
+          "to": "llamacpp",
+          "filter": [
+            "mac-*/**"
+          ]
+        }
+      ],
       "target": [
         {
           "target": "dmg",
@@ -87,13 +89,23 @@
       }
     },
     "dmg": {
+      "title": "Connect AI ${version}",
       "artifactName": "Connect-AI-${version}-mac-${arch}.dmg"
     },
     "win": {
       "target": [
         "nsis"
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "vendor/llamacpp",
+          "to": "llamacpp",
+          "filter": [
+            "win-*/**"
+          ]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,
