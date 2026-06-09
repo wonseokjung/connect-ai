@@ -115,9 +115,11 @@ function applyCfgLabels() {
 async function loadCfg() {
   cfg = await connect.getConfig();
   ($('cfgDbUrl') as HTMLInputElement).value = cfg.plazaDbUrl || '';
+  ($('cfgTrainBackend') as HTMLInputElement).value = cfg.trainBackendUrl || '';
+  ($('cfgFbApiKey') as HTMLInputElement).value = cfg.firebaseApiKey || '';
+  ($('cfgFbDbUrl') as HTMLInputElement).value = cfg.firebaseDbUrl || '';
   ($('cfgLlmBase') as HTMLInputElement).value = cfg.llmBase || '';
   ($('cfgGreeting') as HTMLInputElement).value = cfg.greeting || '';
-  ($('cfgAgentName') as HTMLInputElement).value = cfg.agentName && cfg.agentName !== '에이전트' ? cfg.agentName : '';
   ($('cfgUserTitle') as HTMLInputElement).value = cfg.userTitle && cfg.userTitle !== '사장님' ? cfg.userTitle : '';
   ($('cfgVoice') as HTMLInputElement).checked = cfg.voice !== false;
   ($('cfgJarvis') as HTMLInputElement).checked = cfg.jarvis !== false;
@@ -130,6 +132,7 @@ async function loadCfg() {
   ($('cfgTtsLocalUrl') as HTMLInputElement).value = cfg.ttsLocalUrl || '';
   ($('cfgBriefing') as HTMLInputElement).checked = cfg.briefingOn !== false;
   ($('cfgAutoSync') as HTMLInputElement).checked = cfg.autoSync !== false;
+  ($('cfgEmailAuto') as HTMLInputElement).checked = !!cfg.emailAutoReply;
   ($('cfgBriefingTime') as HTMLInputElement).value = `${String(cfg.briefingHour ?? 9).padStart(2, '0')}:${String(cfg.briefingMin ?? 0).padStart(2, '0')}`;
   ($('cfgTrainUrl') as HTMLInputElement).value = cfg.trainNotebookUrl || '';
   connect.safeModeGet().then((on: boolean) => { ($('cfgSafeMode') as HTMLInputElement).checked = !!on; });
@@ -154,9 +157,11 @@ async function saveNameTag() {
 $('saveCfg').addEventListener('click', async () => {
   cfg = await connect.setConfig({
     plazaDbUrl: ($('cfgDbUrl') as HTMLInputElement).value.trim(),
+    trainBackendUrl: ($('cfgTrainBackend') as HTMLInputElement).value.trim(),
+    firebaseApiKey: ($('cfgFbApiKey') as HTMLInputElement).value.trim(),
+    firebaseDbUrl: ($('cfgFbDbUrl') as HTMLInputElement).value.trim(),
     llmBase: ($('cfgLlmBase') as HTMLInputElement).value.trim(),
     greeting: ($('cfgGreeting') as HTMLInputElement).value.trim(),
-    agentName: ($('cfgAgentName') as HTMLInputElement).value.trim() || '에이전트',
     userTitle: ($('cfgUserTitle') as HTMLInputElement).value.trim() || '사장님',
     voice: ($('cfgVoice') as HTMLInputElement).checked,
     jarvis: ($('cfgJarvis') as HTMLInputElement).checked,
@@ -167,6 +172,7 @@ $('saveCfg').addEventListener('click', async () => {
     tools: ($('cfgTools') as HTMLInputElement).checked,
     briefingOn: ($('cfgBriefing') as HTMLInputElement).checked,
     autoSync: ($('cfgAutoSync') as HTMLInputElement).checked,
+    emailAutoReply: ($('cfgEmailAuto') as HTMLInputElement).checked,
     briefingHour: parseInt((($('cfgBriefingTime') as HTMLInputElement).value || '09:00').split(':')[0], 10) || 9,
     briefingMin: parseInt((($('cfgBriefingTime') as HTMLInputElement).value || '09:00').split(':')[1], 10) || 0,
     trainNotebookUrl: ($('cfgTrainUrl') as HTMLInputElement).value.trim(),
@@ -175,6 +181,7 @@ $('saveCfg').addEventListener('click', async () => {
   closeOverlay('settingsPanel'); loadModels(); hint('설정을 저장했어요 ✅');
 });
 $('briefNowBtn').addEventListener('click', () => { connect.briefingRun(); closeOverlay('settingsPanel'); hint('📋 브리핑을 준비하고 있어요…'); });
+$('openAiTeamBtn')?.addEventListener('click', () => { closeOverlay('settingsPanel'); openOverlay('aiPanel'); loadAiPanel(); });
 $('pickWorkspace').addEventListener('click', async () => {
   const w = await connect.pickWorkspace();
   ($('cfgWorkspace') as HTMLInputElement).value = w;
@@ -198,16 +205,13 @@ $('cfgVoicePick').addEventListener('change', async (e: any) => {
 let MODELS_CACHE: string[] = [];
 let MODELS_LOADED = '';
 async function loadModels() {
-  const sel = $('modelSel') as HTMLSelectElement;
+  // 모델 선택 UI는 🤖 내 AI 팀에 통합됨 — 여기선 자동 감지로 base/model만 맞춰둔다
   const info = await connect.listModels();
-  sel.innerHTML = '';
-  if (!info || !info.models?.length) { const o = document.createElement('option'); o.textContent = '로컬 AI 없음'; sel.appendChild(o); MODELS_CACHE = []; return; }
+  if (!info || !info.models?.length) { MODELS_CACHE = []; return; }
   MODELS_CACHE = info.models; MODELS_LOADED = info.loaded || '';
-  for (const m of info.models) { const o = document.createElement('option'); o.value = m; o.textContent = m + (/^gemini/i.test(m) ? '  ☁️ 클라우드' : (m === info.loaded ? '  ● 로드됨' : '')); sel.appendChild(o); }
-  sel.value = (cfg.llmModel && info.models.includes(cfg.llmModel)) ? cfg.llmModel : (info.loaded || info.models[0]);
-  cfg = await connect.setConfig({ llmBase: info.base, llmModel: sel.value });
+  const chosen = (cfg.llmModel && info.models.includes(cfg.llmModel)) ? cfg.llmModel : (info.loaded || info.models[0]);
+  cfg = await connect.setConfig({ llmBase: info.base, llmModel: chosen });
 }
-$('modelSel').addEventListener('change', async (e) => { cfg = await connect.setConfig({ llmModel: (e.target as HTMLSelectElement).value }); hint('모델: ' + cfg.llmModel); });
 
 // ── 📎 첨부 (파일·이미지 끌어다 놓기) ─────────────────────
 type Attach = { path: string; name: string; image?: string };
@@ -303,7 +307,198 @@ function switchMtab(tab: string) {
 // 🤖 AI 선택 패널
 const LOCAL_BASE = 'http://127.0.0.1:1235';
 $('aiBtn').addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
-async function loadAiPanel() { await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams()]); }
+async function loadAiPanel() { renderOfficePreview(); renderTeamRoster(); await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams()]); }
+// 🏢 작은 사무실 미리보기 — 팀 아바타가 둥실둥실, 누르면 큰 사무실 창. [[project_my_ai_team_vision]]
+function renderOfficePreview() {
+  const el = $('officePreview'); if (!el) return;
+  el.style.backgroundImage = `url('${OFFICE_BG}')`;
+  el.innerHTML = AGENT_ORDER.map((id, i) => {
+    const a = AGENTS[id]; if (!a) return ''; const [x, y] = VO_HOME[id] || [50, 50];
+    const im = agImgSrc(id);
+    const inner = im ? `<div class="opc-av" style="background-image:url('${escAttr(im)}')"></div>` : `<div class="opc-av opc-emoji">${a.emoji}</div>`;
+    return `<div class="op-char" style="left:${x}%;top:${y}%;animation-delay:${(i % 6) * 0.35}s">${inner}</div>`;
+  }).join('') + `<div class="op-expand">⤢ 크게 보기</div>`;
+}
+// 👥 우리 팀 로스터 — 캐릭터별 이름·얼굴·두뇌를 한눈에. 클릭 → 상세(커스텀). [[project_my_ai_team_vision]]
+function renderTeamRoster() {
+  const el = $('teamRoster'); if (!el) return;
+  el.innerHTML = AGENT_ORDER.map(id => {
+    const a = AGENTS[id]; if (!a) return '';
+    const im = agImgSrc(id);
+    const av = im
+      ? `<div class="tr-av" style="background-image:url('${escAttr(im)}');border-color:${a.color}"></div>`
+      : `<div class="tr-av tr-av-emoji" style="border-color:${a.color};background:color-mix(in srgb,${a.color} 22%,#0a120c)">${a.emoji}</div>`;
+    const brain = (cfg.agentModels || {})[id];
+    const brainLabel = brain ? (brain.length > 14 ? brain.slice(0, 13) + '…' : brain) : '공용 두뇌';
+    return `<div class="tr-card${brain ? ' has-brain' : ''}" data-id="${id}" style="--ag:${a.color}" title="${escAttr(a.role)} — 클릭해서 이름·얼굴·두뇌 바꾸기">
+      ${av}
+      <div class="tr-info"><div class="tr-name">${escapeHtml(agName(id))}</div><div class="tr-brain">🧠 ${escapeHtml(brainLabel)}</div></div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('.tr-card').forEach(c => c.addEventListener('click', () => openAgentDetail((c as HTMLElement).dataset.id!)));
+}
+$('officePreview')?.addEventListener('click', () => connect.officeOpen?.());
+$('dashTeamBtn')?.addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
+
+// ───────── 🚀 운영 시작 시네마틱 — 부팅 → 팀 기상 → 자산 스캔 → 작전 → 사령부 ─────────
+const opsWait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+const OPS_SCAN: [string, string][] = [
+  ['youtube', '유튜브 채널 분석 중… 상위 영상·시청층 포착'],
+  ['business', '페이팔 매출 스캔 중… 이번 달 집계 완료'],
+  ['developer', '웹사이트·코드 점검 중… 배포 상태 OK'],
+  ['designer', '비주얼 자산 확인 중… 브랜드 일관성 점검'],
+  ['secretary', '작전 종합 중… 수익화 기회 정리'],
+];
+let opsRaf = 0, opsAutoTimer = 0, opsRunning = false;
+function startOpsRain() {
+  const cv = $('opsRain') as HTMLCanvasElement; if (!cv) return; const ctx = cv.getContext('2d'); if (!ctx) return;
+  cv.width = window.innerWidth; cv.height = window.innerHeight;
+  const cols = Math.floor(cv.width / 16); const drops = new Array(cols).fill(0).map(() => Math.random() * -cv.height);
+  const chars = 'アイウエオカキクケコサシ0123456789ABCDEF<>/{}#$%';
+  const draw = () => {
+    ctx.fillStyle = 'rgba(2,8,4,0.10)'; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.font = '15px monospace';
+    for (let i = 0; i < cols; i++) {
+      const c = chars[Math.floor(Math.random() * chars.length)];
+      ctx.fillStyle = Math.random() > 0.94 ? '#b6ffce' : '#22c55e';
+      ctx.fillText(c, i * 16, drops[i]);
+      drops[i] = drops[i] > cv.height && Math.random() > 0.975 ? 0 : drops[i] + 16;
+    }
+    opsRaf = requestAnimationFrame(draw);
+  };
+  draw();
+}
+function stopOpsRain() { if (opsRaf) cancelAnimationFrame(opsRaf); opsRaf = 0; }
+function closeOps() {
+  if (opsAutoTimer) { clearTimeout(opsAutoTimer); opsAutoTimer = 0; }
+  const cin = $('opsCinema'); cin.classList.remove('show'); cin.classList.add('out');
+  stopOpsRain(); opsRunning = false;
+  setTimeout(() => { cin.setAttribute('hidden', ''); cin.classList.remove('out'); }, 480);
+}
+async function startOps() {
+  if (opsRunning) return;
+  // 두뇌 없으면 운영 시작 대신 모델부터 (가짜 분석 방지)
+  const ls = _localStatus || (await connect.localStatus?.().catch(() => null));
+  if (!ls?.running && !cfg.llmModel) { hint('먼저 🤖 에서 AI 두뇌를 켜주세요 — 그래야 팀이 일해요'); openOverlay('aiPanel'); loadAiPanel(); return; }
+  opsRunning = true;
+  const cin = $('opsCinema'), stage = $('opsStage'); if (!cin || !stage) { opsRunning = false; return; }
+  cin.removeAttribute('hidden'); requestAnimationFrame(() => cin.classList.add('show'));
+  startOpsRain();
+  // 🤖 진짜 분석 시작 — 부팅·기상 연출이 도는 동안 백그라운드에서 실데이터를 분석한다(연출 끝날 즈음 결과 도착)
+  const opsP: Promise<any> = (connect.opsStart?.() || Promise.resolve(null)).catch(() => null);
+  const company = (cfg.company && cfg.company !== '1인 기업') ? cfg.company : '내 회사';
+  // ① 부팅
+  stage.innerHTML = `<div class="ops-boot">
+    <div class="ops-logo">✦ CONNECT AI</div>
+    <div class="ops-tag">${escapeHtml(company)} · 운영 개시</div>
+    <div class="ops-bar"><div class="ops-bar-fill" id="opsBarFill"></div></div>
+    <div class="ops-sub" id="opsSub">INITIALIZING</div>
+  </div>`;
+  await opsWait(60); const bf = $('opsBarFill'); if (bf) bf.style.width = '100%';
+  for (const s of ['두뇌 로딩…', '팀 호출…', '연동 점검…']) { const sub = $('opsSub'); if (sub) sub.textContent = s; await opsWait(440); }
+  await opsWait(280); if (!opsRunning) return;
+  // ② 팀 기상
+  stage.innerHTML = `<div class="ops-act"><div class="ops-h">팀 기상</div><div class="ops-roster" id="opsRoster"></div></div>`;
+  const roster = $('opsRoster');
+  for (const id of AGENT_ORDER) {
+    const a = AGENTS[id]; if (!a || !roster) continue; const im = agImgSrc(id);
+    const av = im ? `<div class="ow-av" style="background-image:url('${escAttr(im)}');border-color:${a.color}"></div>` : `<div class="ow-av ow-emoji" style="border-color:${a.color};background:color-mix(in srgb,${a.color} 22%,#020804)">${a.emoji}</div>`;
+    const el = document.createElement('div'); el.className = 'ow-card'; el.style.setProperty('--ag', a.color);
+    el.innerHTML = `${av}<div class="ow-name">${escapeHtml(agName(id))}</div><div class="ow-on">● ONLINE</div>`;
+    roster.appendChild(el); requestAnimationFrame(() => el.classList.add('in')); await opsWait(160);
+  }
+  await opsWait(550); if (!opsRunning) return;
+  // ③ 자산 스캔 — 진짜 분석 결과를 기다렸다가(연출 동안 이미 돌고 있음) 실제 숫자로 채운다
+  stage.innerHTML = `<div class="ops-act"><div class="ops-h">자산 스캔</div><div class="ops-lines" id="opsLines"></div></div>`;
+  const ops = await opsP;   // { scan:[{agent,label,ok}], actions:[{title,agent,risk}], summary }
+  const scanItems: { agent: string; label: string; ok: boolean }[] = (ops?.scan?.length)
+    ? ops.scan
+    : OPS_SCAN.map(([agent, label]) => ({ agent, label, ok: true }));
+  const lines = $('opsLines');
+  for (const s of scanItems) {
+    const a = AGENTS[s.agent] || ({ emoji: '▸', color: '#39ff14' } as any); if (!lines) break;
+    const el = document.createElement('div'); el.className = 'os-line' + (s.ok ? '' : ' os-skip'); el.style.setProperty('--ag', a.color);
+    el.innerHTML = `<span class="os-who">${a.emoji} ${escapeHtml(agName(s.agent))}</span><span class="os-txt"></span><span class="os-ok">${s.ok ? '✓' : '—'}</span>`;
+    lines.appendChild(el); requestAnimationFrame(() => el.classList.add('in'));
+    const tEl = el.querySelector('.os-txt') as HTMLElement; const txt = s.label;
+    for (let i = 0; i <= txt.length; i += 2) { tEl.textContent = txt.slice(0, i); await opsWait(8); }
+    tEl.textContent = txt; el.classList.add('done'); await opsWait(160);
+  }
+  await opsWait(450); if (!opsRunning) return;
+  // ④ 분석 완료 → 사람이 작전을 고르는 사이클 패널로 넘긴다
+  const summary = ops?.summary ? `<div class="ops-summary">“${escapeHtml(ops.summary)}”</div>` : '';
+  const n = (ops?.actions?.length) || 0;
+  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 작전 ${n}개를 준비했어요 — 할 것을 직접 고르세요</div><button class="ops-go" id="opsGo">📋 작전 검토하기 →</button></div>`;
+  const finish = () => { closeOps(); openCyclePanel(); };
+  $('opsGo')?.addEventListener('click', finish);
+  opsAutoTimer = window.setTimeout(finish, 3200);
+}
+// 🚀/⏹ 시작·중단 토글 — 운영 중이면 같은 버튼이 '운영 중단'으로
+let opsActive = false;
+function setOpsBtn(active: boolean) {
+  opsActive = active;
+  const b = $('opsStartBtn'); if (!b) return;
+  b.classList.toggle('active', active);
+  b.textContent = active ? '⏹ 운영 중단' : '🚀 운영 시작';
+  b.title = active ? '운영 사이클을 멈춥니다' : '운영 시작 — 분석 → 작전 검토 → 실행 사이클을 시작합니다';
+}
+$('opsStartBtn')?.addEventListener('click', async () => {
+  if (opsActive) { await connect.opsStop?.(); setOpsBtn(false); hint('⏹ 자율 운영을 멈췄어요'); }
+  else { startOps(); }
+});
+$('opsSkip')?.addEventListener('click', closeOps);
+
+// ───────── 🎯 운영 사이클 패널 — 분석 → 사람이 작전 선택 → 하나씩 수행 → 다음 사이클? ─────────
+let _ops: any = null;
+function openCyclePanel() { openOverlay('opsCyclePanel'); connect.opsStatus?.().then((s: any) => { _ops = s; renderCycle(s); }).catch(() => { /* */ }); }
+const PHASE_LABEL: Record<string, string> = { planning: '분석 중…', review: '할 작전을 골라주세요', executing: '실행 중…', done: '사이클 완료', idle: '대기' };
+function shipFor(s: any, title: string) { return (s.shipped || []).find((x: any) => x.title === title); }
+function artsHtml(arr: string[]) { return arr && arr.length ? `<div class="cyc-arts">${arr.map(x => `<span class="cyc-art">${escapeHtml(x)}</span>`).join('')}</div>` : ''; }
+function renderCycle(s: any) {
+  if (!s || $('opsCyclePanel')?.classList.contains('hidden')) return;
+  $('cycleNum').textContent = '#' + (s.cycle || 1);
+  $('cyclePhase').textContent = PHASE_LABEL[s.phase] || '';
+  $('cyclePhase').className = 'cycle-phase ph-' + (s.phase || 'idle');
+  const sm = $('cycleSummary'); sm.textContent = s.summary ? '“' + s.summary + '”' : ''; sm.style.display = s.summary ? '' : 'none';
+  const body = $('cycleBody'), foot = $('cycleFoot');
+  if (s.phase === 'planning') {
+    body.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 현황을 분석해 오늘의 작전을 짜는 중…</div>`;
+    foot.innerHTML = '';
+  } else if (s.phase === 'review') {
+    body.innerHTML = `<div class="cyc-step">① AI가 제안한 작전 — 할 것만 체크하세요</div>` + (s.actions || []).map((a: any, i: number) => {
+      const risky = a.risk && a.risk !== 'safe';
+      return `<label class="cyc-task"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-n">${i + 1}</span><span class="cyc-t">${escapeHtml(a.title)}</span>${risky ? '<span class="cyc-risk">승인 필요</span>' : '<span class="cyc-auto">자동</span>'}</label>`;
+    }).join('') || '<div class="cyc-loading">작전이 없어요</div>';
+    foot.innerHTML = `<button class="cyc-btn ghost" id="cycReplan">🔄 다시 분석</button><button class="cyc-btn primary" id="cycRun">선택한 작전 실행 ▶</button>`;
+  } else if (s.phase === 'executing') {
+    body.innerHTML = `<div class="cyc-step">② 고른 작전을 하나씩 수행 중…</div>` + (s.actions || []).map((a: any) => {
+      const ship = shipFor(s, a.title); const running = s.executingTitle === a.title;
+      let st = '<span class="cyc-st wait">대기</span>';
+      if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
+      else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅ 완료</span>' : '<span class="cyc-st fail">결과 없음</span>';
+      return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship.artifacts) : ''}</div>`;
+    }).join('');
+    foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
+  } else if (s.phase === 'done') {
+    const done = (s.actions || []).filter((a: any) => shipFor(s, a.title));
+    const okN = done.filter((a: any) => shipFor(s, a.title)?.ok).length;
+    body.innerHTML = `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">사이클 #${s.cycle} 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개</div></div>` +
+      done.map((a: any) => { const sh = shipFor(s, a.title); return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(a.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span>${artsHtml(sh.artifacts)}</div>`; }).join('');
+    foot.innerHTML = `<div class="cyc-ask">한 사이클이 끝났어요. 다음 사이클을 돌릴까요?</div><div class="cyc-foot-row"><button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button></div>`;
+  } else { body.innerHTML = `<div class="cyc-loading">운영을 시작하면 오늘의 작전이 여기 떠요.</div>`; foot.innerHTML = ''; }
+  // 버튼 배선
+  const run = $('cycRun'); if (run) run.onclick = async () => {
+    const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
+    if (!titles.length) { hint('실행할 작전을 하나 이상 골라주세요'); return; }
+    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles); renderCycle(_ops);
+  };
+  const replan = $('cycReplan'); if (replan) replan.onclick = async () => { replan.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
+  const next = $('cycNext'); if (next) next.onclick = async () => { next.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
+  const stop = $('cycStop'); if (stop) stop.onclick = async () => { _ops = await connect.opsStop?.(); hint('■ 멈췄어요'); renderCycle(_ops); };
+  const end = $('cycEnd'); if (end) end.onclick = async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 종료했어요'); };
+}
+connect.onOpsUpdate?.((s: any) => { _ops = s; setOpsBtn(!!s?.running); renderCycle(s); });   // 상태 변할 때마다 버튼+패널 동기화
+connect.opsStatus?.().then((s: any) => { _ops = s; setOpsBtn(!!s?.running); }).catch(() => { /* */ });
 async function renderAiCurrent() {
   const cfg = await connect.getConfig();
   const ls = _localStatus || (await connect.localStatus?.());
@@ -336,6 +531,14 @@ const SLIDERS = [
   { id: 'apLastN', val: 'apLastNVal', key: 'repeatLastN', sc: 1, dp: 0 },
 ];
 const DEF_PARAMS = { temp: 0.7, topP: 0.9, topK: 40, minP: 0.05, repeatPenalty: 1.1, freqPenalty: 0, presPenalty: 0, repeatLastN: 64, flashAttn: true, ctxSize: 8192, maxTokens: 1024 };
+// 🎭 성격 프리셋 — 슬라이더 8개를 비개발자용 4개로 묶음. 전문가는 접기에서 직접 조정.
+const PERSONAS: Record<string, any> = {
+  calm:     { temp: 0.4, topP: 0.85, topK: 40, minP: 0.05, repeatPenalty: 1.10 },
+  balanced: { temp: 0.7, topP: 0.90, topK: 40, minP: 0.05, repeatPenalty: 1.10 },
+  creative: { temp: 1.0, topP: 0.95, topK: 60, minP: 0.02, repeatPenalty: 1.05 },
+  strict:   { temp: 0.2, topP: 0.70, topK: 20, minP: 0.10, repeatPenalty: 1.15 },
+};
+const PERSONA_KEYS = ['temp', 'topP', 'topK', 'minP', 'repeatPenalty'];
 const applyParams = async (patch: any) => { _params = await connect.localSetOptions?.(patch); await renderAiCurrent(); };
 const kctx = (n: number) => n >= 1024 ? Math.round(n / 1024) + 'K' : String(n);
 async function loadParams() {
@@ -353,10 +556,19 @@ async function loadParams() {
   if (ctxEm) ctxEm.textContent = maxCtx ? `ctx · 모델최대 ${kctx(maxCtx)}` : 'ctx';
   document.querySelectorAll('#apMax button').forEach(b => b.classList.toggle('on', Number((b as HTMLElement).dataset.max) === _params.maxTokens));
   for (const d of SLIDERS) { const v = _params[d.key] ?? 0; const el = $(d.id) as HTMLInputElement; if (el) el.value = String(Math.round(v * d.sc)); const vv = $(d.val); if (vv) vv.textContent = v.toFixed(d.dp); }
+  // 현재 값이 어떤 성격 프리셋과 일치하는지 표시
+  const match = Object.entries(PERSONAS).find(([, p]) => PERSONA_KEYS.every(k => Math.abs((_params[k] ?? -99) - p[k]) < 1e-6));
+  document.querySelectorAll('#apPersona button').forEach(b => b.classList.toggle('on', (b as HTMLElement).dataset.persona === (match?.[0] || '')));
 }
 $('apFlash')?.addEventListener('change', (e) => applyParams({ flashAttn: (e.target as HTMLInputElement).checked }));
 const segPick = (id: string, key: string, attr: string) => $(id)?.addEventListener('click', (e) => { const b = (e.target as HTMLElement).closest('button'); if (!b) return; document.querySelectorAll('#' + id + ' button').forEach(x => x.classList.toggle('on', x === b)); applyParams({ [key]: Number((b as HTMLElement).dataset[attr]) }); });
 segPick('apCtx', 'ctxSize', 'ctx'); segPick('apMax', 'maxTokens', 'max');
+// 🎭 성격 프리셋 클릭 → 8개 파라미터 한 번에
+$('apPersona')?.addEventListener('click', async (e) => {
+  const b = (e.target as HTMLElement).closest('button'); if (!b) return;
+  const p = PERSONAS[(b as HTMLElement).dataset.persona || '']; if (!p) return;
+  await applyParams(p); await loadParams();
+});
 for (const d of SLIDERS) {
   const el = $(d.id); if (!el) continue;
   el.addEventListener('input', (e) => { const v = Number((e.target as HTMLInputElement).value) / d.sc; $(d.val).textContent = v.toFixed(d.dp); });
@@ -381,11 +593,15 @@ async function loadLocalAI() {
   // 내 모델
   const models = (await connect.localModels?.()) || [];
   const cur = _localStatus?.modelPath;
+  const recos = models.length ? [] : ((await connect.hfRecommended?.()) || []);   // 받은 모델 없으면 추천 두뇌 원클릭
   $('localModels').innerHTML = models.length ? models.map((m: any) =>
     `<div class="lm-row ${m.path === cur ? 'active' : ''}"><span class="lm-name">${m.name}</span><span class="muted small">${fmtGB(m.size)}</span>` +
     `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === cur ? '사용 중' : '사용'}</button>` +
-    (m.removable ? `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" title="삭제">🗑️</button>` : '') + `</div>`).join('')
-    : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받거나 LM Studio 모델을 쓰세요.</div>';
+    `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" data-rm="${m.removable ? 1 : 0}" data-nm="${escAttr(m.name)}" data-sz="${fmtGB(m.size)}" data-src="${escAttr(m.source || '')}" title="삭제">🗑️</button></div>`).join('')
+    : (recos.length
+      ? `<div class="muted small" style="margin-bottom:8px">받은 두뇌가 없어요. 추천 두뇌를 한 번에 받으세요 👇</div>` + recos.map((r: any) => `<div class="reco-card" data-repo="${escAttr(r.repo)}"><div class="reco-info"><div class="reco-name">${escapeHtml(r.label)}</div><div class="reco-hint muted small">${escapeHtml(r.hint)}</div></div><button class="reco-get oc-primary">받기</button></div>`).join('')
+      : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받으세요.</div>');
+  $('localModels').querySelectorAll('.reco-card').forEach(c => c.addEventListener('click', () => pickRepo((c as HTMLElement).dataset.repo!)));
   $('localModels').querySelectorAll('.lm-use').forEach(b => b.addEventListener('click', async () => {
     if ((b as HTMLButtonElement).disabled) return;
     const p = decodeURIComponent((b as HTMLElement).dataset.path!);
@@ -396,8 +612,14 @@ async function loadLocalAI() {
     if (_localStatus?.running) await connect.setConfig({ llmBase: LOCAL_BASE, llmModel: _localStatus.modelName });   // 비서가 내장 엔진 쓰게
     await loadLocalAI(); await renderAiCurrent(); await loadModels(); refreshMem?.();
   }));
-  $('localModels').querySelectorAll('.lm-del').forEach(b => b.addEventListener('click', async () => {
-    const p = decodeURIComponent((b as HTMLElement).dataset.del!); await connect.localDelete?.(p); loadLocalAI();
+  $('localModels').querySelectorAll('.lm-del').forEach(b => b.addEventListener('click', async (ev) => {
+    ev.stopPropagation();
+    const el = b as HTMLElement; const p = decodeURIComponent(el.dataset.del!);
+    const nm = el.dataset.nm || '모델', sz = el.dataset.sz || '', rm = el.dataset.rm === '1', src = el.dataset.src || '';
+    const warn = rm ? '' : `\n\n⚠️ 이건 ${src || '외부(LM Studio 등)'} 모델이에요. 지우면 그쪽에서도 사라져요.`;
+    if (!confirm(`'${nm}' (${sz}) 모델 파일을 삭제할까요?\n디스크에서 완전히 지워지고 되돌릴 수 없어요.${warn}`)) return;
+    (el as HTMLButtonElement).disabled = true; el.textContent = '…';
+    await connect.localDelete?.(p); await loadLocalAI();
   }));
 }
 $('hfSearchBtn')?.addEventListener('click', doHfSearch);
@@ -407,8 +629,14 @@ async function doHfSearch() {
   $('hfResults').innerHTML = '<div class="muted small">🔍 검색 중…</div>';
   const r = await connect.hfSearch?.(q);
   if (!r?.ok) { $('hfResults').innerHTML = `<div class="muted small">⚠️ ${r?.error || '검색 실패'}</div>`; return; }
-  $('hfResults').innerHTML = (r.models || []).map((m: any) =>
-    `<div class="hf-row" data-repo="${m.id}"><span class="hf-id">${m.id}</span><span class="muted small">⬇ ${m.downloads.toLocaleString()}</span></div>`).join('') || '<div class="muted small">결과 없음</div>';
+  $('hfResults').innerHTML = (r.models || []).map((m: any) => {
+    const slash = m.id.indexOf('/'); const org = slash > 0 ? m.id.slice(0, slash) : ''; const nm = slash > 0 ? m.id.slice(slash + 1) : m.id;
+    const badges = `${m.params ? `<span class="hf-badge hf-param">${m.params}</span>` : ''}${m.vision ? `<span class="hf-badge hf-vis">👁 비전</span>` : ''}`;
+    return `<div class="hf-row" data-repo="${escAttr(m.id)}" title="${escAttr(m.id)}${m.updated ? ' · 갱신 ' + fmtAgo(m.updated) : ''}">
+      <div class="hf-main"><div class="hf-id">${escapeHtml(nm)}</div><div class="hf-org">${escapeHtml(org)}${m.updated ? ` · ${fmtAgo(m.updated)}` : ''}</div></div>
+      <div class="hf-stats">${badges}<span class="muted small">⬇ ${fmtN(m.downloads)}</span><span class="muted small">♥ ${fmtN(m.likes)}</span></div>
+    </div>`;
+  }).join('') || '<div class="muted small">결과 없음</div>';
   $('hfResults').querySelectorAll('.hf-row').forEach(b => b.addEventListener('click', () => pickRepo((b as HTMLElement).dataset.repo!)));
 }
 async function pickRepo(repo: string) {
@@ -455,17 +683,6 @@ $('mcpTestBtn').addEventListener('click', async () => {
   $('mcpStatus').textContent = `${servers.filter((s: any) => s.ok).length}/${servers.length} 서버 연결됨`;
   $('mcpTools').innerHTML = servers.map((s: any) => `<div class="mcp-srv ${s.ok ? 'on' : 'off'}"><div class="ms-name">${s.ok ? '🟢' : '🔴'} ${escapeHtml(s.name)} <span class="muted small">${s.ok ? s.tools + '개 도구' : escapeHtml(s.error || '실패')}</span></div>${s.toolNames?.length ? `<div class="ms-tools">${s.toolNames.map((t: string) => `<span class="ms-tool">${escapeHtml(t)}</span>`).join('')}</div>` : ''}</div>`).join('');
 });
-function renderAgentMatrix() {
-  // 👥 에이전트 매트릭스 — 10명 카드(사진/이모지·역할), 클릭 → 상세. 정적 데이터라 즉시 렌더.
-  $('agentMatrix').innerHTML = AGENT_ORDER.map(id => {
-    const a = AGENTS[id]; if (!a) return '';
-    const photo = PROFILE[id]
-      ? `<div class="am-photo" style="background-image:url('../../assets/agents/${PROFILE[id]}');border-color:${a.color}"></div>`
-      : `<div class="am-photo am-emoji" style="background:linear-gradient(160deg,color-mix(in srgb,${a.color} 42%,#0a120c),#0a120c);border-color:${a.color}">${a.emoji}</div>`;
-    return `<div class="am-card" data-id="${id}" style="--ag:${a.color}">${photo}<div class="am-info"><div class="am-name">${a.emoji} ${escapeHtml(a.name)}</div><div class="am-role">${escapeHtml(a.role)}</div></div></div>`;
-  }).join('');
-  $('agentMatrix').querySelectorAll('.am-card').forEach(c => c.addEventListener('click', () => openAgentDetail((c as HTMLElement).dataset.id!)));
-}
 async function renderTasks() {
   const all = await connect.tasksList();
   const open = (all || []).filter((t: any) => t.status === 'open');
@@ -497,6 +714,7 @@ async function renderApprovals() {
   $('aprBoard').querySelectorAll('.ac-no').forEach(b => b.addEventListener('click', async () => { await connect.approvalsReject((b as HTMLElement).dataset.id); renderApprovals(); }));
 }
 const fmtN = (n: number) => Number(n || 0).toLocaleString();
+const fmtAgo = (iso: string) => { const t = Date.parse(iso); if (!t) return ''; const d = Math.floor((Date.now() - t) / 86400000); if (d < 1) return '오늘'; if (d < 30) return d + '일 전'; if (d < 365) return Math.floor(d / 30) + '개월 전'; return Math.floor(d / 365) + '년 전'; };
 // 🧭 비즈니스 인텔리전스 — 등록 서비스의 실시간 스냅샷 + 분석 액션
 async function renderServiceIntel() {
   $('svcIntel').innerHTML = '<div class="muted small" style="padding:6px 2px">🌐 서비스 정보 읽는 중…</div>';
@@ -525,7 +743,7 @@ async function renderYouTube() {
   $('ytDash').querySelectorAll('.yt-vid').forEach(a => a.addEventListener('click', () => connect.openExternal('https://www.youtube.com/watch?v=' + (a as HTMLElement).dataset.id)));
 }
 async function renderDash() {
-  renderAgentMatrix();   // 먼저(동기) — stats 호출과 무관하게 항상 보이게
+  // (로스터는 🤖 내 AI 팀으로 이동 — 대시보드 중복 제거)
   renderTasks();
   renderApprovals();
   renderServiceIntel();
@@ -561,7 +779,7 @@ const API_SERVICES: any[] = [
   { id: 'youtube-oauth', name: 'YouTube Analytics (OAuth)', icon: '📊', summary: '시청 지속률·트래픽·구독 증감. 저장 후 "⚡ 자동 연결"로 구글 로그인.', helpUrl: 'https://console.cloud.google.com/', wizard: true, fields: [
     { key: 'YOUTUBE_OAUTH_CLIENT_ID', label: 'Client ID', type: 'password' },
     { key: 'YOUTUBE_OAUTH_CLIENT_SECRET', label: 'Client Secret', type: 'password', help: 'Cloud Console에서 승인된 리디렉션 URI에 http://127.0.0.1:5814/yt-oauth-callback 추가' } ] },
-  { id: 'google-calendar', name: 'Google Calendar', icon: '📅', summary: '비서가 일정을 읽고 task 마감일과 자동 동기화합니다.', fields: [
+  { id: 'google-calendar', name: 'Google Calendar', icon: '📅', summary: '비서가 일정을 읽고 task 마감일과 자동 동기화합니다.', comingSoon: true, fields: [
     { key: 'GOOGLE_CALENDAR_ID', label: 'Calendar ID', type: 'text', placeholder: 'primary 또는 ...@group.calendar.google.com' } ] },
   { id: 'paypal', name: 'PayPal (매출 분석)', icon: '💰', summary: '결제 거래 분석. 💰 매출 대시보드 + 새 결제 알림에 사용.', helpUrl: 'https://developer.paypal.com/dashboard/applications', fields: [
     { key: 'PAYPAL_MODE', label: '모드', type: 'select', options: ['live', 'sandbox'], help: '실제 결제는 live, 테스트는 sandbox' },
@@ -569,24 +787,19 @@ const API_SERVICES: any[] = [
     { key: 'PAYPAL_CLIENT_SECRET', label: 'Client Secret', type: 'password' },
     { key: 'PAYPAL_LOOKBACK_DAYS', label: '분석 기간(일)', type: 'text', placeholder: '30 (최대 31)' },
     { key: 'PAYPAL_CURRENCY', label: '기본 통화(선택)', type: 'text', placeholder: 'USD' } ] },
-  { id: 'gemini', name: 'Google Gemini (텍스트+이미지)', icon: '✨', summary: '내 서비스에서 Gemini AI 호출.', helpUrl: 'https://aistudio.google.com/apikey', fields: [
-    { key: 'GEMINI_API_KEY', label: 'API Key', type: 'password', help: 'aistudio.google.com/apikey 에서 발급(무료 OK)' },
-    { key: 'GEMINI_TEXT_MODEL', label: '텍스트 모델', type: 'text', placeholder: 'gemini-3.1-flash-lite-preview' },
-    { key: 'GEMINI_IMAGE_MODEL', label: '이미지 모델', type: 'text', placeholder: 'gemini-3.1-flash-image-preview' } ] },
   { id: 'github', name: 'GitHub — ⚡ 단기 기억', icon: '💻', summary: '지식 네트워크(단기 기억)를 GitHub 레포에 버전관리로 동기화. 어디서든 불러오고 사람이 직접 편집도.', helpUrl: 'https://github.com/settings/tokens', fields: [
     { key: 'GITHUB_TOKEN', label: 'Personal Access Token', type: 'password', help: 'github.com/settings/tokens → repo(Contents) 권한' },
     { key: 'GITHUB_DEFAULT_REPO', label: '지식 저장소', type: 'text', placeholder: 'owner/repo' } ] },
   { id: 'huggingface', name: 'HuggingFace — 🧬 장기 기억', icon: '🤗', summary: '쌓인 지식을 데이터셋으로 업로드 → 모델에 파인튜닝(체득). 학습된 모델을 회사 뇌로 사용.', helpUrl: 'https://huggingface.co/settings/tokens', fields: [
     { key: 'HF_TOKEN', label: 'Access Token (write)', type: 'password', help: 'huggingface.co/settings/tokens → write 권한' },
     { key: 'HF_REPO', label: '데이터셋 이름', type: 'text', placeholder: 'connect-ai-brain', help: '이름만 적으면 돼요 (아이디는 토큰에서 자동). HF에서 미리 안 만들어도 자동 생성.' } ] },
-  { id: 'replicate', name: 'Replicate — 🔊 고품질 음성/AI', icon: '🔊', summary: 'Qwen3-TTS(사람 같은 한국어 음성) 등 AI 모델 호출. 설정에서 고품질 음성 켜면 사용.', helpUrl: 'https://replicate.com/account/api-tokens', fields: [
-    { key: 'REPLICATE_API_TOKEN', label: 'API Token', type: 'password', help: 'replicate.com/account/api-tokens 에서 발급 (r8_...)' } ] },
-  { id: 'email', name: '이메일 (SMTP)', icon: '📧', summary: '에이전트가 승인 후 메일을 보냅니다. Gmail은 앱 비밀번호 사용.', helpUrl: 'https://support.google.com/accounts/answer/185833', fields: [
+  { id: 'email', name: '이메일 (Gmail SMTP+IMAP)', icon: '📧', summary: '받은 메일을 읽고(IMAP) AI가 답장 초안 → 텔레그램으로 보낼까요? 승인하면 발송(SMTP). Gmail 앱 비밀번호 하나로 둘 다.', helpUrl: 'https://support.google.com/accounts/answer/185833', fields: [
     { key: 'SMTP_HOST', label: 'SMTP 호스트', type: 'text', placeholder: 'smtp.gmail.com' },
-    { key: 'SMTP_PORT', label: '포트', type: 'text', placeholder: '587' },
+    { key: 'SMTP_PORT', label: '포트', type: 'text', placeholder: '465' },
     { key: 'SMTP_USER', label: '계정(이메일)', type: 'text', placeholder: 'me@gmail.com' },
-    { key: 'SMTP_PASS', label: '비밀번호/앱 비밀번호', type: 'password', help: 'Gmail은 앱 비밀번호(2단계인증 후 발급)' },
-    { key: 'SMTP_FROM', label: '보내는 사람(선택)', type: 'text', placeholder: '내 이름 <me@gmail.com>' } ] },
+    { key: 'SMTP_PASS', label: '앱 비밀번호', type: 'password', help: 'Gmail 2단계인증 후 myaccount.google.com/apppasswords 에서 발급(16자리). 이걸로 발송+수신 둘 다 돼요.' },
+    { key: 'SMTP_FROM', label: '보내는 사람(선택)', type: 'text', placeholder: '내 이름 <me@gmail.com>' },
+    { key: 'IMAP_HOST', label: '받기 IMAP 호스트(선택)', type: 'text', placeholder: 'imap.gmail.com (비우면 자동)' } ] },
   { id: 'instagram', name: 'Instagram (Meta Graph)', icon: '📷', summary: '인스타 비즈니스 게시 + DM/댓글 분석.', helpUrl: 'https://developers.facebook.com/', comingSoon: true, fields: [
     { key: 'META_ACCESS_TOKEN', label: 'Access Token', type: 'password' },
     { key: 'INSTAGRAM_BUSINESS_ID', label: 'Business Account ID', type: 'text' } ] },
@@ -666,7 +879,7 @@ function buildOffice() {
         <div class="vo-bubble" id="vob-${id}"></div>
         <div class="vo-status" id="vost-${id}">대기</div>
         <div class="character" style="background-image:url('${SPRITE(id)}')"></div>
-        <div class="vo-plate">${a.emoji} ${a.name}</div>
+        <div class="vo-plate">${a.emoji} ${escapeHtml(agName(id))}</div>
       </div>`;
     }).join('');
   officeBuilt = true;
@@ -820,22 +1033,43 @@ function feedStory(emoji: string, name: string, action: string, color = '#9fe') 
 }
 const isIdle = (id: string) => { const el = document.getElementById('vo-' + id); return !!el && el.classList.contains('idle'); };
 
+// 💬 진짜 AI 대화 풀 — 백엔드가 현황(매출·작전·방금 한 일) 반영해 생성. 비면 미리 박아둔 문구로 폴백.
+let banterPool: { from: string; to: string; text: string }[] = [];
+let banterFetching = false, banterLast = 0;
+async function refillBanter() {
+  if (banterFetching || banterPool.length > 2) return;
+  if (Date.now() - banterLast < 25000) return;   // 최소 25초 간격(로컬 모델 보호)
+  banterFetching = true; banterLast = Date.now();
+  try { const r = await connect.officeBanter?.(); if (r?.ok && r.lines?.length) banterPool = r.lines; } catch { /* */ } finally { banterFetching = false; }
+}
+const nextBanter = (): { from: string; to: string; text: string } | null => {
+  while (banterPool.length) { const b = banterPool.shift()!; if (AGENTS[b.from] && b.text) return b; }
+  return null;
+};
 // 자율 행동 한 틱 — 잡담 / 어슬렁 / 감정표현
 function lifeTick() {
   if (taskActive || !officeBuilt) return;
   if ($('officePanel').classList.contains('hidden')) return;   // 안 보면 쉬기(성능)
   officeLive();
+  refillBanter();   // 풀 떨어지면 진짜 대화 새로 받아오기(백그라운드)
   const idle = AGENT_ORDER.filter(isIdle); if (idle.length < 1) return;
   const roll = Math.random();
-  if (roll < 0.42 && idle.length >= 2) {                       // 🗣️ 잡담
-    const a = pick(idle);
-    const fr = FRIENDS.find(([x, y]) => (x === a || y === a))?.filter(z => z !== a)[0];
-    const b = (fr && isIdle(fr)) ? fr : pick(idle.filter(x => x !== a));
-    if (b) lifeSocialize(a, b);
+  if (roll < 0.46) {                                           // 🗣️ 잡담 — 진짜 AI 대사 우선
+    const bl = nextBanter();
+    if (bl && isIdle(bl.from)) {
+      const b = (bl.to && AGENTS[bl.to] && bl.to !== bl.from && isIdle(bl.to)) ? bl.to : pick(idle.filter(x => x !== bl.from));
+      if (b) lifeSocialize(bl.from, b, bl.text); else lifeBubble(bl.from, bl.text, 'ambient');
+    } else if (idle.length >= 2) {
+      const a = pick(idle);
+      const fr = FRIENDS.find(([x, y]) => (x === a || y === a))?.filter(z => z !== a)[0];
+      const b = (fr && isIdle(fr)) ? fr : pick(idle.filter(x => x !== a));
+      if (b) lifeSocialize(a, b);
+    }
   } else if (roll < 0.74) {                                    // 🚶 어슬렁
     lifeWander(pick(idle));
-  } else {                                                     // 💭 혼잣말/감정
-    const id = pick(idle); lifeBubble(id, pick(AMBIENT[id] || SMALLTALK), 'ambient');
+  } else {                                                     // 💭 혼잣말/감정 — 진짜 대사 있으면 사용
+    const bl = nextBanter(); const id = (bl && isIdle(bl.from)) ? bl.from : pick(idle);
+    lifeBubble(id, (bl && id === bl.from) ? bl.text : pick(AMBIENT[id] || SMALLTALK), 'ambient');
   }
 }
 function lifeWander(id: string) {
@@ -845,19 +1079,19 @@ function lifeWander(id: string) {
   if (Math.random() < 0.5) setTimeout(() => lifeBubble(id, pick(AMBIENT[id] || SMALLTALK), 'ambient'), 600);
   window.setTimeout(() => { if (isIdle(id) && !taskActive) voHome(id); }, 2600 + Math.random() * 1600);
 }
-function lifeSocialize(a: string, b: string) {
+function lifeSocialize(a: string, b: string, realLine?: string) {
   if (!isIdle(a) || !isIdle(b)) return;
   const hb = VO_HOME[b] || VO_MEET, ha = VO_HOME[a] || VO_MEET;
   voMove(a, hb[0] + (hb[0] > 50 ? -8 : 8), hb[1] + 5);   // a가 b에게 다가감
-  // 35%는 최근 사건을 언급(기억) — 스몰빌처럼 맥락 있는 대화
-  const la = (officeMemory.length && Math.random() < 0.35) ? `${pick(REACT)}${pick(officeMemory)} 👏` : pick(SMALLTALK);
+  // 진짜 AI 대사 우선, 없으면 35%는 최근 사건 언급(기억), 나머지는 폴백 문구
+  const la = realLine || ((officeMemory.length && Math.random() < 0.35) ? `${pick(REACT)}${pick(officeMemory)} 👏` : pick(SMALLTALK));
   const lb = pick([...SMALLTALK, ...(AMBIENT[b] || [])]);
   setTimeout(() => { if (taskActive) return; lifeBubble(a, la); feedAmbient(`<span class="cf-from" style="color:${AGENTS[a]?.color || '#9fe'}">${AGENTS[a]?.emoji || ''} ${esc(AGENTS[a]?.name || a)}</span><span class="cf-arrow">→</span><span class="cf-to">${AGENTS[b]?.emoji || ''} ${esc(AGENTS[b]?.name || b)}</span><span class="cf-txt">${esc(la)}</span>`); }, 750);
   setTimeout(() => { if (taskActive) return; lifeBubble(b, lb); }, 1700);
   window.setTimeout(() => { if (!taskActive) voMove(a, ha[0], ha[1]); }, 3100);
 }
 
-$('officeBtn').addEventListener('click', () => { connect.officeOpen?.(); });   // 🏢 → 바로 옆 창으로
+// 🏢 헤더 버튼 제거 — 사무실은 🤖 내 AI 팀 미리보기 클릭으로 엶 (버튼 수 줄이기)
 
 // ⬆️ 자동 업데이트 배너
 connect.onUpdateStatus?.((s: any) => {
@@ -882,10 +1116,27 @@ function driveOfficeEvent(e: any) {   // 엔진 이벤트로 사무실만 구동
   else if (e.kind === 'agentConfer') { officeConfer(e); }
   else if (e.kind === 'final') { if (officeEngagedM) { officeSet('ceo', 'done', e.text); $('officeStatus').textContent = '보고 완료'; feedStory('🧭', 'CEO', '종합 보고 완료 ✓', '#9fe'); setTimeout(() => { taskActive = false; officeLive(); }, 3000); } }
 }
+// 🎬 그랜드 입장 — 사무실 열릴 때 에이전트가 한 명씩 "뿅" 하고 자리에 나타남
+function grandEntrance() {
+  $('officeStatus').textContent = '팀 출근 중…';
+  AGENT_ORDER.forEach((id, i) => {
+    const el = document.getElementById('vo-' + id); if (!el) return;
+    el.style.opacity = '0'; el.classList.remove('vo-pop');
+    setTimeout(() => {
+      el.style.opacity = '1'; el.classList.add('vo-pop');
+      const ring = document.createElement('div'); ring.className = 'vo-burst'; el.appendChild(ring);
+      setTimeout(() => { try { ring.remove(); } catch { /* */ } }, 650);
+      voSparks(id); officeSet(id, 'work');
+      setTimeout(() => { el.classList.remove('vo-pop'); officeSet(id, 'idle'); }, 900);
+      if (i === AGENT_ORDER.length - 1) setTimeout(() => { $('officeStatus').textContent = '전원 출근 · 운영 중'; officeLive(); }, 700);
+    }, 240 * i + 120);
+  });
+}
 const OFFICE_MODE = new URLSearchParams(location.search).get('office') === '1';
 if (OFFICE_MODE) {
   document.body.classList.add('office-only');
-  buildOffice(); openOverlay('officePanel'); officeLive();
+  buildOffice(); openOverlay('officePanel');
+  requestAnimationFrame(() => grandEntrance());   // 🎬 입장 연출 후 자율 생활 시작
   connect.onEngineEvent?.(driveOfficeEvent);   // 메인에서 브로드캐스트되는 엔진 이벤트 수신
 }
 $('officePop')?.addEventListener('click', () => connect.officeOpen?.());
@@ -1027,33 +1278,88 @@ showFiles(true);
 
 // 👤 캐릭터 클릭 → 에이전트 상세
 const PROFILE: Record<string, string> = { youtube: 'youtube.png', developer: 'developer.png', business: 'business.jpeg', editor: 'editor.png', secretary: 'secretary.jpeg' };
-function openAgentDetail(id: string) {
+// 🪪 캐릭터 커스텀 — 사용자가 이름·사진을 직접 지정(없으면 기본값). [[project_my_ai_team_vision]]
+function agName(id: string): string { return (cfg.agentNames || {})[id] || AGENTS[id]?.name || id; }
+function agImgSrc(id: string): string { const c = (cfg.agentImages || {})[id]; if (c) return c; return PROFILE[id] ? `../../assets/agents/${PROFILE[id]}` : ''; }
+// 업로드 사진 → 256px 다운스케일 데이터URL (config 가볍게 유지)
+function downscaleImage(file: File, max = 256): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => { const img = new Image(); img.onload = () => {
+      const s = Math.min(1, max / Math.max(img.width, img.height)); const w = Math.round(img.width * s), h = Math.round(img.height * s);
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const ctx = cv.getContext('2d');
+      if (!ctx) return reject(new Error('canvas')); ctx.drawImage(img, 0, 0, w, h);
+      resolve(cv.toDataURL('image/jpeg', 0.85));
+    }; img.onerror = reject; img.src = String(fr.result); };
+    fr.onerror = reject; fr.readAsDataURL(file);
+  });
+}
+// 이름·사진 바꾸면 매트릭스·사무실 명패 즉시 반영
+function refreshAgentVisuals(id: string) {
+  try { if ($('teamRoster')) renderTeamRoster(); } catch { /* */ }
+  const plate = document.querySelector(`#vo-${id} .vo-plate`); if (plate) plate.textContent = `${AGENTS[id]?.emoji || ''} ${agName(id)}`;
+}
+
+async function openAgentDetail(id: string) {
   const a = AGENTS[id]; if (!a) return;
-  const avatar = PROFILE[id]
-    ? `<img class="ag-photo" src="../../assets/agents/${PROFILE[id]}" alt="" />`
+  const img = agImgSrc(id);
+  const avatar = img
+    ? `<img class="ag-photo" src="${escAttr(img)}" alt="" />`
     : `<div class="ag-photo ag-photo-emoji" style="background:color-mix(in srgb,${a.color} 18%,#0a120c);border-color:${a.color}">${a.emoji}</div>`;
-  $('agHeadName').textContent = `${a.emoji} ${a.name}`;
+  $('agHeadName').textContent = `${a.emoji} ${agName(id)}`;
   const cur = (cfg.agentModels || {})[id] || '';
-  const opts = ['<option value="">⚙️ 자동 (공용 모델)</option>']
-    .concat(MODELS_CACHE.map(m => `<option value="${esc(m)}"${m === cur ? ' selected' : ''}>${esc(m)}${/^gemini/i.test(m) ? ' ☁️' : (m === MODELS_LOADED ? ' ●' : '')}</option>`)).join('');
+  // 후보 = 엔드포인트가 서빙하는 모델 + 받아둔 로컬 모델 전부(받았지만 안 켠 것도 배정 가능)
+  const localNames = ((await connect.localModels?.()) || []).map((m: any) => m.name).filter(Boolean);
+  const allModels = Array.from(new Set<string>([...MODELS_CACHE, ...localNames]));
+  const opts = ['<option value="">⚙️ 자동 (공용 두뇌)</option>']
+    .concat(allModels.map(m => `<option value="${esc(m)}"${m === cur ? ' selected' : ''}>${esc(m)}${/^gemini/i.test(m) ? ' ☁️' : (m === MODELS_LOADED ? ' ● 로드됨' : '')}</option>`)).join('');
   $('agentBody').innerHTML = `
     <div class="ag-detail" style="--ag:${a.color}">
-      ${avatar}
+      <div class="ag-photo-wrap">
+        ${avatar}
+        <button class="ag-photo-edit" id="agImgBtn" title="사진 바꾸기">📷</button>
+        <input type="file" id="agImgFile" accept="image/*" hidden />
+      </div>
       <div class="ag-meta">
+        <input class="ag-name-edit" id="agNameEdit" value="${escAttr(agName(id))}" maxlength="20" placeholder="${escAttr(a.name)}" />
         <div class="ag-role">${esc(a.role)}</div>
         <div class="ag-spec">${esc((a as any).specialty || '')}</div>
       </div>
     </div>
     <div class="ag-model">
-      <label>🤖 이 에이전트의 AI 모델</label>
+      <label>🧠 ${escapeHtml(agName(id))}의 두뇌 (AI 모델)</label>
       <select id="agModelSel">${opts}</select>
-      <div class="ag-model-hint">장기기억으로 학습한 <b>전용 모델</b>을 배정하세요 (예: 마케팅튜닝 → 비즈니스). 비워두면 공용 모델 사용.</div>
-    </div>`;
+      <div class="ag-model-hint">학습한 <b>전용 모델</b>을 배정하세요 (예: 마케팅튜닝 → 비즈니스). 비우면 공용 모델 사용.</div>
+    </div>
+    <button class="ag-char-reset" id="agCharReset">이름·사진 기본값으로</button>`;
+  // 이름 저장
+  $('agNameEdit')?.addEventListener('change', async (e) => {
+    const v = (e.target as HTMLInputElement).value.trim();
+    const nm = { ...(cfg.agentNames || {}) }; if (v && v !== a.name) nm[id] = v; else delete nm[id];
+    cfg = await connect.setConfig({ agentNames: nm });
+    $('agHeadName').textContent = `${a.emoji} ${agName(id)}`; refreshAgentVisuals(id); hint(`${a.emoji} 이름 → ${agName(id)}`);
+  });
+  // 사진 바꾸기
+  $('agImgBtn')?.addEventListener('click', () => ($('agImgFile') as HTMLInputElement)?.click());
+  $('agImgFile')?.addEventListener('change', async (e) => {
+    const f = (e.target as HTMLInputElement).files?.[0]; if (!f) return;
+    try { const data = await downscaleImage(f); const im = { ...(cfg.agentImages || {}) }; im[id] = data; cfg = await connect.setConfig({ agentImages: im }); openAgentDetail(id); refreshAgentVisuals(id); hint(`${a.emoji} 사진 바뀜`); }
+    catch { hint('사진을 불러오지 못했어요'); }
+  });
+  // 두뇌(모델) 저장
   $('agModelSel')?.addEventListener('change', async (e) => {
     const v = (e.target as HTMLSelectElement).value;
     const am = { ...(cfg.agentModels || {}) }; if (v) am[id] = v; else delete am[id];
     cfg = await connect.setConfig({ agentModels: am });
-    hint(v ? `${a.emoji} ${a.name} → ${v}` : `${a.emoji} ${a.name} → 공용 모델`);
+    refreshAgentVisuals(id);
+    hint(v ? `${a.emoji} ${agName(id)} → ${v}` : `${a.emoji} ${agName(id)} → 공용 모델`);
+  });
+  // 이름·사진 기본값으로
+  $('agCharReset')?.addEventListener('click', async () => {
+    const nm = { ...(cfg.agentNames || {}) }; delete nm[id];
+    const im = { ...(cfg.agentImages || {}) }; delete im[id];
+    cfg = await connect.setConfig({ agentNames: nm, agentImages: im });
+    openAgentDetail(id); refreshAgentVisuals(id); hint(`${a.emoji} 기본값으로`);
   });
   openOverlay('agentPanel');
 }
@@ -1177,7 +1483,90 @@ $('hfTrainBtn').addEventListener('click', async () => {
   playInjection('🧠 장기기억 각인 시작', [name || '내 두뇌'], LONG_FX);
   $('lfStep3').classList.add('lf-done');
 });
+// 💎 유료 학습(클라우드 GPU) — 곧 출시. (AutoTrain 백엔드 train:autotrain 는 준비돼 있고, 출시 때 이 핸들러만 교체.)
 $('hfExportBtn').addEventListener('click', async () => { $('hfStatus').textContent = '📦 바탕화면 connect-ai-brain.jsonl 확인 (변환 시 자동 저장)'; });
+
+// 👤 회원 (Firebase Auth) — 이메일/비밀번호 로그인·회원가입
+let _authMode: 'login' | 'signup' = 'login';
+async function refreshAuthBtn() {
+  const me = await connect.authCurrent?.(); const b = $('authBtn');
+  if (!b) return;
+  // 회원 시스템(Firebase)이 설정 안 됐으면 버튼 자체를 숨김 — 일반 사용자에게 운영자 안내가 안 보이게
+  if (!me?.configured) { b.style.display = 'none'; return; }
+  b.style.display = ''; b.textContent = me?.email ? '👤✓' : '👤'; b.title = me?.email ? `${me.email} — 회원 메뉴` : '회원 — 로그인/회원가입';
+}
+async function openAuth() {
+  openOverlay('authPanel');
+  const me = await connect.authCurrent?.();
+  const body = $('authBody'); if (!body) return;
+  if (!me?.configured) { $('authTitle').textContent = '회원'; body.innerHTML = `<div class="muted small" style="line-height:1.6">회원 시스템이 아직 설정되지 않았어요. ⚙️ 설정 → 고급에 <b>회원 Firebase API Key</b>를 넣어주세요.</div>`; return; }
+  if (me?.email) {
+    $('authTitle').textContent = '내 계정';
+    body.innerHTML = `<div class="auth-me"><div class="auth-ava">👤</div><div><div class="auth-email">${escapeHtml(me.email)}</div><div class="muted small">무료 회원 · 학습 월 1회</div></div></div><button class="cyc-btn ghost" id="authLogout" style="width:100%;margin-top:12px">로그아웃</button>`;
+    $('authLogout')?.addEventListener('click', async () => { await connect.authLogout?.(); refreshAuthBtn(); openAuth(); hint('로그아웃했어요'); });
+    return;
+  }
+  $('authTitle').textContent = _authMode === 'login' ? '로그인' : '회원가입';
+  body.innerHTML = `
+    <input id="authEmail" class="auth-in" type="email" placeholder="이메일" autocomplete="username" />
+    <input id="authPw" class="auth-in" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" />
+    <div class="auth-msg" id="authMsg"></div>
+    <button class="cyc-btn primary" id="authGo" style="width:100%">${_authMode === 'login' ? '로그인' : '회원가입'}</button>
+    <div class="auth-switch">${_authMode === 'login' ? '계정이 없나요? <a id="authToSignup">회원가입</a>' : '이미 회원? <a id="authToLogin">로그인</a>'}</div>`;
+  $('authToSignup')?.addEventListener('click', () => { _authMode = 'signup'; openAuth(); });
+  $('authToLogin')?.addEventListener('click', () => { _authMode = 'login'; openAuth(); });
+  const go = async () => {
+    const email = ($('authEmail') as HTMLInputElement).value.trim(); const pw = ($('authPw') as HTMLInputElement).value;
+    if (!email || !pw) { $('authMsg').textContent = '이메일과 비밀번호를 입력하세요.'; return; }
+    const btn = $('authGo') as HTMLButtonElement; btn.disabled = true; btn.textContent = '처리 중…';
+    const r = _authMode === 'signup' ? await connect.authSignup?.(email, pw) : await connect.authLogin?.(email, pw);
+    btn.disabled = false; btn.textContent = _authMode === 'login' ? '로그인' : '회원가입';
+    if (r?.ok) { refreshAuthBtn(); hint(_authMode === 'signup' ? '🎉 가입 완료!' : '✅ 로그인됨'); openAuth(); }
+    else $('authMsg').textContent = '⚠️ ' + (r?.error || '실패');
+  };
+  $('authGo')?.addEventListener('click', go);
+  $('authPw')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') go(); });
+}
+$('authBtn')?.addEventListener('click', openAuth);
+refreshAuthBtn();
+
+// ☁️ 내 AI 키우기 — 코랩 없이 HF Jobs로 학습 (무료 월 1회)
+let cloudPoll = 0;
+function cloudStat(html: string) { const el = $('cloudTrainStatus'); if (!el) return; el.style.display = 'block'; el.innerHTML = html; }
+$('cloudTrainBtn')?.addEventListener('click', async () => {
+  const btn = $('cloudTrainBtn') as HTMLButtonElement; btn.disabled = true;
+  cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
+  let r: any = null;
+  try { r = await connect.trainCloud?.(); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  btn.disabled = false;
+  if (!r) { cloudStat('⚠️ 응답이 없어요.'); return; }
+  if (r.ok && r.jobId) {
+    cloudStat(`🚀 학습 시작! <a href="${escAttr(r.url || r.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 "내 모델로 받기"가 떠요. (보통 15~40분)</span>`);
+    if (cloudPoll) clearInterval(cloudPoll);
+    cloudPoll = window.setInterval(async () => {
+      const s = await connect.trainCloudStatus?.(); if (!s?.ok) return;
+      if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
+      else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudStat(`⚠️ 학습 실패: ${escapeHtml(s.message || s.stage)} · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>`); }
+      else cloudStat(`⏳ 학습 중… (${escapeHtml(s.stage)}) · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>`);
+    }, 20000);
+  } else if (r.needLogin) {
+    cloudStat(`🔑 ${escapeHtml(r.error || '로그인이 필요해요')}`); openAuth();
+  } else if (r.gated) {
+    cloudStat(`🗓️ ${escapeHtml(r.error)}`);
+  } else {
+    // REST 자동실행 실패(Pro 필요 등) → 확실한 폴백 명령 제공
+    const cmd = r.command ? `<div class="muted small" style="margin-top:6px">아래 명령을 터미널에서 실행하면 됩니다 (hf CLI):</div><pre class="cmd-box">${escapeHtml(r.command)}</pre>` : '';
+    cloudStat(`⚠️ ${escapeHtml(r.error || '자동 실행 실패')}${cmd}`);
+  }
+});
+function wireCloudInstall() {
+  $('cloudInstallBtn')?.addEventListener('click', async () => {
+    const b = $('cloudInstallBtn') as HTMLButtonElement; b.disabled = true; b.textContent = '받는 중…';
+    const r = await connect.trainCloudInstall?.();
+    if (r?.ok) { cloudStat(`🎉 받았어요! 🤖 내 AI 팀에서 "${escapeHtml(r.model || '내 모델')}"을 선택해 쓰세요.`); loadLocalAI?.(); }
+    else cloudStat(`⚠️ ${escapeHtml(r?.error || '받기 실패')}`);
+  });
+}
 
 // 🎓 학습 방법론 — 선택 시 교육 카드 + SFT/배움용 뷰 전환
 let currentMethod = 'sft', methodsRendered = false, methodList: any[] = [];
@@ -1525,7 +1914,12 @@ $('cfgBrainViz').addEventListener('change', (e: any) => {
 });
 
 runBoot();
-loadCfg().then(() => { loadModels(); greet(); });
+loadCfg().then(async () => {
+  await loadModels(); greet();
+  // 첫 실행 안내 — 두뇌 없으면 🤖 패널을 열어 추천 두뇌부터 받게 (빈 화면에서 막히지 않게)
+  const ls = await connect.localStatus?.().catch(() => null);
+  if (!ls?.running && !cfg.llmModel) setTimeout(() => { openOverlay('aiPanel'); loadAiPanel(); hint('AI 두뇌부터 받으면 팀이 일을 시작해요 — 추천 두뇌 하나 받아보세요 👇'); }, 700);
+});
 renderLeaderboard();
 initBrain();
 startClock();

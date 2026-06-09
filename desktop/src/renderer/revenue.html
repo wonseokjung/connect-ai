@@ -35,6 +35,30 @@
       <div class="ab-main"><div class="ab-label">AI 비서 · 비즈니스 브리핑</div><div class="ab-text" id="abText"></div></div>
     </div>
 
+    <!-- 🤖 자율 운영 현황 — 지금 일하는 에이전트 · 오늘의 작전 -->
+    <section class="ops-live hidden" id="opsLive">
+      <div class="ops-live-head">
+        <div class="ops-live-pulse"><span class="opl-dot"></span><span id="oplState">자율 운영 중</span></div>
+        <div class="ops-live-meta"><span id="oplRuns">0회 분석</span><span class="opl-sep">·</span><span id="oplNext">다음 점검 대기</span><button class="opl-stop" id="oplStop" title="자율 운영 멈추기">⏸ 중지</button></div>
+      </div>
+      <div class="ops-live-summary" id="oplSummary"></div>
+      <div class="opl-activity hidden" id="oplActivity"></div>
+      <div class="ops-live-grid">
+        <div class="opl-col">
+          <div class="opl-h">지금 일하는 에이전트</div>
+          <div class="opl-agents" id="oplAgents"></div>
+        </div>
+        <div class="opl-col">
+          <div class="opl-h">오늘의 작전</div>
+          <div class="opl-actions" id="oplActions"></div>
+        </div>
+      </div>
+      <div class="opl-shipped hidden" id="oplShippedWrap">
+        <div class="opl-h">🚀 실제로 처리한 일 (SHIPPED)</div>
+        <div class="opl-ships" id="oplShipped"></div>
+      </div>
+    </section>
+
     <!-- 내 비즈니스 — 등록 웹사이트/채널 라이브 -->
     <section class="biz-section hidden" id="bizSection">
       <div class="biz-head"><span class="biz-mark">🧭</span><div><div class="eyebrow">MY BUSINESS · LIVE</div><h2 style="margin:2px 0 0;font-size:1.3rem">내 비즈니스</h2></div></div>
@@ -91,6 +115,28 @@
         </div>
       </div>
     </div>
+
+    <!-- 📺 유튜브 라이브 -->
+    <section class="cc-section hidden" id="ytSection">
+      <div class="biz-head"><span class="biz-mark">📺</span><div><div class="eyebrow">YOUTUBE · LIVE</div><h2 style="margin:2px 0 0;font-size:1.3rem" id="ytTitle">유튜브 채널</h2></div></div>
+      <div class="kpi-strip" style="margin-top:14px">
+        <div class="kpi today"><div class="kpi-label">구독자</div><div class="kpi-value" id="ytSubs" data-last="0">0</div></div>
+        <div class="kpi"><div class="kpi-label">총 조회수</div><div class="kpi-value" id="ytViews" data-last="0">0</div></div>
+        <div class="kpi"><div class="kpi-label">영상 수</div><div class="kpi-value" id="ytVideos" data-last="0">0</div></div>
+        <div class="kpi month"><div class="kpi-label">평균 시청률</div><div class="kpi-value" id="ytAvgPct" data-last="0">0</div><div class="kpi-unit">%</div></div>
+      </div>
+      <div class="yt-vids" id="ytVids"></div>
+    </section>
+
+    <!-- ⚡ 깃허브 개발 활동 -->
+    <section class="cc-section hidden" id="ghSection">
+      <div class="biz-head"><span class="biz-mark">⚡</span><div><div class="eyebrow">DEV · GITHUB</div><h2 style="margin:2px 0 0;font-size:1.3rem" id="ghRepo">개발 활동</h2></div></div>
+      <div class="card" style="margin-top:14px"><div class="section">
+        <h2>커밋 활동 (일별)</h2>
+        <div class="spark-wrap"><svg class="spark-svg" id="ghSpark" viewBox="0 0 800 120" preserveAspectRatio="none"></svg></div>
+        <div class="gh-feed" id="ghFeed"></div>
+      </div></div>
+    </section>
 
     <div class="row" style="margin-top:20px">
       <div class="card">

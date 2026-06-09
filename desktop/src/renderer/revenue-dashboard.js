@@ -45,16 +45,24 @@ function spawnGlyphRain() {
 }
 
 // ───────── Count-up animation ─────────
+// 💱 통화 깔끔하게 — ₩는 소수점 0, $는 2자리, 기호 붙임. 큰 수는 그대로(쉼표).
+const CUR_SYM = { USD: '$', KRW: '₩', JPY: '¥', EUR: '€', GBP: '£', CNY: '¥' };
+const curDec = (c) => (c === 'KRW' || c === 'JPY' || c === 'CNY') ? 0 : 2;
+const fmtMoney = (n, cur) => { const d = curDec(cur), sym = CUR_SYM[cur] || ''; const s = Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: d, maximumFractionDigits: d }); return sym ? `${sym}${s}` : `${s}${cur ? ' ' + cur : ''}`; };
+
 function countUp(el, target, opts = {}) {
   const duration = opts.duration || 1100;
-  const decimals = opts.decimals != null ? opts.decimals : 2;
+  const cur = opts.cur;
+  const decimals = opts.decimals != null ? opts.decimals : (cur ? curDec(cur) : 2);
+  const sym = cur ? (CUR_SYM[cur] || '') : '';
+  const suffix = (cur && !sym) ? ` ${cur}` : '';
   const startVal = parseFloat(el.dataset.last || '0');
   const t0 = performance.now();
   function tick(now) {
     const p = Math.min(1, (now - t0) / duration);
     const eased = 1 - Math.pow(1 - p, 3); // easeOutCubic
     const v = startVal + (target - startVal) * eased;
-    el.textContent = v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+    el.textContent = sym + v.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + suffix;
     if (p < 1) requestAnimationFrame(tick);
     else {
       el.dataset.last = String(target);
@@ -93,40 +101,33 @@ function renderSparkline(byDay, primaryCur) {
   const xOf = (i) => padL + (i / (days.length - 1)) * innerW;
   const yOf = (v) => padT + innerH - (v / maxV) * innerH;
 
-  const pts = days.map((d, i) => `${xOf(i).toFixed(1)},${yOf(d.value).toFixed(1)}`).join(' ');
-  const areaPts = `${padL},${padT + innerH} ${pts} ${xOf(days.length-1)},${padT + innerH}`;
-
+  // 부드러운 곡선(베지어) — 밋밋한 직선 대신
+  const P = days.map((d, i) => ({ x: xOf(i), y: yOf(d.value) }));
+  const smooth = (p) => { if (p.length < 2) return ''; let s = `M ${p[0].x.toFixed(1)},${p[0].y.toFixed(1)}`; for (let i = 0; i < p.length - 1; i++) { const a = p[i], b = p[i + 1], mx = (a.x + b.x) / 2; s += ` C ${mx.toFixed(1)},${a.y.toFixed(1)} ${mx.toFixed(1)},${b.y.toFixed(1)} ${b.x.toFixed(1)},${b.y.toFixed(1)}`; } return s; };
+  const linePath = smooth(P);
+  const baseY = padT + innerH;
+  const areaPath = `${linePath} L ${xOf(days.length - 1).toFixed(1)},${baseY} L ${padL},${baseY} Z`;
   const peakIdx = days.reduce((acc, d, i) => d.value > days[acc].value ? i : acc, 0);
-
   const dots = days.map((d, i) => {
     if (d.value <= 0) return '';
-    const isPeak = i === peakIdx && d.value > 0;
-    return `<circle class="spark-dot${isPeak?' peak':''}" cx="${xOf(i).toFixed(1)}" cy="${yOf(d.value).toFixed(1)}" r="${isPeak?5:3}"></circle>`;
+    const isPeak = i === peakIdx;
+    return `<circle cx="${xOf(i).toFixed(1)}" cy="${yOf(d.value).toFixed(1)}" r="${isPeak ? 5.5 : 2.6}" fill="${isPeak ? '#eaffef' : '#00ff7a'}" filter="url(#sparkGlow)">${isPeak ? '<animate attributeName="r" values="5.5;7;5.5" dur="1.8s" repeatCount="indefinite"/>' : ''}</circle>`;
   }).join('');
-
-  // Y-axis labels (3 levels)
-  const yLabels = [maxV, maxV/2, 0].map((v, i) => {
-    const y = yOf(v) + 4;
-    return `<text class="spark-label" x="${padL - 6}" y="${y.toFixed(1)}" text-anchor="end">${v.toFixed(0)}</text>`;
-  }).join('');
-
-  // X-axis labels (start, middle, end)
-  const xTicks = [0, Math.floor(days.length/2), days.length-1].map(i => {
-    const d = days[i].date;
-    const label = (d.getMonth()+1) + '/' + d.getDate();
-    return `<text class="spark-label" x="${xOf(i).toFixed(1)}" y="${H-6}" text-anchor="middle">${label}</text>`;
-  }).join('');
+  const yLabels = [maxV, maxV / 2, 0].map((v) => `<text class="spark-label" x="${padL - 6}" y="${(yOf(v) + 4).toFixed(1)}" text-anchor="end">${Math.round(v).toLocaleString()}</text>`).join('');
+  const xTicks = [0, Math.floor(days.length / 2), days.length - 1].map(i => { const d = days[i].date; return `<text class="spark-label" x="${xOf(i).toFixed(1)}" y="${H - 6}" text-anchor="middle">${(d.getMonth() + 1)}/${d.getDate()}</text>`; }).join('');
 
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
   svg.innerHTML = `
     <defs>
       <linearGradient id="gradArea" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.45"></stop>
-        <stop offset="100%" stop-color="#22d3ee" stop-opacity="0"></stop>
+        <stop offset="0%" stop-color="#00ff7a" stop-opacity="0.55"></stop>
+        <stop offset="55%" stop-color="#00ff7a" stop-opacity="0.14"></stop>
+        <stop offset="100%" stop-color="#00ff7a" stop-opacity="0"></stop>
       </linearGradient>
+      <filter id="sparkGlow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="2.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
     </defs>
-    <polygon class="spark-area" points="${areaPts}"></polygon>
-    <polyline class="spark-line" points="${pts}"></polyline>
+    <path d="${areaPath}" fill="url(#gradArea)" opacity="0"><animate attributeName="opacity" from="0" to="1" dur="0.9s" begin="0.6s" fill="freeze"/></path>
+    <path d="${linePath}" fill="none" stroke="#00ff7a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" filter="url(#sparkGlow)" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1"><animate attributeName="stroke-dashoffset" values="1;0" dur="1.3s" calcMode="spline" keySplines="0.4 0 0.2 1" keyTimes="0;1" fill="freeze"/></path>
     ${dots}
     ${yLabels}
     ${xTicks}
@@ -134,7 +135,7 @@ function renderSparkline(byDay, primaryCur) {
 }
 
 // ───────── Donut (project mix) ─────────
-const PROJECT_COLORS = ['#22d3ee', '#a78bfa', '#fbbf24', '#34d399', '#f0abfc', '#fb923c', '#67e8f9'];
+const PROJECT_COLORS = ['#00ff7a', '#2ee6c0', '#34d399', '#a0ffcf', '#00b359', '#7dffd6', '#fbbf24'];
 
 function renderDonut(byProject, primaryCur) {
   const svg = $('donutSvg');
@@ -287,16 +288,22 @@ function renderKPI(data) {
   $('curLabel').textContent = primaryCur;
 
   const cur = byCur[primaryCur] || {gross:0, refunds:0, fees:0, count:0};
-  const net = cur.gross - cur.refunds - cur.fees;
+  const net = cur.gross + cur.refunds + cur.fees;   // refunds·fees 는 이미 음수 → 더하면 차감됨 (이전엔 빼서 거꾸로 됐음)
   const txCount = cur.count || 0;
 
-  countUp($('kpiToday'), period.today);
-  countUp($('kpiWeek'), period.week);
-  countUp($('kpiMonth'), period.month);
-  countUp($('kpiNet'), net);
+  countUp($('kpiToday'), period.today, { cur: primaryCur });
+  countUp($('kpiWeek'), period.week, { cur: primaryCur });
+  countUp($('kpiMonth'), period.month, { cur: primaryCur });
+  countUp($('kpiNet'), net, { cur: primaryCur });
   countUp($('kpiCount'), txCount, { decimals: 0 });
 
-  $('kpiMonthSub').textContent = `${txCount}건 · 환불 ${fmtNum(cur.refunds)} · 수수료 ${fmtNum(cur.fees)}`;
+  $('kpiMonthSub').textContent = `${txCount}건 · 환불 ${fmtMoney(cur.refunds, primaryCur)} · 수수료 ${fmtMoney(cur.fees, primaryCur)}`;
+  // 💱 통화 2개 이상이면 다른 통화도 한 줄 (원화·달러 같이)
+  const others = Object.entries(byCur).filter(([c]) => c !== primaryCur);
+  const curEl = $('curLabel');
+  if (curEl) curEl.textContent = others.length
+    ? `${primaryCur}  +  ${others.map(([c, v]) => fmtMoney((v.gross || 0) + (v.refunds || 0) + (v.fees || 0), c)).join('  ')}`
+    : primaryCur;
 
   return primaryCur;
 }
@@ -318,9 +325,110 @@ function renderServices(list) {
   </div>`).join('');
 }
 
+// ───────── 📺 YouTube + ⚡ GitHub (사령부 확장) ─────────
+const fmtN = (n) => Number(n || 0).toLocaleString();
+function timeAgo(iso) {
+  const t = Date.parse(iso); if (!t) return '';
+  const m = Math.floor((Date.now() - t) / 60000);
+  if (m < 60) return Math.max(1, m) + '분 전'; const h = Math.floor(m / 60);
+  if (h < 24) return h + '시간 전'; return Math.floor(h / 24) + '일 전';
+}
+function renderYoutube(yt) {
+  const sec = $('ytSection'); if (!sec) return;
+  if (!yt || !yt.ok || !yt.channel) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  const ch = yt.channel;
+  if ($('ytTitle')) $('ytTitle').textContent = ch.title || '유튜브 채널';
+  countUp($('ytSubs'), ch.subs || 0, { decimals: 0 });
+  countUp($('ytViews'), ch.views || 0, { decimals: 0 });
+  countUp($('ytVideos'), ch.videos || 0, { decimals: 0 });
+  countUp($('ytAvgPct'), yt.analytics ? Math.round(yt.analytics.avgViewPercentage || 0) : 0, { decimals: 0 });
+  $('ytVids').innerHTML = (yt.videos || []).slice(0, 4).map((v) => `<a class="yt-vid" href="https://www.youtube.com/watch?v=${esc(v.id)}" target="_blank" rel="noreferrer">${v.thumb ? `<img src="${esc(v.thumb)}" alt="" />` : ''}<div class="yt-vmeta"><div class="yt-vt">${esc(v.title || '')}</div><div class="yt-vs">👁 ${fmtN(v.views)} · 👍 ${fmtN(v.likes)}</div></div></a>`).join('');
+}
+function renderGithub(gh) {
+  const sec = $('ghSection'); if (!sec) return;
+  if (!gh || !gh.ok || !gh.commits || !gh.commits.length) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  const commits = gh.commits;
+  const byDay = {};
+  commits.forEach((c) => { const d = (c.date || '').slice(0, 10); if (d) byDay[d] = (byDay[d] || 0) + 1; });
+  drawCommitBars(byDay);
+  $('ghFeed').innerHTML = commits.slice(0, 7).map((c) => `<div class="gh-commit"><span class="gh-sha">${esc(c.sha)}</span><span class="gh-msg">${esc(c.msg)}</span><span class="gh-when">${esc(timeAgo(c.date))}</span></div>`).join('');
+}
+function drawCommitBars(byDay) {
+  const svg = $('ghSpark'); if (!svg) return;
+  const days = Object.keys(byDay).sort().slice(-14);
+  if (!days.length) { svg.innerHTML = ''; return; }
+  const max = Math.max(1, ...days.map((d) => byDay[d]));
+  const W = 800, H = 120, bw = W / days.length;
+  svg.innerHTML = '<defs><linearGradient id="ghGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#39ff14"/><stop offset="1" stop-color="#0a8a3a"/></linearGradient></defs>' + days.map((d, i) => {
+    const h = (byDay[d] / max) * (H - 14), x = i * bw + bw * 0.18, w = bw * 0.64, y = H - h;
+    return `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" rx="2" fill="url(#ghGrad)"><animate attributeName="height" from="0" to="${h.toFixed(1)}" dur="0.6s" fill="freeze"/><animate attributeName="y" from="${H}" to="${y.toFixed(1)}" dur="0.6s" fill="freeze"/></rect>`;
+  }).join('');
+}
+
+// 🤖 자율 운영 — 지금 일하는 에이전트 · 오늘의 작전
+const OPS_AGENTS = {
+  business: { emoji: '💼', name: '비즈니스', color: '#00ff7a' },
+  youtube: { emoji: '📺', name: '콘텐츠', color: '#ff5d6c' },
+  developer: { emoji: '⚡', name: '개발', color: '#7c9cff' },
+  designer: { emoji: '🎨', name: '디자인', color: '#ff9ec7' },
+  secretary: { emoji: '📋', name: '비서', color: '#ffd166' },
+};
+function opsRel(ts) { if (!ts) return ''; const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return '방금'; const m = Math.floor(s / 60); if (m < 60) return m + '분 전'; return Math.floor(m / 60) + '시간 전'; }
+const OPS_ROSTER = ['business', 'youtube', 'developer', 'designer', 'secretary'];
+function renderOps(ops) {
+  const sec = $('opsLive'); if (!sec) return;
+  if (!ops || !ops.running) { sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  const busy = !!ops.busy || ops.phase === 'planning';
+  const exec = !!ops.executing || ops.phase === 'executing';
+  sec.classList.toggle('busy', busy || exec);
+  const PH = { planning: '분석 중…', review: '작전 검토 — 메인 창에서 선택', executing: '작전 수행 중…', done: '사이클 완료', idle: '대기' };
+  $('oplState').textContent = '운영 사이클 #' + (ops.cycle || 1);
+  $('oplRuns').textContent = PH[ops.phase] || '대기';
+  $('oplNext').textContent = ops.lastRun ? opsRel(ops.lastRun) + ' 분석' : '';
+  const sm = $('oplSummary');
+  const msg = ops.summary ? '“' + ops.summary + '”' : (busy ? '💼 비즈니스 에이전트가 매출·유튜브·코드를 읽고 작전을 짜는 중…' : '');
+  sm.textContent = msg; sm.style.display = msg ? '' : 'none';
+  // 에이전트 — scan이 없어도 기본 5인 로스터를 보여줘서 '0명'이 안 뜨게
+  const scan = (ops.scan && ops.scan.length) ? ops.scan : OPS_ROSTER.map((a) => ({ agent: a, label: busy ? '데이터 읽는 중…' : '대기', ok: false }));
+  $('oplAgents').innerHTML = scan.map((s) => {
+    const a = OPS_AGENTS[s.agent] || { emoji: '▸', name: s.agent, color: '#39ff14' };
+    const stat = s.ok ? '● 분석 완료' : (busy ? '◌ 분석 중' : '○ 대기');
+    return `<div class="opl-agent ${s.ok ? 'on' : 'off'}${busy && !s.ok ? ' working' : ''}" style="--ag:${a.color}"><span class="opl-ava">${a.emoji}</span><span class="opl-info"><span class="opl-name">${a.name}<i class="opl-stat">${stat}</i></span><span class="opl-task">${esc(s.label)}</span></span></div>`;
+  }).join('');
+  $('oplActions').innerHTML = (ops.actions || []).map((x, i) => {
+    const risky = x.risk && x.risk !== 'safe';
+    return `<div class="opl-action"><span class="opl-n">0${i + 1}</span><span class="opl-at">${esc(x.title)}</span>${risky ? '<span class="opl-risk">승인 필요</span>' : '<span class="opl-ok">자동</span>'}</div>`;
+  }).join('') || `<div class="opl-empty">${busy ? '에이전트가 작전을 짜는 중…' : '곧 작전이 올라옵니다'}</div>`;
+  // 🚀 지금 실행 중인 작업
+  const act = $('oplActivity');
+  if (ops.executing && ops.activity) { act.classList.remove('hidden'); act.innerHTML = `<span class="opl-spin"></span><span>${esc(ops.activity)}</span>`; }
+  else act.classList.add('hidden');
+  // 🚀 실제로 처리한 일 (SHIPPED)
+  const ships = ops.shipped || [];
+  const sw = $('oplShippedWrap');
+  if (ships.length) {
+    sw.classList.remove('hidden');
+    $('oplShipped').innerHTML = ships.map((s) => {
+      const a = OPS_AGENTS[s.agent] || { emoji: '🤖', color: '#39ff14' };
+      const arts = s.artifacts || [];
+      const ok = s.ok !== false && arts.length > 0;
+      const chips = arts.length ? `<div class="opl-ship-arts">${arts.map((x) => `<span class="opl-art">${esc(x)}</span>`).join('')}</div>` : '';
+      const body = chips || `<div class="opl-ship-r fail">결과물 없음 — 다음 사이클에서 다시 시도해요</div>`;
+      const badge = ok ? '<span class="opl-ship-ok">✓ 산출물</span>' : '<span class="opl-ship-fail">미완</span>';
+      return `<div class="opl-ship ${ok ? '' : 'isfail'}" style="--ag:${a.color}"><div class="opl-ship-top"><span class="opl-ship-ico">${a.emoji}</span><span class="opl-ship-t">${esc(s.title)}</span>${badge}<span class="opl-ship-when">${opsRel(s.ts)}</span></div>${body}</div>`;
+    }).join('');
+  } else sw.classList.add('hidden');
+}
+
 function render(state) {
   if (state.loading) { $('emptyArea')?.classList.add('hidden'); return; }
+  renderOps(state.ops);                     // 🤖 자율 운영 현황 (맨 위 — 페이팔 없어도)
   renderServices(state.services || []);   // 페이팔 없어도 서비스는 항상 화려하게
+  renderYoutube(state.youtube);            // 📺 유튜브 (페이팔 없어도 표시)
+  renderGithub(state.github);              // ⚡ 깃허브 개발 활동
   if (state.error || !state.data) {
     $('emptyArea').classList.remove('hidden');
     $('emptyArea').innerHTML = `<div class="empty">
@@ -355,7 +463,14 @@ $('settingsBtn')?.addEventListener('click', () => {
   vscode.postMessage({ type: 'openSettings' });
 });
 
+$('oplStop')?.addEventListener('click', async () => {
+  if (!window.connect.opsStop) return;
+  await window.connect.opsStop();
+  renderOps({ running: false });
+});
 window.connect.onRevenueState((m) => { if (m && m.type === 'state') render(m); });
+// 🤖 자율 운영 라이브 업데이트(24시간 루프가 도는 동안 패널만 갱신)
+window.connect.onOpsUpdate?.((s) => renderOps(s));
 
 // 🎙️ AI 비서 브리핑 — 실데이터로 음성 브리핑(선희) + 타자기 자막 (홍보 쇼케이스)
 let briefAudio = null;

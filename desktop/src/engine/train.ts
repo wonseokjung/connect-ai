@@ -1,13 +1,13 @@
 // 🚀 장기 기억 학습 — 검증된 레시피로 Unsloth 파인튜닝 Colab 노트북(.ipynb) 생성.
 //   conversations Q&A + gemma-4 템플릿 + train_on_responses_only(응답만 학습) + sweet-spot 설정.
-//   데이터셋(HF) → Colab(무료 T4) 원클릭 → 내 모델 위에 누적 학습 → GGUF 새 버전 → LM Studio.
+//   데이터셋(HF) → Colab(무료 T4) 원클릭 → 내 모델 위에 누적 학습 → GGUF 새 버전 → Connect AI 내장 엔진.
 
 const md = (lines: string[]) => ({ cell_type: 'markdown', metadata: {}, source: lines });
 const code = (lines: string[]) => ({ cell_type: 'code', metadata: {}, execution_count: null, outputs: [], source: lines });
 
 export interface TrainOpts { rank?: number; alpha?: number; dropout?: number; learningRate?: number; maxSteps?: number; epochs?: number; warmup?: number; maxSeq?: number; scheduler?: string; quant?: string; }
 export function buildNotebook(datasetRepo: string, baseModel: string, outModelRepo: string, dataCount = 30, opts: TrainOpts = {}): string {
-  const base = baseModel || 'unsloth/gemma-4-E2B-it';
+  const base = baseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';   // 검증된 기본(존재·로딩 확인). gemma-4 등은 사용자가 명시할 때만
   const rank = opts.rank || 16;
   const alpha = opts.alpha || rank * 2;
   const dropout = opts.dropout ?? 0;
@@ -28,10 +28,15 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         '내 1인 기업 지식을 모델 **가중치에 체득**시킵니다. 위 메뉴 **런타임 → 모두 실행**만 누르면 됩니다 (무료 T4 GPU).\n',
         '- 데이터셋: `' + datasetRepo + '` (단기 지식 → conversations Q&A)\n',
         '- 베이스 모델: `' + base + '`  ← *내가 쓰는 모델로 바꿔도 됩니다 (누적 학습)*\n',
-        '- 결과 모델: `' + outModelRepo + '` (GGUF — LM Studio/Ollama에 바로 로드)\n',
+        '- 결과 모델: `' + outModelRepo + '` (GGUF — Connect AI 내장 엔진에 바로 로드, LM Studio 불필요)\n',
         '- 설정: rank ' + rank + '/alpha ' + alpha + ' · dropout ' + dropout + ' · lr ' + lr + ' · steps ' + maxSteps + ' · seq ' + maxSeq + ' · ' + scheduler + ' · 양자화 ' + quant + ' (데이터 ' + dataCount + '개)\n',
       ]),
-      code(['%%capture\n', 'import os, re\n', '!pip install unsloth\n', '!pip install --no-deps "xformers<0.0.30" trl peft accelerate bitsandbytes datasets\n']),
+      code([
+        '%%capture\n',
+        '# 버전을 직접 고정하지 않는다 — Unsloth가 현재 Colab torch에 맞는 의존성(torchao·transformers 등)을 알아서 설치.\n',
+        '# (고정 레시피는 Colab torch가 바뀌면 register_constant/recompile_limit 같은 충돌이 연쇄로 난다)\n',
+        '!pip install --upgrade --no-cache-dir unsloth unsloth_zoo\n',
+      ]),
       md(['## 🔑 HuggingFace 로그인 (맨 먼저!)\n', '아래 칸에 **write 토큰**을 붙여넣으세요. *비공개 데이터셋을 불러오고*, 학습된 모델을 *업로드*하는 데 둘 다 필요해요.\n']),
       code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
       code([
@@ -100,11 +105,16 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         'chat("내 사업/지식에 대해 아는 걸 알려줘")\n',
         'chat("너는 무엇을 도와줄 수 있어?")\n',
       ]),
-      md(['## 💾 GGUF로 저장 (LM Studio/Ollama용)\n', '테스트가 만족스러우면 업로드! (맨 앞에서 로그인했으니 바로 됩니다)\n']),
+      md(['## 💾 GGUF로 저장 (Connect AI 내장 엔진용)\n', '테스트가 만족스러우면 업로드! (맨 앞에서 로그인했으니 바로 됩니다)\n']),
       code([
+        '# 메모리 정리(OOM 방지) — 학습기 메모리 해제 후 변환\n',
+        'import gc, torch\n',
+        'try:\n', '    del trainer\n', 'except Exception:\n', '    pass\n',
+        'gc.collect(); torch.cuda.empty_cache()\n',
+        'print("메모리 정리 완료 — GGUF 변환 시작")\n',
         '# 내 모델 = 장기 기억. q4_k_m GGUF 로 저장 + HF 업로드\n',
         'model.push_to_hub_gguf("' + outModelRepo + '", tokenizer, quantization_method="' + quant + '", token=True)\n',
-        'print("✅ 완료! huggingface.co/' + outModelRepo + ' 에서 .gguf 다운로드 → LM Studio/Ollama 로드 → ⚙️설정에서 선택")\n',
+        'print("✅ 완료! Connect AI 앱 → 🤖 내 AI 팀 → HuggingFace에서 받기 → \\"' + outModelRepo + '\\" 검색해서 내려받으면 내 모델로 바로 사용 (LM Studio 불필요)")\n',
       ]),
     ],
   };

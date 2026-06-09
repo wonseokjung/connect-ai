@@ -8,6 +8,39 @@ export async function hfUsername(token: string): Promise<string> {
   catch { return ''; }
 }
 
+// 🧬 HF Jobs — "내 AI 키우기" 클라우드 학습 (Pro/Team 전용, 초당 종량제). 제공자 토큰으로 실행.
+export interface JobLaunch { ok: boolean; jobId?: string; url?: string; command?: string; error?: string; needsPro?: boolean; }
+export async function launchTrainingJob(token: string, namespace: string, opts: { datasetRepo: string; outputRepo: string; baseModel: string; flavor?: string; maxSteps?: number; scriptUrl: string; }): Promise<JobLaunch> {
+  const flavor = opts.flavor || 'l4x1';
+  const env: Record<string, string> = { DATASET_REPO: opts.datasetRepo, DATASET_FILE: 'connect-ai-brain.jsonl', OUTPUT_REPO: opts.outputRepo, BASE_MODEL: opts.baseModel, MAX_STEPS: String(opts.maxSteps || 120) };
+  // 코랩 없이 실행되는 동등 CLI(확실한 폴백 — 복사해서 돌리면 무조건 됨)
+  const command = `hf jobs uv run --flavor ${flavor} --timeout 1h --secrets HF_TOKEN ${Object.entries(env).map(([k, v]) => `-e ${k}=${v}`).join(' ')} ${opts.scriptUrl}`;
+  // best-effort REST 자동 실행 — Volume으로 데이터셋(스크립트 포함) 마운트 후 uv run
+  const body = {
+    dockerImage: 'ghcr.io/astral-sh/uv:python3.12-bookworm',
+    command: ['uv', 'run', '/data/train_qlora_uv.py'],
+    flavor, timeout: '1h', environment: env, secrets: { HF_TOKEN: token },
+    volumes: [{ type: 'dataset', source: opts.datasetRepo, mountPath: '/data' }],
+  };
+  try {
+    const r = await axios.post(`https://huggingface.co/api/jobs/${namespace}`, body, { headers: { Authorization: `Bearer ${token}` }, timeout: 30000 });
+    const jobId = r.data?.id || r.data?.jobId;
+    return { ok: true, jobId, url: r.data?.url || (jobId ? `https://huggingface.co/jobs/${namespace}/${jobId}` : ''), command };
+  } catch (e: any) {
+    const st = e?.response?.status; const msg = e?.response?.data?.error || e?.response?.data?.message || e?.message;
+    if (st === 402 || /credit|insufficient|balance/i.test(String(msg))) return { ok: false, needsPro: true, command, error: 'HF 크레딧이 부족해요. huggingface.co/settings/billing 에서 크레딧을 충전하면 바로 학습돼요 (1회 ~$0.3).' };
+    if (st === 403 || /pro|subscription|payment|billing/i.test(String(msg))) return { ok: false, needsPro: true, command, error: 'HF Jobs는 HF Pro($9/월)·Team·Enterprise가 필요해요. Pro 가입 후 다시 시도하거나 아래 명령을 복사해 실행하세요.' };
+    return { ok: false, command, error: (st ? `HTTP ${st}: ` : '') + (msg || '작업 실행 실패') + ' — 아래 명령으로 직접 실행할 수 있어요.' };
+  }
+}
+export async function jobStatus(token: string, namespace: string, jobId: string): Promise<{ ok: boolean; stage?: string; message?: string; error?: string }> {
+  try {
+    const r = await axios.get(`https://huggingface.co/api/jobs/${namespace}/${jobId}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
+    const s = r.data?.status || {};
+    return { ok: true, stage: s.stage || r.data?.stage || 'UNKNOWN', message: s.message || '' };
+  } catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
+}
+
 export async function uploadDataset(token: string, repo: string, jsonl: string, filename = 'connect-ai-knowledge.jsonl'): Promise<{ ok: boolean; url?: string; error?: string }> {
   if (!token) return { ok: false, error: '허깅페이스 토큰을 🗂️ 연동에서 먼저 입력하세요. (write 권한)' };
   // 전체 URL·datasets/ 접두어 제거. "이름"만 적었으면 토큰 주인 아이디를 자동으로 앞에 붙인다.

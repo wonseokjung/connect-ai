@@ -105,11 +105,50 @@ export interface ChatMessage { role: 'system' | 'user' | 'assistant' | 'tool'; c
 // 네이티브 함수(도구) 호출 — OpenAI 호환(LM Studio/Ollama/Gemini). 모델이 tool_calls 를 구조화해서 반환.
 export interface ToolSchema { type: 'function'; function: { name: string; description: string; parameters: any }; }
 export interface ToolUse { id: string; name: string; args: any; }
-export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], tools: ToolSchema[], opts: ChatOpts = {}): Promise<{ content: string; toolCalls: ToolUse[]; message: any }> {
+// 🧩 빡빡한 chat 템플릿(Mistral/Zephyr 등 — system 미지원·역할 교차 강제) 대응:
+//   system을 첫 user에 합치고, 같은 역할 연속을 병합하고, user로 시작하게 평탄화한다.
+function flattenMessages(messages: ChatMessage[]): ChatMessage[] {
+  let sys = '';
+  const rest: ChatMessage[] = [];
+  for (const m of messages) {
+    if (m.role === 'system') sys += (sys ? '\n\n' : '') + (m.content || '');
+    else rest.push({ role: m.role, content: m.content || '' } as ChatMessage);
+  }
+  if (sys) {
+    const fu = rest.find(m => m.role === 'user');
+    if (fu) fu.content = sys + '\n\n' + fu.content;
+    else rest.unshift({ role: 'user', content: sys } as ChatMessage);
+  }
+  while (rest.length && rest[0].role !== 'user') rest.shift();
+  const out: ChatMessage[] = [];
+  for (const m of rest) {
+    const last = out[out.length - 1];
+    if (last && last.role === m.role) last.content += '\n\n' + m.content;
+    else out.push(m);
+  }
+  return out;
+}
+const isTemplateErr = (e: any) => { const m = String(e?.response?.data?.error?.message || e?.response?.data?.error || e?.response?.data?.message || e?.message || ''); return /template|alternate|parser|roles must|jinja|raise_exception|system role/i.test(m); };
+
+export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], tools: ToolSchema[], opts: ChatOpts = {}): Promise<{ content: string; reasoning: string; toolCalls: ToolUse[]; message: any }> {
   const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
   const headers: any = t.key ? { Authorization: `Bearer ${t.key}` } : {};
-  const body: any = { model: t.model, messages, tools, tool_choice: 'auto', temperature: opts.temperature ?? 0.4, stream: false };
-  const r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+  const body: any = { model: t.model, messages, temperature: opts.temperature ?? 0.4, stream: false };
+  if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
+  let r;
+  try {
+    r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+  } catch (e: any) {
+    // 🛠️ 일부 모델은 chat template이 도구 호출을 지원 안 해 tools 요청에 400/500을 낸다(llama-server --jinja).
+    //    → tools 빼고 재시도. 앱은 태그 기반 도구 폴백(parseTextTools)으로 그대로 동작한다. (사용자 "status code 400" 해결)
+    const status = e?.response?.status;
+    if (status === 400 || status === 500) {
+      // tools 제거 + (템플릿이 빡빡하면) 메시지 평탄화로 재시도 → 어떤 모델이든 답하게
+      delete body.tools; delete body.tool_choice;
+      if (isTemplateErr(e)) body.messages = flattenMessages(messages);
+      r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+    } else throw e;
+  }
   const msg = r.data?.choices?.[0]?.message || {};
   const toolCalls: ToolUse[] = (msg.tool_calls || []).map((tc: any, i: number) => {
     let args: any = {};
@@ -117,7 +156,25 @@ export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], t
     try { args = typeof raw === 'string' ? JSON.parse(raw || '{}') : (raw || {}); } catch { args = {}; }
     return { id: tc.id || `call_${i}`, name: tc?.function?.name || '', args };
   });
-  return { content: msg.content || '', toolCalls, message: msg };
+  // reasoning 모델(gemma/qwen 등)은 도구호출·답을 reasoning_content 에 넣기도 함 → 같이 노출(태그 폴백용)
+  return { content: msg.content || '', reasoning: msg.reasoning_content || msg.reasoning || '', toolCalls, message: msg };
+}
+
+// 🔎 에러에서 사람이 읽을 '원인'을 뽑아낸다 — 서버가 준 상세 메시지 + HTTP 상태 + 흔한 원인 힌트.
+//    (사용자가 "status code 400" 만 보고 원인을 모르던 문제 해결)
+export function apiError(e: any): string {
+  if (!e) return '알 수 없는 오류';
+  const d = e?.response?.data;
+  let detail = d ? (d?.error?.message || (typeof d?.error === 'string' ? d.error : '') || d?.message || (typeof d === 'string' ? d : '')) : '';
+  const code = e?.code || '';
+  detail = String(detail || e?.message || code || e).replace(/\s+/g, ' ').trim().slice(0, 240);
+  const status = e?.response?.status;
+  let hint = '';
+  if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
+  else if (status === 404) hint = ' — 모델/주소를 찾지 못함(모델 이름·LLM 주소 확인)';
+  else if (status === 500 || status === 503) hint = ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
+  else if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
+  return (status ? `HTTP ${status}: ${detail}` : detail) + hint;
 }
 
 // 한 번의 system+user 호출. onToken 주면 스트리밍.
@@ -164,9 +221,17 @@ export async function completeMessages(t: LlmTarget, messages: ChatMessage[], op
   const stream = !!opts.onToken;
   let full = '';
   let msgs = messages;
+  let flattened = false;
   for (let cont = 0; cont <= 3; cont++) {
     if (opts.signal?.aborted) break;
-    const { text, truncated } = await callOnce(t, msgs, opts, stream);
+    let res: OneShot;
+    try { res = await callOnce(t, msgs, opts, stream); }
+    catch (e: any) {
+      // 빡빡한 템플릿(역할 교차 강제·system 미지원) → 메시지 평탄화로 한 번 재시도
+      if (isTemplateErr(e) && !flattened) { flattened = true; msgs = flattenMessages(msgs); res = await callOnce(t, msgs, opts, stream); }
+      else throw e;
+    }
+    const { text, truncated } = res;
     full += text;
     if (!truncated || !text) break;   // 정상 종료거나 더 안 나오면 끝
     // 길이로 잘림 → 끊긴 지점부터 이어쓰기 요청 (스트리밍이면 onToken으로 계속 흘러나감)

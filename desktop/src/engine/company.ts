@@ -1,6 +1,6 @@
 // 엔진 — 통합 1인 기업 모드. 에이전트 하나가 스스로 판단해서 직접 처리하거나, 큰 일은 <team>으로 동료에게 위임(dispatch). 별도 모드 구분 없음.
 import * as os from 'os';
-import { chat, completeMessages, completeWithTools, detectTarget, embed, LlmTarget, ChatMessage, ToolSchema, ToolUse } from './llm';
+import { chat, completeMessages, completeWithTools, detectTarget, embed, apiError, LlmTarget, ChatMessage, ToolSchema, ToolUse } from './llm';
 import { AGENTS, SPECIALIST_IDS, specialistPrompt, agentPrompt, triagePrompt } from './persona';
 import { parseTools, runTool, toolGuide, stripTools } from './tools';
 import { search as brainSearch, addNote as brainAdd, CATEGORIES, type Category } from './brain';
@@ -65,7 +65,17 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
 }
 
 function nativeGuide(workspace: string): string {
-  return `\n\n## 도구 사용 (매우 중요)\n너는 함수(도구)를 직접 호출할 수 있다. 파일 읽기/쓰기, 명령 실행, 개발 서버 실행(start_server), 파일 검색, 웹 검색, 화면 보기, 매출 확인 등은 반드시 해당 도구를 호출해서 실제로 수행해라.\n- "지금 만들겠습니다 / 잠시만 기다려 주세요" 같은 예고만 하고 끝내지 마라. 만들라고 하면 그 턴에서 바로 write_file 등을 호출해라.\n- 웹사이트/앱을 만들면 순서를 반드시 지켜라: ① write_file 로 index.html(+css/js)을 실제로 만든다 → ② start_server 로 띄운다. 파일 없이 start_server만 하면 빈 폴더라 아무것도 안 보인다. "만들었다"고만 말하고 실제로 write_file을 안 하는 것은 거짓 보고다.\n- 작업 폴더 = ${workspace} (상대경로는 이 기준). 도구를 다 쓴 뒤 사용자에게 한국어로 자연스럽게 보고해라.`;
+  return `\n\n## 도구 사용 (매우 중요)\n너는 함수(도구)를 직접 호출할 수 있다. 파일 읽기/쓰기, 명령 실행, 개발 서버 실행(start_server), 파일 검색, 웹 검색, 화면 보기, 매출 확인 등은 반드시 해당 도구를 호출해서 실제로 수행해라.\n- "지금 만들겠습니다 / 잠시만 기다려 주세요" 같은 예고만 하고 끝내지 마라. 만들라고 하면 그 턴에서 바로 write_file 등을 호출해라.\n- 웹사이트/앱을 만들면 순서를 반드시 지켜라: ① write_file 로 index.html(+css/js)을 실제로 만든다 → ② start_server 로 띄운다. 파일 없이 start_server만 하면 빈 폴더라 아무것도 안 보인다. "만들었다"고만 말하고 실제로 write_file을 안 하는 것은 거짓 보고다.\n- 작업 폴더 = ${workspace} (상대경로는 이 기준). 도구를 다 쓴 뒤 사용자에게 한국어로 자연스럽게 보고해라.
+
+## 함수 호출이 안 되는 모델이면 (대체 문법 — 중요)
+네가 함수(tool_calls)를 못 부르는 모델이면, 답변 안에 아래 태그를 그대로 출력해라(설명 말고 태그 자체를 적으면 실제로 실행된다):
+- 파일 생성: <write_file path="index.html">파일 내용 전체</write_file>
+- 명령 실행: <run>npm install</run>
+- 개발 서버: <serve>npm run dev</serve>  (서버는 <run> 말고 반드시 <serve>)
+- 웹 검색: <web_search>검색어</web_search> · 페이지 읽기: <fetch_url>주소</fetch_url>
+- 매출 확인: <revenue/> · 화면 보기: <screenshot/>
+- 메일(승인 후 발송): <approve do="email">설명 | 받는사람@메일 | 제목 | 본문</approve>
+"만들겠습니다"라고만 하지 말고, 만들라고 하면 그 자리에서 위 태그를 출력해서 실제로 해라.`;
 }
 
 // 텍스트 태그(<write_file> 등)를 레지스트리 도구 호출 {name,args}로 변환 — tool_calls 안 쓰는 모델 대비. 실행기는 동일.
@@ -115,14 +125,15 @@ export async function agentWithTools(history: ChatTurn[], userText: string, opts
   for (let iter = 0; iter < 8; iter++) {
     if (aborted(opts)) { onEvent({ kind: 'final', text: '⏹️ 중단했어요.' }); return ''; }
     onEvent({ kind: 'status', text: iter === 0 ? `${name} 생각 중…` : `${name}가 이어서 작업 중…` });
-    let res: { content: string; toolCalls: ToolUse[]; message: any };
+    let res: { content: string; reasoning: string; toolCalls: ToolUse[]; message: any };
     try { res = await completeWithTools(target, messages, schemas, { temperature: 0.4, signal: opts.signal }); }
-    catch (e: any) { onEvent({ kind: 'final', text: aborted(opts) ? '⏹️ 중단했어요.' : `잠시 문제가 생겼어요. (${e?.message || e})` }); return finalText; }
+    catch (e: any) { onEvent({ kind: 'final', text: aborted(opts) ? '⏹️ 중단했어요.' : `잠시 문제가 생겼어요. (${apiError(e)})` }); return finalText; }
     if (aborted(opts)) { onEvent({ kind: 'final', text: '⏹️ 중단했어요.' }); return ''; }
 
     // 🎯 도구 호출 수집 — 네이티브 tool_calls 우선, 없으면 텍스트 태그(약한/커스텀 모델) 파싱. 실행기는 레지스트리 하나로 통일.
     const native = res.toolCalls.length > 0;
-    const invocations = native ? res.toolCalls : parseTextTools(res.content || '').map((c, i) => ({ id: `t${iter}_${i}`, name: c.name, args: c.args }));
+    // 태그 폴백은 content + reasoning 둘 다 훑음 (도구호출이 reasoning 안에 묻히는 모델 대비)
+    const invocations = native ? res.toolCalls : parseTextTools(`${res.content || ''}\n${res.reasoning || ''}`).map((c, i) => ({ id: `t${iter}_${i}`, name: c.name, args: c.args }));
     if (!invocations.length) { finalText = stripTools(res.content || '').trim() || '(완료)'; onEvent({ kind: 'final', text: finalText }); return finalText; }
 
     messages.push(native ? res.message : { role: 'assistant', content: res.content || '' });
@@ -301,7 +312,7 @@ export async function talkToMyAgent(history: ChatTurn[], userText: string, opts:
   let acc = '';
   try {
     acc = await completeMessages(target, messages, { temperature: 0.6, signal: opts.signal, onToken: (t) => onEvent({ kind: 'token', text: t }) });
-  } catch (e: any) { acc = aborted(opts) ? '⏹️ 중단했어요.' : `사장님, 잠시 문제가 생겼어요. (${e?.message || e})`; }
+  } catch (e: any) { acc = aborted(opts) ? '⏹️ 중단했어요.' : `사장님, 잠시 문제가 생겼어요. (${apiError(e)})`; }
   acc = acc.trim();
   onEvent({ kind: 'final', text: acc });
   return acc;

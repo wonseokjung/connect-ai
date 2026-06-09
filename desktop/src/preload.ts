@@ -65,9 +65,17 @@ contextBridge.exposeInMainWorld('connect', {
   githubPush: () => ipcRenderer.invoke('github:push'),
   githubPull: () => ipcRenderer.invoke('github:pull'),
   trainNotebook: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:notebook', modelName, opts),
+  trainAutotrain: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:autotrain', modelName, opts),
   // 🧬 장기기억 만들기: ① 변환 ② 업로드 ③ 모델이름
   brainBuildDataset: (augment?: boolean) => ipcRenderer.invoke('brain:buildDataset', augment),
   hfUploadBrain: () => ipcRenderer.invoke('hf:uploadBrain'),
+  trainCloud: () => ipcRenderer.invoke('train:cloud'),                    // ☁️ 내 AI 키우기(HF Jobs)
+  trainCloudStatus: () => ipcRenderer.invoke('train:cloudStatus'),
+  trainCloudInstall: () => ipcRenderer.invoke('train:cloudInstall'),
+  authSignup: (email: string, pw: string) => ipcRenderer.invoke('auth:signup', email, pw),   // 👤 회원
+  authLogin: (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
+  authLogout: () => ipcRenderer.invoke('auth:logout'),
+  authCurrent: () => ipcRenderer.invoke('auth:current'),
   brainBuildPreference: () => ipcRenderer.invoke('brain:buildPreference'),   // ⚖️ AI 자동 피드백
   hfUploadPreference: () => ipcRenderer.invoke('hf:uploadPreference'),
   brainModelName: () => ipcRenderer.invoke('brain:modelName'),
@@ -114,6 +122,18 @@ contextBridge.exposeInMainWorld('connect', {
   reportSpeak: (text: string) => ipcRenderer.invoke('report:speak', text),
   revRefresh: () => ipcRenderer.invoke('revenue:refresh'),
   revOpenSettings: () => ipcRenderer.invoke('revenue:openSettings'),
+  // 🤖 자율 운영 — 실데이터 분석 → 작전 생성 + 24시간 반복 루프
+  opsStart: () => ipcRenderer.invoke('ops:start'),
+  opsStatus: () => ipcRenderer.invoke('ops:status'),
+  opsNextCycle: () => ipcRenderer.invoke('ops:nextCycle'),
+  opsExecuteSelected: (titles: string[]) => ipcRenderer.invoke('ops:executeSelected', titles),
+  opsStop: () => ipcRenderer.invoke('ops:stop'),
+  officeBanter: () => ipcRenderer.invoke('office:banter'),   // 💬 사무실 진짜 AI 대화
+  onOpsUpdate: (cb: (s: any) => void) => {
+    const h = (_e: any, s: any) => cb(s);
+    ipcRenderer.on('ops:update', h);
+    return () => ipcRenderer.removeListener('ops:update', h);
+  },
   onRevenueState: (cb: (m: any) => void) => {
     const h = (_e: any, m: any) => cb(m);
     ipcRenderer.on('revenue:state', h);

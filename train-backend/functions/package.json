@@ -1,0 +1,12 @@
+{
+  "name": "connect-ai-train-backend",
+  "description": "Connect AI 클라우드 학습 백엔드 (HF Jobs 트리거 + 월1회 게이트)",
+  "main": "index.js",
+  "engines": { "node": "20" },
+  "dependencies": {
+    "firebase-admin": "^12.6.0",
+    "firebase-functions": "^6.0.0",
+    "axios": "^1.7.0"
+  },
+  "private": true
+}

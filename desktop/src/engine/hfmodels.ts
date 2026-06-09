@@ -5,14 +5,24 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-export interface HfModel { id: string; downloads: number; likes: number; }
+export interface HfModel { id: string; downloads: number; likes: number; params: string; updated: string; vision: boolean; }
 
-// GGUF 모델 검색(다운로드순). filter=gguf 로 GGUF 보유 레포만.
+// 모델 이름/태그에서 파라미터 규모 추출 (예: 7B, 8x7B, 3.8B)
+function paramOf(id: string): string {
+  const m = (id || '').match(/\b(\d+(?:\.\d+)?x\d+(?:\.\d+)?b|\d+(?:\.\d+)?b)\b/i);
+  return m ? m[1].toUpperCase() : '';
+}
+
+// GGUF 모델 검색(다운로드순). filter=gguf 로 GGUF 보유 레포만. 파라미터 규모·인기·갱신일·비전 여부까지.
 export async function searchGGUF(query: string): Promise<HfModel[]> {
   const q = (query || '').trim() || 'gguf';
   const url = `https://huggingface.co/api/models?search=${encodeURIComponent(q)}&filter=gguf&sort=downloads&direction=-1&limit=24`;
   const r = await axios.get(url, { timeout: 15000, headers: { Accept: 'application/json' } });
-  return (r.data || []).map((m: any) => ({ id: m.id || m.modelId, downloads: m.downloads || 0, likes: m.likes || 0 })).filter((m: HfModel) => m.id);
+  return (r.data || []).map((m: any) => {
+    const id = m.id || m.modelId; const tags: string[] = m.tags || [];
+    const vision = tags.some(t => /vision|image-text|multimodal|vlm|mmproj/i.test(t)) || /vl|vision|llava/i.test(id);
+    return { id, downloads: m.downloads || 0, likes: m.likes || 0, params: paramOf(id), updated: m.lastModified || m.createdAt || '', vision };
+  }).filter((m: HfModel) => m.id);
 }
 
 export interface GgufFile { path: string; size: number; quant: string; }

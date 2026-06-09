@@ -8,18 +8,18 @@ import * as os from 'os';
 import { talkToMyAgent, agentWithTools, ChatTurn } from './engine/company';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
-import { setBrainFile, allNotes, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
+import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions } from './engine/localengine';
 import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED } from './engine/hfmodels';
 import { autoUpdater } from 'electron-updater';
-import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown } from './engine/github';
+import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
-import { uploadDataset, hfUsername } from './engine/hf';
+import { uploadDataset, hfUsername, launchTrainingJob, jobStatus } from './engine/hf';
 import { buildNotebook } from './engine/train';
 import { METHODS, buildMethodNotebook } from './engine/methods';
 import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
-import { sendEmail } from './engine/email';
+import { sendEmail, fetchUnseen } from './engine/email';
 import { fetchChannel, ytAccessToken, fetchAnalytics } from './engine/youtube';
 import { setMcpConfig, testMcp, listMcpTools } from './engine/mcp';
 import { fetchUrl, siteMeta } from './engine/web';
@@ -27,21 +27,24 @@ import { qwenTTS, localTTS } from './engine/tts';
 import { edgeTTS } from './engine/edgetts';
 import * as http from 'http';
 import { setTaskFile, listTasks, addTask, setStatus as setTaskStatus, openTasks, taskCount } from './engine/tasks';
-import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, approvalCount, getApproval, ApprovalAction } from './engine/approvals';
+import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, approvalCount, getApproval, updateApprovalAction, addApproval, ApprovalAction } from './engine/approvals';
 import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
+import { AGENTS, AGENT_ORDER } from './agents';
 import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, PlazaSession, PlazaMessage } from './plaza';
 
 interface Service { id: string; name: string; url: string; desc: string }
 interface Config {
-  company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean; agentModels?: Record<string, string>;
+  company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean; agentModels?: Record<string, string>; agentNames?: Record<string, string>; agentImages?: Record<string, string>;
   voiceName: string; jarvis: boolean; plazaDbUrl: string; llmBase?: string; llmModel?: string; voice: boolean;
-  services: Service[]; telegramToken: string; telegramChatId: string; apiKeys: Record<string, string>; paypalClientId: string; paypalSecret: string;
-  hfToken: string; hfModel: string;
+  services: Service[]; telegramToken: string; telegramChatId: string; telegramApprovals?: boolean; emailAutoReply?: boolean; apiKeys: Record<string, string>; paypalClientId: string; paypalSecret: string;
   apiConn: Record<string, Record<string, string>>;   // 🔌 서비스별 자격증명 (telegram/youtube/paypal/gemini/…)
   briefingOn: boolean; briefingHour: number; briefingMin: number; lastBriefing: string;   // 📋 아침 브리핑(능동성)
   trainNotebookUrl: string;                                          // 🚀 내 학습 노트북(Colab/GitHub) URL
   autoSync: boolean; lastSyncCount: number; lastTrainHintCount: number;   // 🔄 자동 루프(GitHub 자동 커밋 + 학습 추천)
+  lastCloudTrainAt?: number; cloudJob?: any; trainBaseModel?: string; brainModelName?: string;   // ☁️ 클라우드 학습(HF Jobs)
+  trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
+  firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
   voiceQuality: string;   // 🔊 'browser'(기본·빠름) | 'qwen'(Qwen3-TTS 고품질·클라우드)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
@@ -58,7 +61,7 @@ const DEFAULTS: Config = {
   company: '1인 기업', agentName: '에이전트', userTitle: '사장님', plazaEmoji: '🖥️', greeting: '', workspace: '', tools: true,
   voiceName: '', jarvis: false, plazaDbUrl: '', llmBase: '', llmModel: '', voice: false,
   services: [], telegramToken: '', telegramChatId: '', apiKeys: {}, paypalClientId: '', paypalSecret: '',
-  hfToken: '', hfModel: '', apiConn: {},
+  apiConn: {},
   briefingOn: true, briefingHour: 9, briefingMin: 0, lastBriefing: '', trainNotebookUrl: '',
   autoSync: true, lastSyncCount: 0, lastTrainHintCount: 0, mcpConfig: {}, voiceQuality: 'browser', qwenVoice: 'Sohee', ttsLocalUrl: '',
   localModelPath: '', localAuto: true, localFlashAttn: true, localCtxSize: 8192, localTemp: 0.7,
@@ -279,11 +282,16 @@ app.whenReady().then(() => {
   setBrainFile(path.join(app.getPath('userData'), 'brain.json'));
   setTaskFile(path.join(app.getPath('userData'), 'tasks.json'));
   setApprovalFile(path.join(app.getPath('userData'), 'approvals.json'));
+  loadOpsState();   // 🤖 자율 운영 상태 복원
   try { setMcpConfig(loadConfig().mcpConfig); } catch { /* */ }
   createWindow();
   buildTray();
   scheduleBriefing();
   scheduleAuto();
+  // 🤖 사이클은 사람이 시작/다음을 누르는 수동형 → 재시작 후 자동 실행하지 않음(중간 실행상태만 정리)
+  if (opsState.executing || opsState.phase === 'executing') { opsState.executing = false; opsState.phase = opsState.actions.length ? 'review' : 'idle'; }
+  setInterval(tgTick, 3000);   // 📲 텔레그램 결재 브리지 폴링(승인 푸시 + 답장 처리)
+  setInterval(() => { mailTick().catch(() => {}); }, 60000);   // 📥 이메일 자동 답장 폴링(60초)
   startConnectBridge();   // 🔌 EZERAI ↔ Connect AI 두뇌 브릿지 (:4825)
   // 🧠 내장 추론 엔진 — 설정에 모델이 있으면 부팅 시 자동 시작(LM Studio 없이 동작)
   setTimeout(() => { const c = loadConfig(); if (c.localAuto && c.localModelPath && fs.existsSync(c.localModelPath)) bootLocalEngine(c.localModelPath); }, 1500);
@@ -420,10 +428,13 @@ ipcMain.handle('update:install', () => {
 });
 // 엔진 이벤트를 메인+사무실 창 둘 다에 (사무실 창이 살아 움직이게)
 const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };
+// ✈️ 텔레그램 sendMessage — 한 곳에서(발송·테스트·승인실행·결재 브리지가 공유)
+const tgPost = (token: string, chat: string, text: string) => axios.post(`https://api.telegram.org/bot${token}/sendMessage`, { chat_id: chat, text: text || '(빈 메시지)' }, { timeout: 9000 });
 async function loadRevenue() {
   postRevenue({ type: 'state', loading: true, error: null, data: null });
   const c = loadConfig();
-  const [state, services] = await Promise.all([
+  const g = connOf('github'), y = connOf('youtube');
+  const [state, services, yt, gh] = await Promise.all([
     fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }),
     Promise.all((c.services || []).map(async (s) => {
       const m = s.url ? await siteMeta(s.url).catch(() => ({ title: '', image: '', favicon: '', text: '' })) : { title: '', image: '', favicon: '', text: '' };
@@ -433,14 +444,198 @@ async function loadRevenue() {
         snapshot: (m.text || '').replace(/\s+/g, ' ').slice(0, 200), image: m.image || '', favicon: m.favicon || '', siteTitle: m.title || '',
       };
     })),
+    fetchChannel(y.YOUTUBE_API_KEY, y.YOUTUBE_CHANNEL_ID).catch(() => null),   // 📺 유튜브 채널·영상
+    listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO || '', 40).catch(() => null),   // ⚡ 깃허브 개발 활동
   ]);
   (state as any).services = services;
+  (state as any).youtube = (yt && (yt as any).ok) ? yt : null;
+  (state as any).github = (gh && (gh as any).ok) ? gh : null;
+  (state as any).ops = opsPublic();   // 🤖 자율 운영 현황(지금 일하는 에이전트·작전)
   postRevenue(state);
 }
 ipcMain.handle('revenue:open', () => { openRevenueWindow(); return true; });
 ipcMain.handle('revenue:ready', () => { loadRevenue(); return true; });
 ipcMain.handle('revenue:refresh', () => { loadRevenue(); return true; });
 ipcMain.handle('revenue:openSettings', () => { win?.focus(); return true; });
+
+// ───────── 🤖 자율 운영 — 비즈니스 에이전트가 실데이터를 분석해 작전(할 일) 생성, N시간 반복 ─────────
+interface OpsScan { agent: string; label: string; ok: boolean; }
+interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; }
+interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; }
+type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
+interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; }
+let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [] };
+const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
+function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
+function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
+const opsPublic = () => ({ ...opsState });
+const opsEmit = () => { try { win?.webContents.send('ops:update', opsPublic()); } catch { /* */ } if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
+const fmtN = (n: number) => Math.round(n || 0).toLocaleString();
+
+async function gatherOps() {
+  const c = loadConfig();
+  const g = connOf('github'), y = connOf('youtube');
+  const [rev, yt, gh] = await Promise.all([
+    fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }).catch(() => null),
+    fetchChannel(y.YOUTUBE_API_KEY, y.YOUTUBE_CHANNEL_ID).catch(() => null),
+    listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO || '', 20).catch(() => null),
+  ]);
+  return { c, rev, yt, gh };
+}
+// 실데이터 → 에이전트별 점검 라인 (결정적 — AI가 실패해도 진짜 숫자가 남는다)
+function buildScan(d: any): OpsScan[] {
+  const { c, rev, yt, gh } = d; const scan: OpsScan[] = [];
+  const bc = rev?.data?.totals?.by_currency;
+  if (bc && Object.keys(bc).length) {
+    const t = rev.data.totals; const cur = t.primary_currency || Object.keys(bc)[0]; const cc = bc[cur];
+    const net = (cc.gross || 0) + (cc.refunds || 0) + (cc.fees || 0);
+    scan.push({ agent: 'business', label: `매출 분석 — 순매출 ${fmtN(net)} ${cur} · 30일 거래 ${cc.count}건`, ok: true });
+  } else scan.push({ agent: 'business', label: rev?.error ? '페이팔 점검 — 연결 확인 필요' : '페이팔 미연결 — 결제 추적 대기', ok: false });
+  if (yt?.ok && yt.channel) {
+    const ch = yt.channel; const top = (yt.videos || []).slice().sort((a: any, b: any) => b.views - a.views)[0];
+    scan.push({ agent: 'youtube', label: `유튜브 — 구독 ${fmtN(ch.subs)} · 총 조회 ${fmtN(ch.views)}${top ? ` · 인기 "${(top.title || '').slice(0, 16)}"` : ''}`, ok: true });
+  } else scan.push({ agent: 'youtube', label: '유튜브 미연결 — 채널 분석 대기', ok: false });
+  if (gh?.ok && gh.commits?.length) {
+    scan.push({ agent: 'developer', label: `코드 점검 — 최근 커밋 ${gh.commits.length}개 · "${(gh.commits[0].msg || '').slice(0, 22)}"`, ok: true });
+  } else scan.push({ agent: 'developer', label: '깃허브 미연결 — 코드 추적 대기', ok: false });
+  const svc = (c.services || []).length;
+  scan.push({ agent: 'designer', label: svc ? `브랜드 점검 — 서비스 ${svc}곳 자산 확인` : '등록된 서비스 없음 — 웹사이트·채널을 등록하세요', ok: !!svc });
+  scan.push({ agent: 'secretary', label: `작전 종합 — 진행 할 일 ${openTasks().length}개 · 승인 대기 ${pendingApprovals().length}개`, ok: true });
+  return scan;
+}
+function opsRisk(title: string): OpsAction['risk'] {
+  if (/결제|환불|가격|구매|송금|payout|invoice|청구/i.test(title)) return 'money';
+  if (/메일|발송|이메일|dm|게시|업로드|발행|공지|email|post|publish/i.test(title)) return 'post';
+  if (/배포|deploy|푸시|머지|릴리즈|release|push/i.test(title)) return 'deploy';
+  return 'safe';
+}
+// AI 없거나 실패해도 점검 결과로 진짜 작전을 만든다
+function fallbackActions(scan: OpsScan[]): OpsAction[] {
+  const out: OpsAction[] = [];
+  const miss = (a: string) => scan.find(s => s.agent === a && !s.ok);
+  if (miss('business')) out.push({ title: '페이팔을 연결해 결제 받기 시작', agent: 'business', risk: 'safe' });
+  if (miss('youtube')) out.push({ title: '유튜브 채널을 연결해 시청 데이터 분석', agent: 'youtube', risk: 'safe' });
+  else out.push({ title: '인기 영상 주제로 후속 콘텐츠 1편 기획', agent: 'youtube', risk: 'safe' });
+  if (miss('developer')) out.push({ title: '깃허브 저장소를 연결해 코드 점검', agent: 'developer', risk: 'safe' });
+  out.push({ title: '구독자 대상 이메일 캠페인 발송', agent: 'secretary', risk: 'post' });
+  return out.slice(0, 3);
+}
+// ① 스케줄 짜기 — 현황 분석 → '오늘의 작전' 제안(자동 실행 안 함). 사람이 고를 차례(phase=review).
+async function runOperation(): Promise<OpsState> {
+  if (opsState.busy) return opsPublic();
+  if (!opsState.scan.length) opsState.scan = ['business', 'youtube', 'developer', 'designer', 'secretary'].map(a => ({ agent: a, label: '데이터 읽는 중…', ok: false }));
+  opsState.busy = true; opsState.phase = 'planning'; opsEmit();
+  try {
+    const d = await gatherOps();
+    const scan = buildScan(d); const c = d.c;
+    let summary = '', actions: OpsAction[] = [];
+    const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
+    if (target) {
+      const findings = scan.map(s => `- ${s.label}`).join('\n');
+      // 🧠 내 두뇌 지식 + 서비스 상세를 함께 근거로 → '내 지식·사업 기반' 구체 작전이 나오게
+      const notes = allNotes();
+      const brainCtx = notes.length ? '\n\n[내 두뇌 — 쌓인 지식·노하우]\n' + notes.slice(-15).map(n => `- ${n.text.replace(/\s+/g, ' ').slice(0, 160)}`).join('\n') : '';
+      const svcCtx = (c.services || []).length ? '\n\n[내 서비스/사업]\n' + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n') : '';
+      const user = `너는 ${c.company}의 운영을 책임지는 비즈니스 에이전트야. 아래 [실시간 점검]·[내 서비스]·[내 두뇌]를 모두 근거로, 오늘 회사를 키울 가장 효과적이고 구체적인 행동 4가지를 정해줘.\n- 막연한 일반론 금지. 내 실제 서비스 이름·내 지식·실제 수치를 직접 언급해서 구체적으로.\n- 각 행동은 한 줄, 바로 실행 가능하게.\n형식 정확히 지켜:\n요약: <한 줄 현황>\n작전:\n- 행동\n- 행동\n- 행동\n- 행동\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}`;
+      try {
+        const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
+        const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+        const sm = lines.find(l => /^요약[:：]/.test(l)); if (sm) summary = sm.replace(/^요약[:：]\s*/, '').slice(0, 120);
+        actions = lines.filter(l => /^[-•*]\s+/.test(l))
+          .map(l => l.replace(/^[-•*]\s+/, '').replace(/^<[^>]*>\s*/, '').replace(/^행동\s*\d*\s*[:：.)]?\s*/, '').trim().slice(0, 120))
+          .filter(Boolean).slice(0, 4)
+          .map(t => ({ title: t, agent: 'secretary', risk: opsRisk(t) }));
+      } catch { /* */ }
+    }
+    if (!actions.length) actions = fallbackActions(scan);
+    if (!summary) summary = scan.filter(s => s.ok).map(s => s.label.split(' — ')[0]).join(' · ') || '연동을 추가하면 더 정밀하게 운영할게요';
+    opsState.scan = scan; opsState.actions = actions; opsState.summary = summary;
+    opsState.lastRun = Date.now(); opsState.runs += 1;
+    opsState.phase = 'review';   // ← 사람이 할 작전을 고를 차례 (자동 실행 안 함)
+  } finally { opsState.busy = false; }
+  saveOpsState(); opsEmit();
+  return opsPublic();
+}
+// ③ 작전 1개를 실제 에이전트로 수행 → 진짜 산출물(파일·검색)만 SHIPPED 기록
+let opsExecAbort: AbortController | null = null;
+async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
+  opsExecAbort = new AbortController();
+  opsState.executingTitle = a.title; opsState.activity = a.title; opsEmit();
+  const opts = buildRunOpts(c, opsExecAbort.signal);
+  const instr = `[운영 사이클 — 이 작전을 지금 진짜로 수행하라. 말만 하지 말고 도구로 실제 결과물을 만들어라]\n작전: "${a.title}"\n\n반드시 도구로 산출물을 남겨라(절대 "하겠습니다"로 끝내지 마라):\n- 코드/웹 → write_file 로 실제 파일 생성\n- 유튜브/콘텐츠 → write_file 로 대본·기획안·문구 파일\n- 시장/경쟁사 정보 → web_search·fetch_url 로 검색 후 정리 파일\n- 일정 → 캘린더 초안 파일 (실제 등록은 request_approval)\n- 인스타/이메일/배포/결제 등 외부 발행 → request_approval 로 승인 요청(직접 실행 금지)\n- ⚠️ npm/pip 설치·dev·build·서버 실행 금지(빈 폴더라 실패)\n끝나면 만든 파일명을 한 줄 보고.`;
+  const artifacts: string[] = []; const seen = new Set<string>();
+  const base = (p: string) => (p || '').split('/').pop() || (p || '');
+  const collect = (ev: any) => {
+    emitEngine(ev);
+    if (ev?.kind === 'tool' && ev.ok !== false) {
+      let tag = '';
+      if (ev.name === 'write_file') tag = `📄 ${base(ev.path)}`;
+      else if (ev.name === 'run_command') tag = `⚡ ${String(ev.path || '').slice(0, 36)}`;
+      else if (ev.name === 'serve' || ev.name === 'open') tag = `🖥️ ${String(ev.path || '').slice(0, 36)}`;
+      else if (ev.name === 'web_search') tag = `🌐 검색: ${String(ev.path || '').slice(0, 26)}`;
+      else if (ev.name === 'fetch_url') tag = `🔗 ${String(ev.path || '').slice(0, 36)}`;
+      else if (ev.name === 'request_approval') tag = `✅ 승인요청: ${String(ev.path || '').slice(0, 30)}`;
+      else if (ev.name === 'telegram') tag = '✈️ 텔레그램 발송';
+      if (tag && !seen.has(tag)) { seen.add(tag); artifacts.push(tag); }
+    }
+  };
+  let result = '';
+  try { result = await agentWithTools([], instr, opts, collect); }
+  catch (e: any) { result = `중단(${e?.message || e})`; }
+  const did = artifacts.length > 0;
+  const ship: OpsShip = { title: a.title, agent: a.agent, artifacts, ok: did, result: did ? (result || '').replace(/\s+/g, ' ').trim().slice(0, 140) : (result || '결과물 없음').replace(/\s+/g, ' ').trim().slice(0, 160), ts: Date.now() };
+  opsState.shipped.unshift(ship); opsState.shipped = opsState.shipped.slice(0, 20);
+  opsState.executingTitle = ''; opsState.activity = ''; saveOpsState(); opsEmit();
+  return ship;
+}
+// 🚀 운영 시작 = 첫 사이클 스케줄 짜기 (실행 안 함)
+ipcMain.handle('ops:start', async () => {
+  opsState.running = true; if (!opsState.startedAt) opsState.startedAt = Date.now();
+  opsState.cycle = (opsState.cycle || 0) + 1;
+  return await runOperation();   // → phase 'review' (사람이 고를 차례)
+});
+// ▶ 다음 사이클 — 다시 스케줄을 짠다
+ipcMain.handle('ops:nextCycle', async () => {
+  opsState.running = true; opsState.cycle = (opsState.cycle || 0) + 1;
+  return await runOperation();
+});
+// ②→③ 사람이 고른 작전만 하나씩 수행
+ipcMain.handle('ops:executeSelected', async (_e, titles: string[]) => {
+  if (opsState.executing) return opsPublic();
+  const set = new Set(titles || []);
+  const chosen = opsState.actions.filter(a => set.has(a.title));
+  if (!chosen.length) { opsState.phase = 'done'; saveOpsState(); opsEmit(); return opsPublic(); }
+  const c = loadConfig();
+  opsState.executing = true; opsState.phase = 'executing'; opsEmit();
+  try { openOfficeWindow(); } catch { /* */ }   // 🏢 일하는 모습이 보이게
+  try {
+    for (const a of chosen) {
+      if (!opsState.running) break;
+      await executeOne(c, a);   // 에이전트가 위험 단계는 알아서 request_approval(→텔레그램)로 보냄
+    }
+  } finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsExecAbort = null; opsState.phase = 'done'; saveOpsState(); opsEmit(); }
+  return opsPublic();
+});
+ipcMain.handle('ops:status', () => opsPublic());
+ipcMain.handle('ops:stop', () => { opsState.running = false; opsState.executing = false; opsState.phase = 'idle'; opsState.activity = ''; opsState.executingTitle = ''; opsExecAbort?.abort(); saveOpsState(); opsEmit(); return opsPublic(); });
+// 💬 사무실 진짜 대화 — 현황(매출·작전·방금 한 일)을 반영해 캐릭터별 짧은 대사를 AI가 생성
+ipcMain.handle('office:banter', async () => {
+  const c = loadConfig();
+  const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
+  if (!target) return { ok: false };
+  const svc = (c.services || []).map(s => s.name).join(', ');
+  const ship = opsState.shipped.slice(0, 3).map(s => s.title).join(' / ');
+  const ctx = [`회사: ${c.company}`, svc && `서비스: ${svc}`, opsState.summary && `현황: ${opsState.summary}`, opsState.activity && `지금 하는 일: ${opsState.activity}`, ship && `방금 처리한 일: ${ship}`].filter(Boolean).join('\n');
+  const roster = AGENT_ORDER.map(id => `${id}=${AGENTS[id]?.name}(${AGENTS[id]?.role})`).join(', ');
+  const sys = '너는 1인 기업 AI 팀 사무실의 대화 작가야. 짧고 자연스럽게, 캐릭터 성격과 실제 업무 맥락을 살려서 써.';
+  const user = `팀: ${roster}\n\n이 팀이 지금 사무실에서 주고받을 짧은 대화 7줄을 만들어줘.\n줄마다 형식: 말하는사람id|상대id또는빈칸|대사\n- 대사는 한국어 25자 이내, 이모지 최대 1개\n- 아래 현황을 실제로 반영(매출·작전·방금 한 일 언급 OK)\n- id는 위 목록 id만 사용\n\n[현황]\n${ctx}`;
+  try {
+    const text = await chat(target, sys, user, { temperature: 0.85 });
+    const ok = new Set(AGENT_ORDER);
+    const lines = text.split('\n').map(l => l.trim()).filter(l => l.includes('|')).map(l => { const p = l.split('|'); return { from: (p[0] || '').trim().toLowerCase(), to: (p[1] || '').trim().toLowerCase(), text: (p.slice(2).join('|') || '').trim().replace(/^["'\-•*\s]+|["']+$/g, '').slice(0, 46) }; }).filter(x => ok.has(x.from) && x.text);
+    return { ok: true, lines: lines.slice(0, 10) };
+  } catch { return { ok: false }; }
+});
 // 🎙️ 리포트 AI 브리핑 — 실데이터(서비스·매출·할일)로 음성 브리핑 텍스트 생성
 ipcMain.handle('report:briefing', async () => {
   const c = loadConfig();
@@ -550,21 +745,19 @@ const servicesInfo = (c: Config) => {
   return svc + tk + ap;
 };
 let runAbort: AbortController | null = null;
-ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
-  const c = loadConfig();
-  // 📎 첨부: 파일 경로는 메시지에 알려주고, 이미지는 비전으로 모델에 직접 보여준다
-  const attachPaths = (attach?.paths || []).filter(Boolean);
-  const attachImages = (attach?.images || []).filter(Boolean);
-  if (attachPaths.length) text = `${text}\n\n[사장님이 첨부한 파일 경로 — 필요하면 read_file·open·run·serve로 다뤄라]\n${attachPaths.join('\n')}`;
-  runAbort?.abort();                 // 이전 실행이 남아있으면 정리
-  runAbort = new AbortController();
+// 🛠️ 에이전트 실행 옵션 빌더 — 1:1 대화와 자율 운영이 같은 도구(파일·매출·유튜브·웹·텔레그램·승인)를 공유
+function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = []) {
   const getRevenue = async () => {
     const cc = loadConfig();
     const r = await fetchRevenue(cc.paypalClientId, cc.paypalSecret, { days: 30 });
     if (r.data) {
-      const cur = Object.keys(r.data.totals.by_currency)[0] || '';
-      const p = r.data.totals.by_period; const tx = r.data.transactions || [];
-      return `이번 달 ${(p.month || 0).toFixed(2)} ${cur} · 지난 7일 ${(p.week || 0).toFixed(2)} · 오늘 ${(p.today || 0).toFixed(2)} · 총 거래 ${tx.length}건. 최근 거래: ${tx.slice(0, 3).map((t: any) => `${t.subject}(${t.value}${t.currency})`).join(', ') || '없음'}`;
+      const t = r.data.totals; const cur = (t as any).primary_currency || Object.keys(t.by_currency)[0] || 'USD';
+      const cy: any = t.by_currency[cur] || { gross: 0, refunds: 0, fees: 0, count: 0 };
+      const net = (cy.gross || 0) + (cy.refunds || 0) + (cy.fees || 0);   // 환불·수수료는 음수 → 더하면 차감
+      const p = t.by_period;
+      const f = (n: number) => Math.round(n).toLocaleString();
+      const others = Object.keys(t.by_currency).filter(k => k !== cur);
+      return `[통화=${cur}] 순매출(환불·수수료 차감 후) ${f(net)} ${cur}. 총 결제 ${f(cy.gross)} · 환불 ${f(cy.refunds)} · 거래 ${cy.count}건. 기간(${cur}): 30일 ${f(p.month || 0)}, 7일 ${f(p.week || 0)}, 오늘 ${f(p.today || 0)}.${others.length ? ` 다른 통화: ${others.map(k => { const o = t.by_currency[k]; return `${f((o.gross || 0) + (o.refunds || 0) + (o.fees || 0))} ${k}`; }).join(', ')}.` : ''} ⚠️ 통화는 반드시 ${cur}로 표기(달러로 바꾸지 마라). "매출"은 순매출 기준으로, 총결제와 구분해서 보고해라.`;
     }
     return (r.error || 'PayPal이 아직 연결되지 않았어요') + ' — 🗂️ 관리 → 연동 → PayPal에 Client ID/Secret을 넣으면 매출을 바로 보여드릴게요.';
   };
@@ -587,14 +780,25 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
       return err ? `열기 실패: ${err}` : `✅ 열었어요: ${t}`;
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
-  const getYoutube = () => realtimeFor('youtube');   // 유튜브 채널 실데이터(연동된 경우)
+  const getYoutube = () => realtimeFor('youtube');
   const sendTelegram = async (msg: string): Promise<string> => {
     const cc = loadConfig(); const tok = cc.telegramToken, chat = cc.telegramChatId;
     if (!tok || !chat) return '텔레그램이 연결 안 됐어요. 🗂️ 연동 → Telegram에 봇 토큰과 chat_id를 넣으세요.';
-    try { await axios.post(`https://api.telegram.org/bot${tok}/sendMessage`, { chat_id: chat, text: msg || '(빈 메시지)' }, { timeout: 9000 }); return '✅ 텔레그램으로 보냈어요.'; }
+    try { await tgPost(tok, chat, msg); return '✅ 텔레그램으로 보냈어요.'; }
     catch (e: any) { return `텔레그램 전송 실패: ${e?.response?.data?.description || e?.message}`; }
   };
-  const opts = { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal: runAbort.signal, realtimeFor, getRevenue, getYoutube, sendTelegram, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
+  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
+}
+
+ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
+  const c = loadConfig();
+  // 📎 첨부: 파일 경로는 메시지에 알려주고, 이미지는 비전으로 모델에 직접 보여준다
+  const attachPaths = (attach?.paths || []).filter(Boolean);
+  const attachImages = (attach?.images || []).filter(Boolean);
+  if (attachPaths.length) text = `${text}\n\n[사장님이 첨부한 파일 경로 — 필요하면 read_file·open·run·serve로 다뤄라]\n${attachPaths.join('\n')}`;
+  runAbort?.abort();                 // 이전 실행이 남아있으면 정리
+  runAbort = new AbortController();
+  const opts = buildRunOpts(c, runAbort.signal, attachImages);
   const send = (ev: any) => emitEngine(ev);   // 메인 + 별도 사무실 창
   // 도구 켜짐 = 파일 읽기/쓰기 하는 진짜 에이전트, 꺼짐 = 단순 대화
   const reply = c.tools !== false
@@ -616,6 +820,21 @@ ipcMain.handle('brain:count', () => noteCount());
 ipcMain.handle('brain:delete', (_e, id: string) => { deleteNote(id); return noteCount(); });
 // 📊 분야별 두뇌 성장 통계 (마케팅·코딩·디자인·사업·일반) — 개수·검증·파인튜닝 준비 여부
 ipcMain.handle('brain:stats', () => categoryStats());
+// 🧬 학습 데이터 내보내기 — 두뇌를 JSONL로(클라우드 QLoRA 학습용). 분야를 instruction 컨텍스트로 감싼다.
+ipcMain.handle('brain:exportJsonl', () => {
+  const notes = allNotes();
+  if (!notes.length) return { ok: false, error: '두뇌에 저장된 지식이 없어요. 먼저 지식을 쌓아주세요.' };
+  const catLabel: Record<string, string> = { marketing: '마케팅', coding: '개발', design: '디자인', business: '사업', general: '일반' };
+  const lines = notes.map(n => {
+    const cat = catLabel[(n.category as string) || 'general'] || '일반';
+    // 지식 1건 → 간단한 instruction/output 쌍(체득용). 더 좋은 품질은 Q&A 쌍 권장.
+    return JSON.stringify({ instruction: `${cat} 관련해서 내가 아는 것을 알려줘.`, output: n.text });
+  });
+  const dir = path.join(app.getPath('userData'), 'training'); try { fs.mkdirSync(dir, { recursive: true }); } catch { /* */ }
+  const file = path.join(dir, 'brain.jsonl');
+  try { fs.writeFileSync(file, lines.join('\n'), 'utf8'); } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+  return { ok: true, file, count: lines.length };
+});
 // 분야 미리보기(입력 중 자동분류 표시) — 저장 안 함
 // 🔌 에제르 브릿지 상태 — 수신중/양보(다른 앱 점유)/꺼짐
 ipcMain.handle('bridge:status', () => bridgeStatus());
@@ -744,10 +963,42 @@ ipcMain.handle('telegram:test', async () => {
   const c = loadConfig();
   if (!c.telegramToken || !c.telegramChatId) return { ok: false, reason: '봇 토큰과 챗 ID를 먼저 입력하세요' };
   try {
-    await axios.post(`https://api.telegram.org/bot${c.telegramToken}/sendMessage`, { chat_id: c.telegramChatId, text: `✅ Connect AI 연결 완료 — ${c.agentName}가 인사드립니다, ${c.userTitle || '사장님'}!` }, { timeout: 9000 });
+    await tgPost(c.telegramToken, c.telegramChatId, `✅ Connect AI 연결 완료 — ${c.agentName}가 인사드립니다, ${c.userTitle || '사장님'}!`);
     return { ok: true };
   } catch (e: any) { return { ok: false, reason: e?.response?.data?.description || e?.message || '전송 실패' }; }
 });
+
+// 👤 회원(Firebase Auth) — 이메일/비밀번호 회원가입·로그인. 토큰은 학습 서버 인증에 쓰임.
+//    Web API Key·DB URL은 공개값(앱에 넣어도 안전). 제공자가 채우거나 설정에서 입력.
+const DEFAULT_FIREBASE_API_KEY = '';
+const DEFAULT_FIREBASE_DB = '';
+const fbApiKey = () => (loadConfig().firebaseApiKey || DEFAULT_FIREBASE_API_KEY || '').trim();
+const fbDbUrl = () => (loadConfig().firebaseDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
+const authPretty = (e: any) => { const m = e?.response?.data?.error?.message || ''; const map: any = { EMAIL_EXISTS: '이미 가입된 이메일이에요.', EMAIL_NOT_FOUND: '가입되지 않은 이메일이에요.', INVALID_PASSWORD: '비밀번호가 틀렸어요.', INVALID_LOGIN_CREDENTIALS: '이메일 또는 비밀번호가 틀렸어요.', WEAK_PASSWORD: '비밀번호는 6자 이상이어야 해요.', INVALID_EMAIL: '이메일 형식이 올바르지 않아요.' }; return map[m] || m || e?.message || '인증 실패'; };
+async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, password: string) {
+  const key = fbApiKey(); if (!key) return { ok: false, error: '회원 시스템이 아직 설정 안 됐어요(관리자에 문의).' };
+  try {
+    const r = await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:${kind}?key=${key}`, { email, password, returnSecureToken: true }, { timeout: 15000 });
+    const d = r.data; const auth = { uid: d.localId, email: d.email, refreshToken: d.refreshToken };
+    saveConfig({ auth });
+    // 멤버 프로필 기록(최초 가입 시) — best-effort
+    if (kind === 'signUp' && fbDbUrl()) { try { await axios.put(`${fbDbUrl()}/users/${d.localId}.json?auth=${d.idToken}`, { email: d.email, createdAt: Date.now(), plan: 'free' }, { timeout: 10000 }); } catch { /* */ } }
+    return { ok: true, uid: d.localId, email: d.email, idToken: d.idToken };
+  } catch (e: any) { return { ok: false, error: authPretty(e) }; }
+}
+// 저장된 refreshToken → 새 idToken (로그인 유지)
+async function fbIdToken(): Promise<{ uid: string; email: string; idToken: string } | null> {
+  const c = loadConfig(); const key = fbApiKey(); if (!c.auth?.refreshToken || !key) return null;
+  try {
+    const r = await axios.post(`https://securetoken.googleapis.com/v1/token?key=${key}`, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: c.auth.refreshToken }), { timeout: 15000 });
+    const d = r.data; if (d.refresh_token && d.refresh_token !== c.auth.refreshToken) saveConfig({ auth: { ...c.auth, refreshToken: d.refresh_token } });
+    return { uid: d.user_id || c.auth.uid, email: c.auth.email, idToken: d.id_token };
+  } catch { return null; }
+}
+ipcMain.handle('auth:signup', async (_e, email: string, password: string) => await fbAuth('signUp', (email || '').trim(), password || ''));
+ipcMain.handle('auth:login', async (_e, email: string, password: string) => await fbAuth('signInWithPassword', (email || '').trim(), password || ''));
+ipcMain.handle('auth:logout', () => { saveConfig({ auth: undefined } as any); return { ok: true }; });
+ipcMain.handle('auth:current', () => { const c = loadConfig(); return c.auth ? { uid: c.auth.uid, email: c.auth.email, configured: !!fbApiKey() } : { configured: !!fbApiKey() }; });
 
 // 📊 대시보드 통계
 ipcMain.handle('dashboard:stats', () => {
@@ -918,6 +1169,91 @@ ipcMain.handle('hf:uploadPreference', async () => {
 });
 // ③ 모델 이름 제안(이전 버전 → 다음 버전)
 ipcMain.handle('brain:modelName', () => { const c: any = loadConfig(); return { suggested: nextModelName(c.brainModelName), prev: c.brainModelName || '' }; });
+// ☁️ "내 AI 키우기" — 코랩 없이 HF Jobs로 학습 (무료 월 1회). 변환→업로드(데이터셋+스크립트)→GPU 작업 실행.
+function uvScriptText(): string {
+  for (const p of [path.join(__dirname, '..', 'training', 'train_qlora_uv.py'), path.join(process.resourcesPath || '', 'training', 'train_qlora_uv.py')]) {
+    try { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); } catch { /* */ }
+  }
+  return '';
+}
+// 제공자가 배포 후 채우는 기본 백엔드 (비우면 사용자 토큰 직접 모드). config.trainBackendUrl 로 덮어쓰기 가능.
+const DEFAULT_TRAIN_BACKEND = '';
+const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
+function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
+function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
+
+ipcMain.handle('train:cloud', async () => {
+  const c = loadConfig();
+  const backend = trainBackendBase(c);
+  // ── 서비스 모드 — 백엔드가 제공자 토큰 보관·실행·게이트 (유저는 토큰 불필요) ──
+  if (backend) {
+    let jsonl = lastBrainJsonl || brainToJsonl();
+    if (!jsonl) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓으세요.' };
+    const user = await fbIdToken();
+    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '무료 학습은 로그인 후 가능해요.' };
+    const userId = user?.uid || installId();
+    try {
+      const r = await axios.post(`${backend}/train`, { userId, idToken: user?.idToken, jsonl }, { timeout: 60000 });
+      const d = r.data || {};
+      if (d.ok) saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } });
+      return { ...d, viaBackend: true };
+    } catch (e: any) { return { ok: false, error: '학습 서버 호출 실패: ' + (e?.response?.data?.error || e?.message || String(e)) }; }
+  }
+  // ── 직접 모드 — 사용자 본인 HF Pro 토큰 (검증/파워유저용) ──
+  const h = connOf('huggingface');
+  if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 write 토큰을 먼저 넣으세요. (또는 학습 서버 URL 설정)' };
+  // 무료 월 1회 게이트
+  const last = c.lastCloudTrainAt || 0; const days = (Date.now() - last) / 864e5;
+  if (last && days < 30) return { ok: false, gated: true, error: `무료 학습은 월 1회예요. 약 ${Math.ceil(30 - days)}일 후 다시 가능해요.` };
+  // 1) 데이터셋 — 변환된 게 있으면 그걸, 없으면 두뇌로 즉석 생성
+  let jsonl = lastBrainJsonl;
+  if (!jsonl) {
+    const notes = allNotes();
+    if (!notes.length) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓고 (가능하면 🧬 변환을 누른 뒤) 다시 시도하세요.' };
+    jsonl = notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n');
+  }
+  const me = await hfUsername(h.HF_TOKEN);
+  if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
+  let dsRepo = (h.HF_REPO || 'connect-ai-brain').trim(); if (!dsRepo.includes('/')) dsRepo = `${me}/${dsRepo}`;
+  // HF repo 이름은 ASCII만 — 한글 모델명은 깨지므로 안전하게 정리(전부 기호면 기본값)
+  let mn = (c.brainModelName || '').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '');
+  const modelName = /[a-zA-Z0-9]/.test(mn) ? mn : 'my-connect-ai';
+  const outRepo = `${me}/${modelName}`;
+  // 2) 업로드 — 두뇌 데이터셋 + UV 학습 스크립트(같은 데이터셋 repo에)
+  const up = await uploadDataset(h.HF_TOKEN, dsRepo, jsonl, 'connect-ai-brain.jsonl');
+  if (!up.ok) return { ok: false, error: '데이터셋 업로드 실패: ' + up.error };
+  const script = uvScriptText();
+  if (script) { try { await uploadDataset(h.HF_TOKEN, dsRepo, script, 'train_qlora_uv.py'); } catch { /* */ } }
+  const scriptUrl = `https://huggingface.co/datasets/${dsRepo}/resolve/main/train_qlora_uv.py`;
+  // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
+  const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
+  const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
+  if (job.ok && job.jobId) saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } });
+  return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
+});
+ipcMain.handle('train:cloudStatus', async () => {
+  const c = loadConfig(); const backend = trainBackendBase(c); const j = c.cloudJob;
+  if (backend) {
+    const user = await fbIdToken(); const userId = user?.uid || installId();
+    try { const r = await axios.get(`${backend}/trainStatus`, { params: { userId }, timeout: 15000 }); if (r.data?.outputRepo) saveConfig({ cloudJob: { backend: true, outRepo: r.data.outputRepo } }); return r.data; }
+    catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
+  }
+  const h = connOf('huggingface');
+  if (!j?.id) return { ok: false, error: '진행 중인 학습이 없어요.' };
+  const s = await jobStatus(h.HF_TOKEN, j.namespace, j.id);
+  return { ...s, outRepo: j.outRepo, jobUrl: `https://huggingface.co/jobs/${j.namespace}/${j.id}` };
+});
+ipcMain.handle('train:cloudInstall', async () => {
+  const c = loadConfig(); const j = c.cloudJob;
+  if (!j?.outRepo) return { ok: false, error: '학습 결과가 아직 없어요.' };
+  try {
+    const files = await listGGUF(j.outRepo);
+    const f = (files || [])[0]; if (!f) return { ok: false, error: '아직 GGUF가 없어요 (학습 중이거나 변환 단계일 수 있어요).' };
+    const fp = (f as any).path || (f as any).rfilename || f;
+    const p = await downloadGGUF(j.outRepo, fp, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo: j.outRepo, file: fp, ...pr }); } catch { /* */ } });
+    return { ok: true, path: p, model: j.outRepo };
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
 ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');
   let hfRepo = h.HF_REPO || '', hfUrl = '';
@@ -1008,6 +1344,23 @@ async function realtimeFor(agentId: string): Promise<string> {
 // 🚀 학습 노트북 생성 → GitHub 커밋 → Colab 원클릭 URL
 // 🎓 학습 방법론 목록 (배움용)
 ipcMain.handle('methods:list', () => METHODS);
+// ☁️ HF AutoTrain — 클라우드 GPU 유료 학습. 업로드된 데이터셋·추천설정으로 AutoTrain UI에 넘김.
+//   (실제 GPU 실행·과금은 사용자 HF 계정에서. 사용자 과금[Stripe]은 별도 결제 백엔드 필요 — 로컬앱에 키 두지 않음.)
+ipcMain.handle('train:autotrain', async (_e, modelName?: string, opts?: any) => {
+  const c: any = loadConfig();
+  const h = connOf('huggingface');
+  if (!h.HF_TOKEN) return { ok: false, error: 'HuggingFace 연결이 필요해요 (🗂️ 연동 → HF 토큰).' };
+  let dataset = h.HF_REPO || '';
+  if (dataset && !dataset.includes('/') && h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) dataset = `${me}/${dataset}`; }
+  if (!dataset.includes('/')) return { ok: false, error: '먼저 ② 데이터셋을 HuggingFace에 업로드하세요.' };
+  if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 변환·업로드하세요.' };
+  const owner = dataset.split('/')[0] || 'my-hf-id';
+  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9가-힣._-]/g, '-') || nextModelName(c.brainModelName);
+  const base = guessBase(c.llmModel);
+  const params = { rank: opts?.rank || 16, alpha: opts?.alpha || ((opts?.rank || 16) * 2), lr: opts?.learningRate || 3e-4, epochs: opts?.epochs || 3, maxSeq: opts?.maxSeq || 1024 };
+  saveConfig({ brainModelName: name } as any);
+  return { ok: true, url: 'https://huggingface.co/autotrain', dataset, base, outRepo: `${owner}/${name}`, params };
+});
 ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
   const c: any = loadConfig();
   const g = connOf('github'), h = connOf('huggingface');
@@ -1056,7 +1409,7 @@ async function executeAction(action: ApprovalAction): Promise<string> {
     if (action.kind === 'telegram') {
       const tg = (c.apiConn || {}).telegram || {}; const token = tg.TELEGRAM_BOT_TOKEN || c.telegramToken; const chat = tg.TELEGRAM_CHAT_ID || c.telegramChatId;
       if (!token || !chat) return '⚠️ 텔레그램 미설정 (🗂️ 연동에서 먼저 연결)';
-      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, { chat_id: chat, text: action.payload }, { timeout: 9000 });
+      await tgPost(token, chat, action.payload);
       return '📨 텔레그램 전송 완료';
     }
     if (action.kind === 'email') {
@@ -1078,6 +1431,111 @@ ipcMain.handle('approvals:approve', async (_e, id: string) => {
   return { list: listApprovals(), result };
 });
 ipcMain.handle('approvals:reject', (_e, id: string) => { setApprovalStatus(id, 'rejected'); return { list: listApprovals() }; });
+
+// 📲 텔레그램 결재 브리지 — 실행 가능한 승인을 폰으로 보내고, 답장(보내기/수정/취소)으로 진짜 실행한다.
+// 자리에 없어도 폰에서 "보내기"면 실제 발송, "수정 …"이면 AI가 고쳐서 다시 물어봄.
+let tgOffset = 0, tgPrimed = false;
+const tgPushed = new Set<string>();
+let tgAwaitId = '';
+const tgSend = (text: string) => { const c = loadConfig(); if (!c.telegramToken || !c.telegramChatId) return Promise.resolve(undefined); return tgPost(c.telegramToken, c.telegramChatId, text).then(() => undefined).catch(() => undefined); };
+const tgHead = (k: string) => k === 'email' ? '📧 이메일 초안 — 보낼까요?' : k === 'telegram' ? '✈️ 메시지 초안 — 보낼까요?' : k === 'run' ? '⚡ 명령 — 실행할까요?' : '📝 작업 — 할까요?';
+const tgRefresh = (res: string, ok: boolean) => { try { win?.webContents.send('engine:event', { kind: 'tool', name: 'approve-done', path: res.slice(0, 60), ok }); } catch { /* */ } };
+async function tgPushApprovals() {
+  const c = loadConfig(); if (!c.telegramToken || !c.telegramChatId || c.telegramApprovals === false) return;
+  for (const a of pendingApprovals()) {
+    if (tgPushed.has(a.id) || !a.action) continue;   // 실행 가능한 것만 폰으로
+    tgPushed.add(a.id); tgAwaitId = a.id;
+    const body = String(a.action.payload || a.summary || a.title).slice(0, 2500);
+    await tgSend(`${tgHead(a.action.kind)}\n■ ${a.title}\n\n${body}\n\n답장: "보내기" / "수정 <어떻게>" / "취소"`);
+  }
+}
+async function tgRegenerate(a: any, how: string): Promise<string> {
+  const c = loadConfig();
+  const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
+  const cur = String(a.action?.payload || '');
+  if (!target) return cur;
+  const user = `아래 초안을 이 지시대로 고쳐줘: "${how}"\n- 초안이 "받는사람 | 제목 | 본문" 형식이면 그 형식(| 구분)을 반드시 유지해.\n- 고친 결과만 출력(설명·따옴표 없이).\n\n[현재 초안]\n${cur}`;
+  try { return (await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 })).trim() || cur; } catch { return cur; }
+}
+async function tgHandleReply(text: string) {
+  const t = (text || '').trim(); if (!t) return;
+  const a = getApproval(tgAwaitId);
+  if (!a || a.status !== 'pending' || !a.action) { if (/^(보내|수정|취소)/.test(t)) await tgSend('지금 결재 대기 중인 게 없어요.'); return; }
+  if (/^(취소|cancel|no|하지\s*마|싫)/i.test(t)) { setApprovalStatus(a.id, 'rejected'); tgAwaitId = ''; await tgSend('🚫 취소했어요.'); tgRefresh('취소', false); return; }
+  if (/^(수정|고쳐|바꿔|edit)/i.test(t)) {
+    const how = t.replace(/^(수정|고쳐|바꿔|edit)[\s:：]*/i, '').trim() || '더 자연스럽고 정중하게';
+    await tgSend('✏️ 고치는 중…');
+    const nb = await tgRegenerate(a, how);
+    updateApprovalAction(a.id, { ...a.action, payload: nb });
+    await tgSend(`✏️ 이렇게 고쳤어요:\n\n${nb.slice(0, 2500)}\n\n답장: "보내기" / "수정 <어떻게>" / "취소"`);
+    return;
+  }
+  if (/^(보내|보낼|ㅇㅇ|응|네|예|yes|ok|승인|go|해줘|해)/i.test(t)) {
+    await tgSend('📤 실행할게요…');
+    const res = await executeAction(a.action);
+    setApprovalStatus(a.id, 'approved', res); tgAwaitId = '';
+    const ok = !res.startsWith('⚠️');
+    await tgSend(ok ? `✅ ${res}` : `실패: ${res}`); tgRefresh(res, ok);
+    return;
+  }
+  await tgSend('못 알아들었어요 🙂 "보내기" / "수정 <어떻게>" / "취소" 중에 답해주세요.');
+}
+function tgTick() {
+  const c = loadConfig(); if (!c.telegramToken || !c.telegramChatId) return;
+  tgPushApprovals();
+  axios.get(`https://api.telegram.org/bot${c.telegramToken}/getUpdates`, { params: { offset: tgOffset || undefined, timeout: 0 }, timeout: 10000 })
+    .then(async (r) => {
+      const list = r.data?.result || [];
+      for (const u of list) {
+        tgOffset = u.update_id + 1;
+        if (!tgPrimed) continue;   // 시작 시 쌓여있던 옛 메시지는 무시(오프셋만 전진)
+        const msg = u.message?.text; const chat = String(u.message?.chat?.id || '');
+        if (msg && chat === String(c.telegramChatId)) await tgHandleReply(msg);
+      }
+      tgPrimed = true;
+    }).catch(() => { /* 네트워크/충돌 무시 — 다음 틱에 재시도 */ });
+}
+
+// 📥 이메일 자동 답장 — 받은 메일 감지 → 두뇌 RAG로 답장 초안 → 승인 큐(→ 텔레그램으로 "보낼까요?")
+let mailBusy = false; const mailSeen = new Set<string>();
+async function ragContext(query: string, base: string): Promise<string> {
+  try {
+    const notes = allNotes(); if (!notes.length) return '';
+    const q = base ? await embed(base, query).catch(() => null) : null;
+    let top = notes.slice(-5);
+    if (q) { const scored = notes.filter(n => n.emb && n.emb.length).map(n => ({ n, s: cosine(q, n.emb as number[]) })).sort((a, b) => b.s - a.s); if (scored.length) top = scored.slice(0, 5).map(x => x.n); }
+    return top.map(n => `- ${n.text}`).join('\n').slice(0, 1500);
+  } catch { return ''; }
+}
+async function mailTick() {
+  const c = loadConfig();
+  if (!c.emailAutoReply) return;
+  if (!c.telegramToken || !c.telegramChatId) return;   // 결재를 폰으로 받을 채널이 있어야 함
+  const e = (c.apiConn || {}).email || {};
+  if (!e.SMTP_USER || !e.SMTP_PASS) return;
+  if (mailBusy) return; mailBusy = true;
+  try {
+    const host = e.IMAP_HOST || (e.SMTP_HOST || '').replace(/^smtp\./, 'imap.') || 'imap.gmail.com';
+    const r = await fetchUnseen({ host, port: e.IMAP_PORT || '993', user: e.SMTP_USER, pass: e.SMTP_PASS }, 5);
+    if (!r.ok || !r.mails?.length) return;
+    const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
+    if (!target) return;
+    for (const m of r.mails) {
+      if (!m.from || mailSeen.has(m.messageId)) continue;
+      mailSeen.add(m.messageId);
+      const rag = await ragContext(`${m.subject}\n${m.text}`, target.base);
+      const sys = agentPrompt(c.agentName, c.company, c.userTitle || '사장님');
+      const user = `받은 이메일에 대한 답장 본문을 한국어로 정중하고 자연스럽게 써줘(인사 → 핵심 → 맺음, 5문장 이내). 마크다운·머리말 없이 본문만 출력.\n\n[보낸사람] ${m.fromName} <${m.from}>\n[제목] ${m.subject}\n[받은 내용]\n${m.text}${rag ? `\n\n[참고할 내 지식·과거 답변]\n${rag}` : ''}`;
+      let body = '';
+      try { body = (await chat(target, sys, user, { temperature: 0.5 })).trim(); } catch { continue; }
+      if (!body) continue;
+      const subj = /^re:/i.test(m.subject) ? m.subject : `Re: ${m.subject}`;
+      addApproval(`📧 ${(m.fromName || m.from).slice(0, 30)}에게 답장`, `받은 메일: ${m.subject}`, '📧', { kind: 'email', payload: `${m.from}|${subj}|${body}` });
+      notify('📧 새 메일 답장 초안', `${m.fromName || m.from} — 텔레그램에서 확인 후 보내세요`);
+      // → tgPushApprovals 가 폰으로 "보낼까요?" 자동 푸시 → 보내기/수정/취소
+    }
+  } catch { /* 다음 틱 재시도 */ } finally { mailBusy = false; }
+}
 
 // ─────────────────────────── 모델 목록 (LM Studio / Ollama 에서)
 ipcMain.handle('models:list', async () => {

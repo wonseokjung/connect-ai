@@ -42,7 +42,6 @@ function transform(details: any[]) {
   const byCurrency: Record<string, any> = {}, byProject: Record<string, any> = {}, byDay: Record<string, any> = {};
   const txs: any[] = [];
   const now = Date.now();
-  let today = 0, week = 0, month = 0;
   for (const d of details) {
     const ti = d.transaction_info || {};
     const amt = ti.transaction_amount || {};
@@ -54,13 +53,13 @@ function transform(details: any[]) {
     const isRefund = value < 0 || /^T11/.test(code);
     const subject = ti.transaction_subject || ti.transaction_note || ti.invoice_id || '(설명 없음)';
     const id = ti.transaction_id || `${ts}_${value}`;
-    const c = byCurrency[cur] || (byCurrency[cur] = { gross: 0, refunds: 0, fees: 0, count: 0 });
+    const c = byCurrency[cur] || (byCurrency[cur] = { gross: 0, refunds: 0, fees: 0, count: 0, today: 0, week: 0, month: 0 });
     if (value >= 0) c.gross += value; else c.refunds += value;
     c.fees += feeVal; c.count += 1;
     const t = ts ? Date.parse(ts) : 0;
     if (t) {
       const age = (now - t) / 864e5;
-      if (value > 0) { if (age < 1) today += value; if (age < 7) week += value; if (age < 30) month += value; }
+      if (value > 0) { if (age < 1) c.today += value; if (age < 7) c.week += value; if (age < 30) c.month += value; }   // 통화별로 (섞지 않게)
       const key = new Date(t).toISOString().slice(0, 10);
       const dd = byDay[key] || (byDay[key] = {});
       const dc = dd[cur] || (dd[cur] = { gross: 0, count: 0 });
@@ -78,9 +77,12 @@ function transform(details: any[]) {
     txs.push({ id, ts, ts_epoch: Math.floor(t / 1000), value, currency: cur, subject, event_code: code, is_refund: isRefund });
   }
   txs.sort((a, b) => (b.ts_epoch || 0) - (a.ts_epoch || 0));
+  // 기간 합계는 통화를 섞으면 안 됨 → 주 통화(매출 최대)의 기간을 by_period 로
+  const primaryEntry = Object.entries(byCurrency).sort((a, b) => ((b[1] as any).gross || 0) - ((a[1] as any).gross || 0))[0];
+  const pc: any = primaryEntry ? primaryEntry[1] : { today: 0, week: 0, month: 0 };
   return {
     generated_at: new Date().toISOString(), currency_filter: '',
-    totals: { by_currency: byCurrency, by_period: { today, week, month } },
+    totals: { by_currency: byCurrency, by_period: { today: pc.today || 0, week: pc.week || 0, month: pc.month || 0 }, primary_currency: primaryEntry ? primaryEntry[0] : 'USD' },
     by_project: byProject, by_day: byDay, transactions: txs.slice(0, 100),
   };
 }

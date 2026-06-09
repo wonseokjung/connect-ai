@@ -16,6 +16,22 @@ const validRepo = (repo: string) => { const { owner, name } = split(repo); retur
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// 📊 최근 커밋 — "지금 개발 중" 활동 그래프(사령부)용. 메시지·날짜·작성자.
+export async function listCommits(token: string, repo: string, limit = 30): Promise<{ ok: boolean; commits?: { sha: string; msg: string; date: string; author: string }[]; error?: string }> {
+  const { owner, name } = split(repo);
+  if (!token || !owner || !name) return { ok: false, error: 'GitHub 미연결' };
+  try {
+    const r = await axios.get(`https://api.github.com/repos/${owner}/${name}/commits`, { headers: hdr(token), params: { per_page: limit }, timeout: 12000 });
+    const commits = (Array.isArray(r.data) ? r.data : []).map((c: any) => ({
+      sha: (c.sha || '').slice(0, 7),
+      msg: (c.commit?.message || '').split('\n')[0].slice(0, 90),
+      date: c.commit?.author?.date || c.commit?.committer?.date || '',
+      author: c.commit?.author?.name || c.author?.login || '',
+    }));
+    return { ok: true, commits };
+  } catch (e: any) { return { ok: false, error: e?.response?.data?.message || e?.message || String(e) }; }
+}
+
 // 범용 파일 푸시(생성/업데이트). 레포가 없으면 자동 생성(본인 계정일 때). 텍스트를 레포 path 에 커밋.
 export async function pushFile(token: string, repo: string, filePath: string, text: string, message: string): Promise<{ ok: boolean; error?: string; url?: string }> {
   if (!token) return { ok: false, error: 'GitHub 토큰을 🗂️ 연동에서 먼저 입력하세요. (repo 권한 필요)' };

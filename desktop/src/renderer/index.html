@@ -17,6 +17,36 @@
     <div class="boot-bar"><div class="boot-bar-fill" id="bootFill"></div></div>
   </div>
 
+  <!-- 🚀 운영 시작 시네마틱 (부팅 → 팀 기상 → 스캔 → 작전 → 사령부) -->
+  <div class="ops-cinema" id="opsCinema" hidden>
+    <canvas class="ops-rain" id="opsRain"></canvas>
+    <div class="ops-vignette"></div>
+    <div class="ops-stage" id="opsStage"></div>
+    <button class="ops-skip" id="opsSkip">SKIP ✕</button>
+  </div>
+
+  <!-- 🎯 운영 사이클 — 분석 → 사람이 작전 선택 → 하나씩 수행 → 다음 사이클? -->
+  <div class="overlay hidden" id="opsCyclePanel">
+    <div class="overlay-card cycle-card">
+      <div class="cycle-head">
+        <div class="cycle-title">🎯 운영 사이클 <span id="cycleNum">#1</span></div>
+        <div class="cycle-phase ph-idle" id="cyclePhase">대기</div>
+        <button class="overlay-x" data-close="opsCyclePanel">✕</button>
+      </div>
+      <div class="cycle-summary" id="cycleSummary"></div>
+      <div class="cycle-body" id="cycleBody"></div>
+      <div class="cycle-foot" id="cycleFoot"></div>
+    </div>
+  </div>
+
+  <!-- 👤 회원 (Firebase Auth) -->
+  <div class="overlay hidden" id="authPanel">
+    <div class="overlay-card auth-card">
+      <div class="overlay-head">👤 <span id="authTitle">로그인</span><button class="overlay-x" data-close="authPanel">✕</button></div>
+      <div id="authBody"></div>
+    </div>
+  </div>
+
   <!-- 헤더 (익스텐션 .header 구조 그대로) -->
   <div class="header">
     <div class="header-left">
@@ -26,14 +56,15 @@
       <span class="hdr-clock" id="hdrClock"></span>
     </div>
     <div class="header-right">
+      <button class="btn-ops" id="opsStartBtn" title="운영 시작 — 분석 → 작전 검토 → 실행 사이클">🚀 운영 시작</button>
       <button class="btn-icon on" id="filesBtn" title="파일 탐색기 접기/펴기">📁</button>
       <button class="btn-icon" id="termBtn" title="터미널 접기/펴기">⌨️</button>
-      <button class="btn-icon" id="officeBtn" title="가상 사무실 — 에이전트들이 일하는 모습">🏢</button>
       <button class="btn-icon" id="brainBtn" title="지식 네트워크 — 단기/장기 기억">🧠</button>
-      <button class="btn-icon" id="aiBtn" title="AI 고르기 — 어떤 두뇌로 일할지 (내장/LM Studio)">🤖</button>
+      <button class="btn-icon" id="aiBtn" title="내 AI — 어떤 두뇌로 일할지 고르기 (내장 엔진)">🤖</button>
       <button class="btn-icon" id="plazaBtn" title="AI Agent University">🏫</button>
       <button class="btn-icon" id="manageBtn" title="관리 — 대시보드·서비스·연동·API">🗂️</button>
       <button class="btn-icon" id="newChatBtn" title="새 대화">+</button>
+      <button class="btn-icon" id="authBtn" title="회원 — 로그인/회원가입">👤</button>
       <button class="btn-icon" id="settingsBtn" title="설정">⚙️</button>
     </div>
   </div>
@@ -140,15 +171,10 @@
     <div class="overlay-card">
       <div class="overlay-head">⚙️ 설정 <button class="overlay-x" data-close="settingsPanel">✕</button></div>
       <div class="set-section">🤖 내 비서</div>
-      <div class="row2">
-        <label>에이전트 이름 <span class="muted small">(이렇게 불러요)</span><input id="cfgAgentName" placeholder="예) 자비스, 비서, 코니" /></label>
-        <label>나를 부르는 호칭 <span class="muted small">(비서가 날 이렇게 불러요)</span><input id="cfgUserTitle" placeholder="예) 사장님, 대표님, 주인님" /></label>
-      </div>
-      <label>🤖 AI 모델 <span class="muted small">(로컬에서 로드된 모델 자동)</span><select id="modelSel"></select></label>
-      <label>에이전트 인사말 <span class="muted small">(비우면 기본 · {name}=이름 · {title}=내 호칭)</span><input id="cfgGreeting" placeholder="{title}, {name}입니다. 무엇을 도와드릴까요?" /></label>
-      <label class="row"><input type="checkbox" id="cfgVoice" /> 음성 응답(TTS) 켜기</label>
-      <label class="row"><input type="checkbox" id="cfgJarvis" /> 🎙️ AI 보이스 모드 (낮은 톤 + 활성화 효과음)</label>
-      <label>🔊 목소리<select id="cfgVoicePick">
+      <label>나를 부르는 호칭 <span class="muted small">(비서가 날 이렇게 불러요)</span><input id="cfgUserTitle" placeholder="예) 사장님, 대표님, 주인님" /></label>
+      <div class="oc-row" style="margin:2px 0 10px"><button id="openAiTeamBtn" type="button" class="oc-primary">🤖 AI 모델·두뇌 관리 — 내 AI 팀 열기</button></div>
+      <label class="row"><input type="checkbox" id="cfgVoice" /> 🔊 음성 응답(TTS) 켜기</label>
+      <label>목소리<select id="cfgVoicePick">
         <option value="edge:ko-KR-SunHiNeural">✨ 선희 — 한국어 여성 (자연스러움·무료)</option>
         <option value="edge:ko-KR-InJoonNeural">인준 — 한국어 남성 (무료)</option>
         <option value="edge:ko-KR-HyunsuMultilingualNeural">현수 — 한국어 남성 (무료)</option>
@@ -158,20 +184,27 @@
         <option value="browser">기본 OS 음성 (오프라인)</option>
         <option value="qwen:Sohee">Sohee — 한국어 (Qwen3-TTS·키 필요)</option>
       </select></label>
-      <div class="muted small" style="margin-top:-2px;line-height:1.5">✨ <b>선희</b>(MS Edge 신경망)는 키 없이 무료인데 진짜 자연스러워요. 인터넷만 있으면 됩니다.</div>
       <label class="row"><input type="checkbox" id="cfgTools" /> 🛠️ 파일 도구 — 내 파일 읽기·쓰기 (진짜 에이전트)</label>
-      <label class="row"><input type="checkbox" id="cfgBrainViz" checked /> 🧠 두뇌 비주얼 — 배경 신경망 애니메이션</label>
-      <label class="row"><input type="checkbox" id="cfgBriefing" checked /> 📋 아침 브리핑 받기 <span class="muted small">매일</span> <input type="time" id="cfgBriefingTime" value="09:00" /> <span class="muted small">자동</span></label>
+      <label class="row"><input type="checkbox" id="cfgBriefing" checked /> 📋 아침 브리핑 <span class="muted small">매일</span> <input type="time" id="cfgBriefingTime" value="09:00" /></label>
       <div class="oc-row" style="margin:2px 0 8px"><button id="briefNowBtn" type="button" class="oc-primary">📋 지금 브리핑 받기</button></div>
-      <label class="row"><input type="checkbox" id="cfgAutoSync" checked /> 🔄 지식 자동 동기화 (GitHub) <span class="muted small">— 쌓일 때마다 자동 커밋</span></label>
+
       <details class="settings-adv"><summary class="muted small">고급 설정</summary>
-        <label>🚀 내 학습 노트북 URL <span class="muted small">(있으면 자동생성 대신 이걸로 — Colab/GitHub)</span><input id="cfgTrainUrl" placeholder="https://colab.research.google.com/..." /></label>
+        <label>에이전트 인사말 <span class="muted small">(비우면 기본 · {name}=이름 · {title}=내 호칭)</span><input id="cfgGreeting" placeholder="{title}, {name}입니다. 무엇을 도와드릴까요?" /></label>
+        <label class="row"><input type="checkbox" id="cfgJarvis" /> 🎙️ AI 보이스 모드 (낮은 톤 + 효과음)</label>
+        <label class="row"><input type="checkbox" id="cfgBrainViz" checked /> 🧠 두뇌 비주얼 — 배경 애니메이션</label>
+        <label class="row"><input type="checkbox" id="cfgAutoSync" checked /> 🔄 지식 자동 동기화 (GitHub)</label>
+        <label class="row"><input type="checkbox" id="cfgEmailAuto" /> 📥 이메일 자동 답장 <span class="muted small">(이메일·텔레그램 연동 필요)</span></label>
         <label class="row"><input type="checkbox" id="cfgSafeMode" /> 🛡️ 안전 모드 — GPU 가속 끄기 <span class="muted small">(흰 화면·바로 종료될 때)</span></label>
         <div class="oc-row" style="margin:2px 0 8px"><button id="relaunchBtn" type="button" class="oc-primary">↻ 앱 재시작</button><button id="diagBtn" type="button" class="oc-primary">📄 진단 로그</button></div>
         <label>🎙️ 기본 음성 종류 <span class="muted small">(기본 목소리일 때 OS 음성)</span><select id="cfgVoiceName"></select></label>
         <label>🖥️ 로컬 Qwen3-TTS 서버 <span class="muted small">(있으면 Qwen 음성을 로컬·무료로)</span><input id="cfgTtsLocalUrl" placeholder="http://127.0.0.1:7920" /></label>
-        <label>대학 DB URL (Firebase RTDB)<input id="cfgDbUrl" placeholder="https://...firebasedatabase.app" /></label>
+        <label>🚀 내 학습 노트북 URL <span class="muted small">(Colab/GitHub)</span><input id="cfgTrainUrl" placeholder="https://colab.research.google.com/..." /></label>
         <label>LLM 주소 (비우면 자동 감지)<input id="cfgLlmBase" placeholder="http://127.0.0.1:1234 또는 11434" /></label>
+        <div class="set-section" style="margin-top:8px">🛠️ 운영자 설정 <span class="muted small">(서비스 제공자용 · 일반 사용자는 비워두세요)</span></div>
+        <label>☁️ 학습 서버 URL <span class="muted small">(Firebase 함수 base — 토큰 없이 무료 학습)</span><input id="cfgTrainBackend" placeholder="https://us-central1-내프로젝트.cloudfunctions.net" /></label>
+        <label>👤 회원 Firebase API Key <span class="muted small">(Authentication 켜야 함)</span><input id="cfgFbApiKey" placeholder="AIza..." /></label>
+        <label>👤 회원 DB URL <span class="muted small">(Firebase RTDB)</span><input id="cfgFbDbUrl" placeholder="https://내프로젝트.firebasedatabase.app" /></label>
+        <label>대학 DB URL (Firebase RTDB)<input id="cfgDbUrl" placeholder="https://...firebasedatabase.app" /></label>
       </details>
       <label>📁 작업 폴더 <span class="muted small">(에이전트가 파일 만들 기본 위치)</span>
         <div style="display:flex;gap:6px;margin-top:6px">
@@ -180,7 +213,7 @@
         </div>
       </label>
       <button id="saveCfg" class="oc-primary">저장</button>
-      <p class="muted small">· 이름·회사·아바타 → 🏫 대학 <b>명찰</b>에서 설정</p>
+      <p class="muted small">· 에이전트 이름·회사·아바타 → 🏫 <b>명찰</b> · AI 모델·두뇌 → 🤖 <b>내 AI 팀</b></p>
     </div>
   </div>
 
@@ -203,8 +236,7 @@
           <div class="svc-intel" id="svcIntel"></div>
           <div class="am-head">📺 내 유튜브 채널 <span class="muted small">— 실시간</span></div>
           <div class="yt-dash" id="ytDash"></div>
-          <div class="am-head">👥 우리 직원 에이전트 <span class="muted small">— 클릭하면 상세</span></div>
-          <div class="agent-matrix" id="agentMatrix"></div>
+          <div class="am-head">👥 우리 팀 <span class="muted small">— 이름·얼굴·두뇌는 🤖 내 AI 팀에서</span> <button id="dashTeamBtn" class="oc-primary" style="float:right;padding:4px 10px;font-size:11px">🤖 팀 열기</button></div>
           <div class="am-head">📋 태스크 보드 <span class="muted small">— 할 일 (에이전트가 자동으로 쌓기도 함)</span></div>
           <div class="task-add">
             <input id="taskInput" placeholder="할 일 추가 (예: 썸네일 시안 3개 만들기)" autocomplete="off" />
@@ -249,10 +281,14 @@
   </div>
 
   <!-- 🏢 사무실 (1인 기업 모드 시각화) -->
-  <!-- 🤖 AI 선택 — 비서가 어떤 두뇌로 일할지 (내장 / LM Studio / Ollama / Gemini) -->
+  <!-- 🤖 AI 선택 — 비서가 어떤 두뇌로 일할지 (내장 엔진 · HuggingFace 모델) -->
   <div class="overlay hidden" id="aiPanel">
     <div class="overlay-card ai-card">
-      <div class="overlay-head">내 AI <button class="overlay-x" data-close="aiPanel">✕</button></div>
+      <div class="overlay-head">내 AI 팀 <button class="overlay-x" data-close="aiPanel">✕</button></div>
+      <div class="ai-sec">우리 팀 <span class="muted small" style="font-weight:400">— 카드 클릭=관리 · 미리보기 클릭=사무실</span></div>
+      <div class="office-preview" id="officePreview" title="누르면 사무실 크게 보기"></div>
+      <div class="team-roster" id="teamRoster"></div>
+      <div class="ai-sec">공통 두뇌 <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— 전용 두뇌 없는 캐릭터들의 기본</span></div>
       <div class="ai-current" id="aiCurrent"></div>
       <div class="ai-sec">내 모델</div>
       <div class="local-models" id="localModels"></div>
@@ -266,6 +302,15 @@
         <div class="hf-dl-bar"><div class="hf-dl-fill" id="hfDlFill"></div></div>
         <div class="muted small" id="hfDlText"></div>
       </div>
+      <div class="ai-sec">성격</div>
+      <div class="ap-persona" id="apPersona">
+        <button data-persona="calm">😌 차분함</button>
+        <button data-persona="balanced">⚖️ 균형</button>
+        <button data-persona="creative">✨ 창의적</button>
+        <button data-persona="strict">🎯 깐깐함</button>
+      </div>
+      <details class="ai-advanced">
+        <summary>🎓 전문가 설정 (값 직접 조정 · 배우면서)</summary>
       <div class="ai-sec">생성 파라미터</div>
       <div class="ai-params">
         <div class="ap-slider"><span class="ap-name">창의성 <em>temp</em></span><input type="range" id="apTemp" min="0" max="200" step="5" /><span class="ap-val" id="apTempVal">0.70</span></div>
@@ -284,6 +329,7 @@
         <div class="ap-row"><span class="ap-name">응답 길이 <em>max</em></span><div class="ap-seg" id="apMax"><button data-max="512">짧음</button><button data-max="1024">보통</button><button data-max="2048">김</button></div></div>
       </div>
       <button class="ap-reset" id="apReset">기본값으로 되돌리기</button>
+      </details>
     </div>
   </div>
   <div class="overlay hidden" id="officePanel">
@@ -407,9 +453,13 @@
                     <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
                 </details>
               </div>
-              <div class="muted small">내 모델 위에 누적 학습 → Colab 무료 GPU → .gguf</div>
+              <div class="muted small" style="margin-top:6px">내 모델 위에 누적 학습 → .gguf 모델</div>
+              <div class="train-acts">
+                <button id="cloudTrainBtn" class="train-cloud beta" disabled title="Connect AI 서버 학습 — 베타 준비 중 (곧 공개)"><span>🚀 Connect AI 서버 학습</span><span class="beta-pill">BETA · 곧</span></button>
+                <button id="hfTrainBtn" class="train-free" disabled>🆓 Colab으로 직접 학습</button>
+              </div>
+              <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
             </div>
-            <button id="hfTrainBtn" class="oc-primary" disabled>학습</button>
           </div>
         </div>
         </div><!-- /#sftFlow -->

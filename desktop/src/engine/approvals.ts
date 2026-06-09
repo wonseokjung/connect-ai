@@ -27,6 +27,10 @@ export function addApproval(title: string, summary = '', agentEmoji = '🤖', ac
   items.push(a); save(); return a;
 }
 export function getApproval(id: string): Approval | undefined { return items.find(x => x.id === id); }
+// 초안 수정(텔레그램에서 "수정 …") — 액션 내용을 갈아끼우고 저장
+export function updateApprovalAction(id: string, action: ApprovalAction): Approval | undefined {
+  const a = items.find(x => x.id === id); if (a) { a.action = action; save(); } return a;
+}
 export function setApprovalStatus(id: string, status: Approval['status'], result?: string): Approval | undefined {
   const a = items.find(x => x.id === id); if (a) { a.status = status; if (result != null) a.result = result; save(); } return a;
 }
