@@ -635,14 +635,14 @@ function buildAgentInstr(agent: string, title: string, context: { notes?: string
   const dir = `오늘업무_${today}`;   // 하루 산출물이 한 폴더에 모인다 (바탕화면 안 어지럽힘)
   const base = `[운영 사이클 — "${title}" 작전] (오늘: ${today})\n\n규칙(중요):\n- 말로만 하지 마라. 반드시 도구를 호출해서 일해라. "하겠습니다"로 끝내면 실패다.\n- 작업 순서를 지켜라: ① 데이터 도구로 실데이터부터 확인 → ② 필요하면 web_search/fetch_url 리서치 → ③ write_file로 산출물 생성 → ④ 마지막에 한국어 2~3문장으로 결과 보고.\n- 산출물 파일은 전부 "${dir}/" 폴더 안에 만들어라 (예: ${dir}/보고서.md).\n- 산출물에는 ①②에서 얻은 실제 숫자·사실을 인용해라. 지어내지 마라.\n`;
   const agentInstr: Record<string, string> = {
-    youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → ${dir}/youtube_기획안.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
+    youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → ${dir}/youtube_기획안.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).\n④ 기존 영상 제목·설명 개선이 작전이면 youtube_update_video로 실제 수정 결재까지 올려라(승인되면 진짜 반영됨).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
     instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → ${dir}/인스타_콘텐츠.md.`,
     designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → ${dir}/디자인_가이드.md.`,
     developer: `${base}너는 시니어 풀스택 개발자(코다리)야. 데모가 아니라 실제로 돌아가는 걸 만든다.\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 프로젝트는 폴더로 구성해라 → ${dir}/프로젝트명/ 안에 여러 파일(코드+README.md). 단일 스크립트면 ${dir}/script.py 또는 .js\n③ 반드시 run_command로 실행·테스트해라. 에러가 나면 read_file로 코드를 다시 보고 고쳐서 재실행 — 통과할 때까지 반복(이게 네 일의 핵심).\n④ 웹앱이면 write_file로 index.html을 만들고 start_server로 띄워 브라우저로 확인까지.\n⑤ 외부 패키지가 필요하면 run_command("pip install …" 또는 "npm init -y && npm install …")를 먼저.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
     business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → ${dir}/사업전략.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
     secretary: `${base}너는 비서(영숙)야.\n① get_tasks로 태스크 보드를 먼저 확인하고, 끝난 건 complete_task로 정리해라.\n② check_email로 안 읽은 메일을 확인하고(미연결이면 생략), 중요한 건 요약해라.\n③ 오늘의 현황·우선순위를 write_file로 정리하고 → ${dir}/오늘브리핑.md, 핵심만 send_telegram으로 사장님께 보고해라.\n④ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
     editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → ${dir}/사운드_가이드.md.`,
-    writer: `${base}너는 카피라이터(Writer)야.\n① web_search로 주제 관련 최신 정보를 확인하고\n② 영상 스크립트·블로그 글·캡션을 write_file로 작성해라 → ${dir}/스크립트.md. 각각 고유한 톤으로.`,
+    writer: `${base}너는 카피라이터(Writer)야.\n① web_search로 주제 관련 최신 정보를 확인하고\n② 영상 스크립트·블로그 글·캡션을 write_file로 작성해라 → ${dir}/스크립트.md. 각각 고유한 톤으로.\n③ 블로그 글 발행이 작전이면 publish_content로 실제 게시 결재까지 올려라(승인되면 진짜 발행됨).`,
     researcher: `${base}너는 리서처야.\n① web_search로 2~3개 키워드를 검색하고\n② 좋은 결과는 fetch_url로 본문까지 읽은 뒤\n③ 출처 링크가 달린 분석 보고서를 write_file로 정리해라 → ${dir}/리서치.md.`,
   };
   return agentInstr[agent] || base + `네 전문성을 살려 "${title}" 작전을 수행해라. 데이터 도구(get_revenue·get_youtube·get_github·web_search)로 사실을 확인하고 write_file로 산출물을 남겨라.`;
@@ -1756,6 +1756,29 @@ async function executeAction(action: ApprovalAction): Promise<string> {
       const r = await sendEmail({ host: e.SMTP_HOST, port: e.SMTP_PORT, user: e.SMTP_USER, pass: e.SMTP_PASS, from: e.SMTP_FROM }, to, subject || '', rest.join('|'));
       return r.ok ? `📧 이메일 전송 완료 → ${to}` : `⚠️ ${r.error}`;
     }
+    if (action.kind === 'github') {
+      // 📤 콘텐츠 실제 발행 — 깃허브 레포에 푸시 (GitHub Pages면 곧바로 라이브)
+      const g = (c.apiConn || {}).github || {};
+      if (!g.GITHUB_TOKEN || !g.GITHUB_DEFAULT_REPO) return '⚠️ 깃허브 미연결 (🗂️ 연동 → GitHub 토큰·레포 먼저)';
+      const filePath = action.path || `posts/post_${Date.now()}.md`;
+      const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, filePath, action.payload || '', `발행: ${filePath}`);
+      return r.ok ? `📤 발행 완료 → ${g.GITHUB_DEFAULT_REPO}/${filePath}${r.url ? `\n${r.url}` : ''}` : `⚠️ 발행 실패: ${r.error}`;
+    }
+    if (action.kind === 'ytmeta') {
+      // 📺 유튜브 영상 제목·설명 실제 수정 (OAuth 필요 — 🗂️ 연동 → YouTube 로그인)
+      const o = (c.apiConn || {})['youtube-oauth'] || {};
+      if (!o.YOUTUBE_OAUTH_CLIENT_ID || !o.YOUTUBE_OAUTH_REFRESH) return '⚠️ 유튜브 OAuth 미연결 (🗂️ 연동 → YouTube 로그인 연동 먼저)';
+      const at = await ytAccessToken(o.YOUTUBE_OAUTH_CLIENT_ID, o.YOUTUBE_OAUTH_CLIENT_SECRET, o.YOUTUBE_OAUTH_REFRESH);
+      if (!at) return '⚠️ 유튜브 토큰 갱신 실패 — 연동을 다시 해주세요';
+      const [videoId, title, ...rest] = action.payload.split('|').map(s => s.trim());
+      const desc = rest.join('|');
+      const cur = await axios.get('https://www.googleapis.com/youtube/v3/videos', { params: { part: 'snippet', id: videoId }, headers: { Authorization: `Bearer ${at}` }, timeout: 15000 });
+      const sn = cur.data?.items?.[0]?.snippet;
+      if (!sn) return `⚠️ 영상(${videoId})을 찾을 수 없어요`;
+      const snippet = { ...sn, title: title || sn.title, description: desc || sn.description, categoryId: sn.categoryId || '22' };
+      await axios.put('https://www.googleapis.com/youtube/v3/videos?part=snippet', { id: videoId, snippet }, { headers: { Authorization: `Bearer ${at}` }, timeout: 20000 });
+      return `📺 유튜브 메타 수정 완료 → ${videoId} "${snippet.title.slice(0, 40)}"`;
+    }
   } catch (e: any) { return `⚠️ 실행 실패: ${e?.message || e}`; }
   return '';
 }
@@ -1785,7 +1808,7 @@ let tgOffset = 0, tgPrimed = false;
 const tgPushed = new Set<string>();
 let tgAwaitId = '';
 const tgSend = (text: string) => { const c = loadConfig(); if (!c.telegramToken || !c.telegramChatId) return Promise.resolve(undefined); return tgPost(c.telegramToken, c.telegramChatId, text).then(() => undefined).catch(() => undefined); };
-const tgHead = (k: string) => k === 'email' ? '📧 이메일 초안 — 보낼까요?' : k === 'telegram' ? '✈️ 메시지 초안 — 보낼까요?' : k === 'run' ? '⚡ 명령 — 실행할까요?' : '📝 작업 — 할까요?';
+const tgHead = (k: string) => k === 'email' ? '📧 이메일 초안 — 보낼까요?' : k === 'telegram' ? '✈️ 메시지 초안 — 보낼까요?' : k === 'run' ? '⚡ 명령 — 실행할까요?' : k === 'github' ? '📤 콘텐츠 발행 — 게시할까요?' : k === 'ytmeta' ? '📺 유튜브 수정 — 적용할까요?' : '📝 작업 — 할까요?';
 const tgRefresh = (res: string, ok: boolean) => { try { win?.webContents.send('engine:event', { kind: 'tool', name: 'approve-done', path: res.slice(0, 60), ok }); } catch { /* */ } };
 async function tgPushApprovals() {
   const c = loadConfig(); if (!c.telegramToken || !c.telegramChatId || c.telegramApprovals === false) return;
