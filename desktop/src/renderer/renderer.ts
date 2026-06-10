@@ -542,7 +542,7 @@ function renderCycle(s: any) {
   const stop = $('cycStop'); if (stop) stop.onclick = async () => { _ops = await connect.opsStop?.(); hint('■ 멈췄어요'); renderCycle(_ops); };
   const end = $('cycEnd'); if (end) end.onclick = async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 종료했어요'); };
 }
-connect.onOpsUpdate?.((s: any) => { _ops = s; setOpsBtn(!!s?.running); renderCycle(s); });   // 상태 변할 때마다 버튼+패널 동기화
+connect.onOpsUpdate?.((s: any) => { _ops = s; setOpsBtn(!!s?.running); renderCycle(s); try { officeOpsTick(s); } catch { /* */ } });   // 상태 변할 때마다 버튼+패널+사무실 동기화
 connect.onOpsOpenPanel?.(() => openCyclePanel());   // 🔗 대시보드 "작전 검토" 버튼 → 메인 창 패널 열림
 connect.opsStatus?.().then((s: any) => { _ops = s; setOpsBtn(!!s?.running); }).catch(() => { /* */ });
 async function renderAiCurrent() {
@@ -1226,12 +1226,32 @@ function grandEntrance() {
     }, 240 * i + 120);
   });
 }
+// 🏢 운영 작업 로그 → 사무실 — 캐릭터 옆 피드에 실시간으로 흐르고, 일하는 에이전트가 움직인다
+let _ofsFeedTs = 0;
+const _ofsIdleTimers: Record<string, any> = {};
+function officeOpsTick(s: any) {
+  if (!s || !officeBuilt) return;
+  if (s.executing && s.executingTitle) $('officeStatus').textContent = '⚡ 작전 수행 중 · ' + String(s.executingTitle).slice(0, 26);
+  else if (s.phase === 'done' && s.running) $('officeStatus').textContent = '🏁 사이클 완료 — 다음 지시 대기';
+  const fresh = (s.feed || []).filter((f: any) => f.ts > _ofsFeedTs).reverse();   // 옛 것부터 차례로
+  for (const f of fresh) {
+    _ofsFeedTs = Math.max(_ofsFeedTs, f.ts);
+    const ag = AGENTS[f.agent];
+    feedStory(f.icon || '🔧', ag?.name || f.agent, f.text || '', ag?.color);
+    if (ag) {   // 그 에이전트가 일하는 모습 — 잠깐 work 모드 + 불꽃
+      officeSet(f.agent, 'work'); voSparks(f.agent);
+      window.clearTimeout(_ofsIdleTimers[f.agent]);
+      _ofsIdleTimers[f.agent] = window.setTimeout(() => { if (!taskActive) officeSet(f.agent, 'idle'); }, 2600);
+    }
+  }
+}
 const OFFICE_MODE = new URLSearchParams(location.search).get('office') === '1';
 if (OFFICE_MODE) {
   document.body.classList.add('office-only');
   buildOffice(); openOverlay('officePanel');
   requestAnimationFrame(() => grandEntrance());   // 🎬 입장 연출 후 자율 생활 시작
   connect.onEngineEvent?.(driveOfficeEvent);   // 메인에서 브로드캐스트되는 엔진 이벤트 수신
+  connect.onOpsUpdate?.((s: any) => officeOpsTick(s));   // 🔗 운영 피드가 캐릭터 옆에서 흐름
 }
 $('officePop')?.addEventListener('click', () => connect.officeOpen?.());
 

@@ -476,6 +476,7 @@ const opsBroadcast = () => {
   const s = opsPublic();
   try { win?.webContents.send('ops:update', s); } catch { /* */ }
   try { if (revenueWin && !revenueWin.isDestroyed()) revenueWin.webContents.send('ops:update', s); } catch { /* */ }
+  try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('ops:update', s); } catch { /* */ }   // 🏢 사무실 창에도 — 캐릭터 옆에서 작업 로그가 흐른다
 };
 const opsEmit = () => { opsBroadcast(); if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
 // 가벼운 즉시 전송 — 도구 사용 한 번마다 호출해도 부담 없게(데이터 재수집 없이 상태만)
@@ -840,6 +841,8 @@ ipcMain.handle('open:external', (_e, url: string) => { try { if (/^https?:\/\//.
 ipcMain.handle('tts:speak', async (_e, text: string) => {
   const c = loadConfig();
   // 🔊 무료 고품질 — MS Edge 신경망 (키·GPU 불필요)
+  // 🦾 영화 자비스 톤 — 영국풍 멀티링구얼 남성 보이스 + 낮은 피치·차분한 속도 (한국어도 그 톤으로 말함)
+  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis') return await edgeTTS('en-US-BrianMultilingualNeural', text, { pitch: '-10Hz', rate: '-6%' });
   if (c.voiceQuality === 'edge') return await edgeTTS(c.qwenVoice || 'ko-KR-SunHiNeural', text);
   if (c.voiceQuality !== 'qwen') return { ok: false, skip: true };
   // Qwen — 로컬 서버 있으면 로컬(무료), 없으면 Replicate(클라우드)
@@ -907,6 +910,14 @@ function portFromCmd(cmd: string): number | null {
 function startServer(rawCmd: string, ws: string): Promise<string> {
   return new Promise((resolve) => {
     const cmd = normalizeCmd(rawCmd);
+    // 🛡️ npm/yarn 명령인데 package.json이 없으면 → 실행 전에 차단 (터미널 에러 도배 방지 + 에이전트 자가수정 유도)
+    if (/^(npm|yarn|pnpm|npx)\s/i.test(cmd.trim())) {
+      try {
+        if (!fs.existsSync(path.join(ws, 'package.json'))) {
+          return resolve(`실행 실패: 이 폴더(${ws})에 package.json이 없어서 npm 명령을 못 돌려요.\n💡 정적 웹사이트면: ① write_file로 index.html을 먼저 만들고 → ② start_server로 "python3 -m http.server 8080" 을 띄우세요.\n💡 Node 프로젝트가 필요하면: run_command로 "npm init -y" 먼저.`);
+        }
+      } catch { /* */ }
+    }
     const wantPort = portFromCmd(cmd) || (/http\.server|SimpleHTTPServer/i.test(cmd) ? 8000 : /flask|app\.run/i.test(cmd) ? 5000 : /vite/i.test(cmd) ? 5173 : /next/i.test(cmd) ? 3000 : 3000);
     // 정적 서버인데 index.html이 없으면 → 에이전트에게 "파일부터 만들라" 경고 (빈 폴더 serve 방지)
     let warn = '';
