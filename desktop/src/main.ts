@@ -841,8 +841,9 @@ ipcMain.handle('open:external', (_e, url: string) => { try { if (/^https?:\/\//.
 ipcMain.handle('tts:speak', async (_e, text: string) => {
   const c = loadConfig();
   // 🔊 무료 고품질 — MS Edge 신경망 (키·GPU 불필요)
-  // 🦾 영화 자비스 톤 — 영국풍 멀티링구얼 남성 보이스 + 낮은 피치·차분한 속도 (한국어도 그 톤으로 말함)
-  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis') return await edgeTTS('en-US-BrianMultilingualNeural', text, { pitch: '-10Hz', rate: '-6%' });
+  // 🦾 자비스 톤 — 영화처럼 낮고 진중한 집사 AI. (배우 음성 자체는 불가 — 가장 근접한 무료 조합)
+  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis') return await edgeTTS('en-US-AndrewMultilingualNeural', text, { pitch: '-16Hz', rate: '-8%' });        // 딥·차분 (한국어 OK)
+  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis-uk') return await edgeTTS('en-GB-RyanNeural', text, { pitch: '-6Hz', rate: '-5%' });                    // 영국 정통 억양 (영어 최적)
   if (c.voiceQuality === 'edge') return await edgeTTS(c.qwenVoice || 'ko-KR-SunHiNeural', text);
   if (c.voiceQuality !== 'qwen') return { ok: false, skip: true };
   // Qwen — 로컬 서버 있으면 로컬(무료), 없으면 Replicate(클라우드)
