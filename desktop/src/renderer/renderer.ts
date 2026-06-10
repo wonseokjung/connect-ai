@@ -488,13 +488,20 @@ function renderCycle(s: any) {
     }).join('') || '<div class="cyc-loading">작전이 없어요</div>';
     foot.innerHTML = `<button class="cyc-btn ghost" id="cycReplan">🔄 다시 분석</button><button class="cyc-btn primary" id="cycRun">선택한 작전 실행 ▶</button>`;
   } else if (s.phase === 'executing') {
+    // 🔴 실시간 작업 로그 — 에이전트가 지금 어떤 도구로 뭘 하는지 그대로 흐른다
+    const feed = (s.feed || []).slice(0, 9);
+    const feedAgo = (ts: number) => { const sec = Math.floor((Date.now() - ts) / 1000); return sec < 5 ? '방금' : sec < 60 ? sec + '초 전' : Math.floor(sec / 60) + '분 전'; };
+    const feedHtml = feed.length ? `<div class="cyc-feed"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>실시간 작업 로그</div>${feed.map((f: any, i: number) => {
+      const ag = AGENTS[f.agent];
+      return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
+    }).join('')}</div>` : '';
     body.innerHTML = `<div class="cyc-step">② 고른 작전을 하나씩 수행 중…</div>` + (s.actions || []).map((a: any) => {
       const ship = shipFor(s, a.title); const running = s.executingTitle === a.title;
       let st = '<span class="cyc-st wait">대기</span>';
       if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
       else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅ 완료</span>' : '<span class="cyc-st fail">결과 없음</span>';
       return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship.artifacts) : ''}</div>`;
-    }).join('');
+    }).join('') + feedHtml;
     foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
   } else if (s.phase === 'done') {
     const done = (s.actions || []).filter((a: any) => shipFor(s, a.title));
@@ -730,6 +737,14 @@ async function renderApprovals() {
   $('aprBoard').querySelectorAll('.ac-ok').forEach(b => b.addEventListener('click', async () => { const r = await connect.approvalsApprove((b as HTMLElement).dataset.id); renderApprovals(); if (r?.result) addLog('✅ 실행 결과', r.result, false, false, '#00cc77'); hint(r?.result ? '승인 + 실행 완료 ⚡' : '승인했어요 ✅'); }));
   $('aprBoard').querySelectorAll('.ac-no').forEach(b => b.addEventListener('click', async () => { await connect.approvalsReject((b as HTMLElement).dataset.id); renderApprovals(); }));
 }
+// ✈️ 폰 결재 테스트 — 텔레그램으로 테스트 결재 푸시 → 폰에서 "보내기" 답장 → 실제 실행 한 바퀴 체험
+$('aprTestBtn')?.addEventListener('click', async () => {
+  const b = $('aprTestBtn'); b.setAttribute('disabled', ''); b.textContent = '✈️ 보내는 중…';
+  const r = await connect.approvalsTest?.().catch(() => null);
+  b.removeAttribute('disabled'); b.textContent = '✈️ 폰 결재 테스트';
+  if (r?.ok) { renderApprovals(); addLog('✈️ 결재 테스트', '폰(텔레그램)으로 결재 요청을 보냈어요!\n\n📱 텔레그램을 열고 "보내기"라고 답장해보세요 — 승인되면 메시지가 실제로 발송됩니다.\n("수정 …" / "취소"도 됩니다)', false, false, '#00a0ff'); }
+  else hint(r?.reason || '텔레그램 연동을 먼저 해주세요 (🗂️ 연동 → Telegram)');
+});
 const fmtN = (n: number) => Number(n || 0).toLocaleString();
 const fmtAgo = (iso: string) => { const t = Date.parse(iso); if (!t) return ''; const d = Math.floor((Date.now() - t) / 86400000); if (d < 1) return '오늘'; if (d < 30) return d + '일 전'; if (d < 365) return Math.floor(d / 30) + '개월 전'; return Math.floor(d / 365) + '년 전'; };
 // 🧭 비즈니스 인텔리전스 — 등록 서비스의 실시간 스냅샷 + 분석 액션
@@ -1162,11 +1177,6 @@ $('officePop')?.addEventListener('click', () => connect.officeOpen?.());
 let codeWs = '';
 let codeCurrentFile = '';
 const NEW_MS = 25000;
-function fileIcon(name: string) {
-  const e = (name.split('.').pop() || '').toLowerCase();
-  const map: any = { js: '🟨', mjs: '🟨', ts: '🔷', jsx: '🟨', tsx: '🔷', py: '🐍', html: '🌐', css: '🎨', json: '📦', md: '📝', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️', svg: '🖼️', webp: '🖼️', mp4: '🎬', mov: '🎬', mp3: '🎵', pdf: '📕', sh: '⚙️', txt: '📄', yml: '⚙️', yaml: '⚙️' };
-  return map[e] || '📄';
-}
 function renderTreeNodes(nodes: any[], depth: number): string {
   return nodes.map(n => {
     const pad = `padding-left:${8 + depth * 13}px`;

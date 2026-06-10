@@ -379,15 +379,20 @@ function opsRel(ts) { if (!ts) return ''; const s = Math.floor((Date.now() - ts)
 const OPS_ROSTER = ['business', 'youtube', 'developer', 'designer', 'secretary'];
 function renderOps(ops) {
   const sec = $('opsLive'); if (!sec) return;
-  if (!ops || !ops.running) { sec.classList.add('hidden'); return; }
+  const shippedAll = (ops && ops.shipped) || [];
+  // 운영 중이 아니어도 지난 성과가 있으면 보여준다 — "내가 뭘 했는가"가 한눈에
+  if (!ops || (!ops.running && !shippedAll.length)) { sec.classList.add('hidden'); return; }
   sec.classList.remove('hidden');
   const busy = !!ops.busy || ops.phase === 'planning';
   const exec = !!ops.executing || ops.phase === 'executing';
   sec.classList.toggle('busy', busy || exec);
   const PH = { planning: '분석 중…', review: '작전 검토 — 메인 창에서 선택', executing: '작전 수행 중…', done: '사이클 완료', idle: '대기' };
-  $('oplState').textContent = '운영 사이클 #' + (ops.cycle || 1);
-  $('oplRuns').textContent = PH[ops.phase] || '대기';
+  const okShips = shippedAll.filter((s) => s.ok !== false && (s.artifacts || []).length);
+  const artCount = shippedAll.reduce((n, s) => n + ((s.artifacts || []).length), 0);
+  $('oplState').textContent = ops.running ? ('운영 사이클 #' + (ops.cycle || 1)) : '🏆 운영 성과';
+  $('oplRuns').textContent = ops.running ? (PH[ops.phase] || '대기') : `누적 ${ops.runs || 0}사이클 · 완수 ${okShips.length}건 · 산출물 ${artCount}개`;
   $('oplNext').textContent = ops.lastRun ? opsRel(ops.lastRun) + ' 분석' : '';
+  const stopBtn = $('oplStop'); if (stopBtn) stopBtn.style.display = ops.running ? '' : 'none';
   const sm = $('oplSummary');
   const msg = ops.summary ? '“' + ops.summary + '”' : (busy ? '💼 비즈니스 에이전트가 매출·유튜브·코드를 읽고 작전을 짜는 중…' : '');
   sm.textContent = msg; sm.style.display = msg ? '' : 'none';

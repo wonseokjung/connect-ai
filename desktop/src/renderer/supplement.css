@@ -257,6 +257,21 @@ body::after { content: ''; position: fixed; inset: 0; z-index: 0; pointer-events
 .cyc-art::before { content: attr(data-icon); font-size: 12px; flex-shrink: 0; }
 @keyframes artBorn { 0% { opacity: 0; transform: scale(.75) translateY(8px); } 60% { transform: scale(1.08) translateY(-1px); } 100% { opacity: 1; transform: scale(1) translateY(0); } }
 .cyc-art.loading::after { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid rgba(57,255,20,.3); border-top-color: #39ff14; animation: cycSpin .7s linear infinite; flex-shrink: 0; margin-left: 2px; }
+/* 🔴 실시간 작업 로그 — 에이전트가 도구 쓰는 게 그대로 흐른다 */
+.cyc-feed { margin-top: 10px; border: 1px solid rgba(57,255,20,.18); border-radius: 12px; background: rgba(0,12,5,.55); padding: 10px 12px; max-height: 220px; overflow-y: auto; }
+.cyc-feed-h { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #74ffb4; margin-bottom: 7px; }
+.cyc-live-dot { width: 7px; height: 7px; border-radius: 50%; background: #ff4d4d; box-shadow: 0 0 8px #ff4d4d; animation: liveDot 1.1s ease-in-out infinite; }
+@keyframes liveDot { 0%, 100% { opacity: 1; } 50% { opacity: .25; } }
+.cyc-feed-line { display: flex; align-items: center; gap: 8px; padding: 4px 6px 4px 8px; border-left: 2px solid color-mix(in srgb, var(--ag, #39ff14) 65%, transparent); margin: 2px 0; font: 12px/1.45 ui-monospace, 'SF Mono', monospace; color: #cfeedd; border-radius: 0 6px 6px 0; }
+.cyc-feed-line.new { animation: feedIn .35s ease; background: linear-gradient(90deg, color-mix(in srgb, var(--ag, #39ff14) 12%, transparent), transparent); }
+@keyframes feedIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+.cyc-feed-line.bad { color: #ffb3b3; border-left-color: #ff6b6b; }
+.cf-ic { flex-shrink: 0; font-size: 12px; }
+.cf-tx { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cf-ago { flex-shrink: 0; font-size: 10px; color: rgba(182,255,206,.45); }
+/* ✈️ 폰 결재 테스트 버튼 */
+.apr-test { margin-left: auto; background: rgba(0,160,255,.1); border: 1px solid rgba(0,160,255,.4); color: #7fdcff; border-radius: 8px; padding: 4px 10px; font-size: 11px; font-weight: 700; cursor: pointer; transition: all .15s; }
+.apr-test:hover { background: rgba(0,160,255,.2); box-shadow: 0 0 10px rgba(0,160,255,.3); }
 /* 완료 */
 .cyc-complete { text-align: center; padding: 14px 0 8px; }
 .cyc-complete-ic { font-size: 38px; animation: cycPop .5s cubic-bezier(.2,1.5,.4,1); }

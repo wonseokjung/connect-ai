@@ -463,13 +463,16 @@ interface OpsScan { agent: string; label: string; ok: boolean; }
 interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; }
 interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; }
 type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
-interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; }
-let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [] };
+interface OpsFeedItem { icon: string; text: string; agent: string; ok: boolean; ts: number; }
+interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; }
+let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [] };
 const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
 function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
 function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
 const opsPublic = () => ({ ...opsState });
 const opsEmit = () => { try { win?.webContents.send('ops:update', opsPublic()); } catch { /* */ } if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
+// 가벼운 즉시 전송 — 도구 사용 한 번마다 호출해도 부담 없게(대시보드 재수집 없이 메인 창만)
+const opsEmitLight = () => { try { win?.webContents.send('ops:update', opsPublic()); } catch { /* */ } };
 const fmtN = (n: number) => Math.round(n || 0).toLocaleString();
 
 async function gatherOps() {
@@ -485,22 +488,43 @@ async function gatherOps() {
 // 실데이터 → 에이전트별 점검 라인 (결정적 — AI가 실패해도 진짜 숫자가 남는다)
 function buildScan(d: any): OpsScan[] {
   const { c, rev, yt, gh } = d; const scan: OpsScan[] = [];
+
+  // 💼 비즈니스: 매출 추세·거래량·주요 상품
   const bc = rev?.data?.totals?.by_currency;
   if (bc && Object.keys(bc).length) {
     const t = rev.data.totals; const cur = t.primary_currency || Object.keys(bc)[0]; const cc = bc[cur];
     const net = (cc.gross || 0) + (cc.refunds || 0) + (cc.fees || 0);
-    scan.push({ agent: 'business', label: `매출 분석 — 순매출 ${fmtN(net)} ${cur} · 30일 거래 ${cc.count}건`, ok: true });
-  } else scan.push({ agent: 'business', label: rev?.error ? '페이팔 점검 — 연결 확인 필요' : '페이팔 미연결 — 결제 추적 대기', ok: false });
+    const trend = rev.data?.totals?.by_period?.month && rev.data?.totals?.by_period?.prev_month
+      ? ((rev.data.totals.by_period.month - rev.data.totals.by_period.prev_month) / rev.data.totals.by_period.prev_month * 100).toFixed(0)
+      : null;
+    const trendLabel = trend ? (parseInt(trend) > 0 ? `📈 +${trend}%` : `📉 ${trend}%`) : '';
+    scan.push({ agent: 'business', label: `💰 매출 — 순 ${fmtN(net)} ${cur} · 거래 ${cc.count}건${trendLabel ? ` ${trendLabel}` : ''} · 환불율 ${((cc.refunds || 0) / (cc.gross || 1) * 100).toFixed(1)}%`, ok: true });
+  } else scan.push({ agent: 'business', label: rev?.error ? '⚠️ PayPal 연결 오류 — 재인증 필요' : '❌ PayPal 미연결 — 결제 수집 대기', ok: false });
+
+  // 📺 유튜브: 구독자·조회·상위 영상·성장률
   if (yt?.ok && yt.channel) {
     const ch = yt.channel; const top = (yt.videos || []).slice().sort((a: any, b: any) => b.views - a.views)[0];
-    scan.push({ agent: 'youtube', label: `유튜브 — 구독 ${fmtN(ch.subs)} · 총 조회 ${fmtN(ch.views)}${top ? ` · 인기 "${(top.title || '').slice(0, 16)}"` : ''}`, ok: true });
-  } else scan.push({ agent: 'youtube', label: '유튜브 미연결 — 채널 분석 대기', ok: false });
+    const growth = ch.subs && ch.prev_subs ? Math.round((ch.subs - ch.prev_subs) / ch.prev_subs * 100) : null;
+    const topTitle = top?.title || '';
+    scan.push({ agent: 'youtube', label: `📺 유튜브 — 구독 ${fmtN(ch.subs)}${growth ? ` (${growth > 0 ? '+' : ''}${growth}%)` : ''} · 조회 ${fmtN(ch.views)} · 인기 영상 "${topTitle.slice(0, 24)}" (${fmtN(top?.views || 0)})`, ok: true });
+  } else scan.push({ agent: 'youtube', label: '❌ YouTube 미연결 — 채널 분석 불가능', ok: false });
+
+  // 💻 개발자: 최근 커밋·활동 주기·주요 변경사항
   if (gh?.ok && gh.commits?.length) {
-    scan.push({ agent: 'developer', label: `코드 점검 — 최근 커밋 ${gh.commits.length}개 · "${(gh.commits[0].msg || '').slice(0, 22)}"`, ok: true });
-  } else scan.push({ agent: 'developer', label: '깃허브 미연결 — 코드 추적 대기', ok: false });
+    const recent = gh.commits[0];
+    const daysAgo = recent?.date ? Math.floor((Date.now() - new Date(recent.date).getTime()) / 86400000) : 0;
+    const freq = daysAgo > 0 ? (gh.commits.length / Math.max(1, daysAgo)).toFixed(1) : '많음';
+    scan.push({ agent: 'developer', label: `💻 개발 — 최근 커밋 "${recent?.msg?.slice(0, 28) || ''}" (${daysAgo}일 전) · 최근 ${gh.commits.length}개 (${freq}건/일) · 주요: ${(gh.commits.slice(1, 3).map((c: any) => c.msg.split(' ')[0]).join(', ') || '...')}`, ok: true });
+  } else scan.push({ agent: 'developer', label: '❌ GitHub 미연결 — 코드 추적 불가능', ok: false });
+
+  // 🎨 디자인: 등록된 서비스·자산 개수
   const svc = (c.services || []).length;
-  scan.push({ agent: 'designer', label: svc ? `브랜드 점검 — 서비스 ${svc}곳 자산 확인` : '등록된 서비스 없음 — 웹사이트·채널을 등록하세요', ok: !!svc });
-  scan.push({ agent: 'secretary', label: `작전 종합 — 진행 할 일 ${openTasks().length}개 · 승인 대기 ${pendingApprovals().length}개`, ok: true });
+  scan.push({ agent: 'designer', label: svc ? `🎨 브랜드 — 서비스 ${svc}곳 · 등록된 자산 확인 중` : '❌ 서비스 미등록 — 웹사이트·채널·상품을 먼저 등록하세요', ok: !!svc });
+
+  // 📋 비서: 할 일·승인 대기·정리 작업
+  const openCount = openTasks().length, appCount = pendingApprovals().length;
+  scan.push({ agent: 'secretary', label: `📋 운영 — 할 일 ${openCount}개${appCount ? ` · 승인 대기 ${appCount}개` : ''} · 지난 사이클 ${opsState.runs}회 · 산출물 ${opsState.shipped.length}개`, ok: true });
+
   return scan;
 }
 function opsRisk(title: string): OpsAction['risk'] {
@@ -509,18 +533,37 @@ function opsRisk(title: string): OpsAction['risk'] {
   if (/배포|deploy|푸시|머지|릴리즈|release|push/i.test(title)) return 'deploy';
   return 'safe';
 }
-// AI 없거나 실패해도 점검 결과로 진짜 작전을 만든다
+// AI 없거나 실패해도 점검 결과로 진짜 작전을 만든다 (구체적이고 실행 가능하게)
 function fallbackActions(scan: OpsScan[]): OpsAction[] {
   const out: OpsAction[] = [];
   const miss = (a: string) => scan.find(s => s.agent === a && !s.ok);
-  if (miss('business')) out.push({ title: '페이팔을 연결해 결제 받기 시작', agent: 'business', risk: 'safe' });
-  if (miss('youtube')) out.push({ title: '유튜브 채널을 연결해 시청 데이터 분석', agent: 'youtube', risk: 'safe' });
-  else out.push({ title: '인기 영상 주제로 후속 콘텐츠 1편 기획', agent: 'youtube', risk: 'safe' });
-  if (miss('developer')) out.push({ title: '깃허브 저장소를 연결해 코드 점검', agent: 'developer', risk: 'safe' });
-  out.push({ title: '구독자 대상 이메일 캠페인 발송', agent: 'secretary', risk: 'post' });
+  const hit = (a: string) => scan.find(s => s.agent === a && s.ok);
+
+  if (miss('business')) {
+    out.push({ title: 'PayPal 계정 연결 및 첫 결제 테스트', agent: 'business', risk: 'safe' });
+  } else if (hit('business')) {
+    out.push({ title: '경쟁사 가격 분석 및 내 수익화 전략 수정안 작성', agent: 'business', risk: 'safe' });
+  }
+
+  if (miss('youtube')) {
+    out.push({ title: '유튜브 채널 개설 및 로고·배너 디자인 기획', agent: 'designer', risk: 'safe' });
+  } else if (hit('youtube')) {
+    const ch = scan.find(s => s.agent === 'youtube');
+    out.push({ title: `지난달 인기 영상 분석 후 후속 기획안 3개 작성`, agent: 'youtube', risk: 'safe' });
+  }
+
+  if (miss('developer')) {
+    out.push({ title: '간단한 자동화 스크립트(뉴스레터 발송 등) 작성', agent: 'developer', risk: 'safe' });
+  } else if (hit('developer')) {
+    out.push({ title: '지난 커밋 분석 후 다음 개발 목표 정의 및 일정 수립', agent: 'developer', risk: 'safe' });
+  }
+
+  out.push({ title: '이번 주 할 일 정리 및 우선순위 지정', agent: 'secretary', risk: 'safe' });
+
   return out.slice(0, 3);
 }
 // ① 스케줄 짜기 — 현황 분석 → '오늘의 작전' 제안(자동 실행 안 함). 사람이 고를 차례(phase=review).
+// 핵심 개선: 에이전트별 특화 + 두뇌 기반 제안 + 파이프라인 사고
 async function runOperation(): Promise<OpsState> {
   if (opsState.busy) return opsPublic();
   if (!opsState.scan.length) opsState.scan = ['business', 'youtube', 'developer', 'designer', 'secretary'].map(a => ({ agent: a, label: '데이터 읽는 중…', ok: false }));
@@ -532,57 +575,100 @@ async function runOperation(): Promise<OpsState> {
     const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
     if (target) {
       const findings = scan.map(s => `- ${s.label}`).join('\n');
-      // 🧠 내 두뇌 지식 + 서비스 상세를 함께 근거로 → '내 지식·사업 기반' 구체 작전이 나오게
       const notes = allNotes();
       const brainCtx = notes.length ? '\n\n[내 두뇌 — 쌓인 지식·노하우]\n' + notes.slice(-15).map(n => `- ${n.text.replace(/\s+/g, ' ').slice(0, 160)}`).join('\n') : '';
       const svcCtx = (c.services || []).length ? '\n\n[내 서비스/사업]\n' + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n') : '';
-      const user = `너는 ${c.company}의 운영을 책임지는 비즈니스 에이전트야. 아래 [실시간 점검]·[내 서비스]·[내 두뇌]를 모두 근거로, 오늘 회사를 키울 가장 효과적이고 구체적인 행동 4가지를 정해줘.\n- 막연한 일반론 금지. 내 실제 서비스 이름·내 지식·실제 수치를 직접 언급해서 구체적으로.\n- 각 행동은 한 줄, 바로 실행 가능하게.\n형식 정확히 지켜:\n요약: <한 줄 현황>\n작전:\n- 행동\n- 행동\n- 행동\n- 행동\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}`;
+      const shipped = opsState.shipped.slice(0, 5).filter(s => s.ok).map(s => `✅ ${s.title}`).join('\n');
+      const shippedCtx = shipped ? `\n\n[지난 실행 성공]\n${shipped}` : '';
+      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 가장 효과적인 4개 작전을 세워줘.\n\n핵심:\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 에이전트 이름(레오·코다리·현빈 등)을 명시해서 각자 전문성 살릴 것.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록(파이프라인 사고).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [에이전트id] 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}`;
       try {
         const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
         const sm = lines.find(l => /^요약[:：]/.test(l)); if (sm) summary = sm.replace(/^요약[:：]\s*/, '').slice(0, 120);
-        actions = lines.filter(l => /^[-•*]\s+/.test(l))
-          .map(l => l.replace(/^[-•*]\s+/, '').replace(/^<[^>]*>\s*/, '').replace(/^행동\s*\d*\s*[:：.)]?\s*/, '').trim().slice(0, 120))
-          .filter(Boolean).slice(0, 4)
-          .map(t => ({ title: t, agent: 'secretary', risk: opsRisk(t) }));
+        const agentMap: Record<string, string> = { youtube: 'youtube', 레오: 'youtube', instagram: 'instagram', designer: 'designer', developer: 'developer', 코다리: 'developer', business: 'business', 현빈: 'business', secretary: 'secretary', 영숙: 'secretary', editor: 'editor', 루나: 'editor', writer: 'writer', researcher: 'researcher' };
+        actions = lines.filter(l => /^[-•*]\s*\[?/.test(l))
+          .map(l => {
+            const m = l.match(/\[([^\]]*)\]/); const agent = m?.[1] ? agentMap[m[1]] || 'secretary' : 'secretary';
+            const t = l.replace(/^[-•*]\s*\[?[^\]]*\]?\s*/, '').trim().slice(0, 120);
+            return t ? { title: t, agent, risk: opsRisk(t) } : null;
+          }).filter(Boolean) as OpsAction[];
       } catch { /* */ }
     }
     if (!actions.length) actions = fallbackActions(scan);
     if (!summary) summary = scan.filter(s => s.ok).map(s => s.label.split(' — ')[0]).join(' · ') || '연동을 추가하면 더 정밀하게 운영할게요';
     opsState.scan = scan; opsState.actions = actions; opsState.summary = summary;
     opsState.lastRun = Date.now(); opsState.runs += 1;
-    opsState.phase = 'review';   // ← 사람이 할 작전을 고를 차례 (자동 실행 안 함)
+    opsState.phase = 'review';
   } finally { opsState.busy = false; }
   saveOpsState(); opsEmit();
   return opsPublic();
 }
+// 에이전트별 전문 지시 — ①실데이터(API) 수집 → ②리서치 → ③산출물 생성 → ④한 줄 보고. 진짜 도구를 쓰는 전문가.
+function buildAgentInstr(agent: string, title: string, context: { notes?: string; services?: string }): string {
+  const today = new Date().toISOString().slice(0, 10);
+  const base = `[운영 사이클 — "${title}" 작전] (오늘: ${today})\n\n규칙(중요):\n- 말로만 하지 마라. 반드시 도구를 호출해서 일해라. "하겠습니다"로 끝내면 실패다.\n- 작업 순서를 지켜라: ① 데이터 도구로 실데이터부터 확인 → ② 필요하면 web_search/fetch_url 리서치 → ③ write_file로 산출물 생성 → ④ 마지막에 한국어 2~3문장으로 결과 보고.\n- 산출물에는 ①②에서 얻은 실제 숫자·사실을 인용해라. 지어내지 마라.\n`;
+  const agentInstr: Record<string, string> = {
+    youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → youtube_idea_${today}.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
+    instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → insta_content_${today}.md.`,
+    designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → design_guide_${today}.md.`,
+    developer: `${base}너는 시니어 풀스택 개발자(코다리)야.\n① list_dir·read_file로 작업폴더 현황을 먼저 파악하고\n② 완전히 작동하는 자동화 스크립트·코드를 write_file로 작성한 뒤\n③ 가능하면 run_command로 실제 실행·테스트까지 해서 결과를 확인해라. 형식: script_${today.replace(/-/g, '')}.py 또는 .js.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
+    business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → business_strategy_${today}.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
+    secretary: `${base}너는 비서(영숙)야.\n① 할 일을 정리해 add_task로 우선순위별 등록하고\n② 정리한 핵심 현황을 send_telegram으로 사장님께 짧게 보고해라(텔레그램 미연결이면 write_file로 daily_brief_${today}.md 저장).\n③ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
+    editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → sound_guide_${today}.md.`,
+    writer: `${base}너는 카피라이터(Writer)야.\n① web_search로 주제 관련 최신 정보를 확인하고\n② 영상 스크립트·블로그 글·캡션을 write_file로 작성해라 → script_${today.replace(/-/g, '')}.md. 각각 고유한 톤으로.`,
+    researcher: `${base}너는 리서처야.\n① web_search로 2~3개 키워드를 검색하고\n② 좋은 결과는 fetch_url로 본문까지 읽은 뒤\n③ 출처 링크가 달린 분석 보고서를 write_file로 정리해라 → research_${today.replace(/-/g, '')}.md.`,
+  };
+  return agentInstr[agent] || base + `네 전문성을 살려 "${title}" 작전을 수행해라. 데이터 도구(get_revenue·get_youtube·web_search)로 사실을 확인하고 write_file로 산출물을 남겨라.`;
+}
+
 // ③ 작전 1개를 실제 에이전트로 수행 → 진짜 산출물(파일·검색)만 SHIPPED 기록
 let opsExecAbort: AbortController | null = null;
 async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
   opsExecAbort = new AbortController();
   opsState.executingTitle = a.title; opsState.activity = a.title; opsEmit();
   const opts = buildRunOpts(c, opsExecAbort.signal);
-  const instr = `[운영 사이클 — 이 작전을 지금 진짜로 수행하라. 말만 하지 말고 도구로 실제 결과물을 만들어라]\n작전: "${a.title}"\n\n반드시 도구로 산출물을 남겨라(절대 "하겠습니다"로 끝내지 마라):\n- 코드/웹 → write_file 로 실제 파일 생성\n- 유튜브/콘텐츠 → write_file 로 대본·기획안·문구 파일\n- 시장/경쟁사 정보 → web_search·fetch_url 로 검색 후 정리 파일\n- 일정 → 캘린더 초안 파일 (실제 등록은 request_approval)\n- 인스타/이메일/배포/결제 등 외부 발행 → request_approval 로 승인 요청(직접 실행 금지)\n- ⚠️ npm/pip 설치·dev·build·서버 실행 금지(빈 폴더라 실패)\n끝나면 만든 파일명을 한 줄 보고.`;
+  const notes = allNotes().slice(-5).map(n => n.text.slice(0, 80)).join(' / ');
+  const services = c.services.map(s => s.name).join(', ');
+  const instr = buildAgentInstr(a.agent, a.title, { notes, services });
   const artifacts: string[] = []; const seen = new Set<string>();
   const base = (p: string) => (p || '').split('/').pop() || (p || '');
+  // 🔴 라이브 피드 — 도구 한 번 쓸 때마다 화면에 실시간으로 (일하는 게 보인다)
+  const feedPush = (icon: string, text: string, ok = true) => {
+    opsState.feed.unshift({ icon, text: text.slice(0, 64), agent: a.agent, ok, ts: Date.now() });
+    opsState.feed = opsState.feed.slice(0, 40); opsEmitLight();
+  };
+  const FEED_LABEL: Record<string, [string, string]> = {
+    write_file: ['📄', '파일 생성'], read_file: ['📖', '파일 읽기'], list_dir: ['📂', '폴더 확인'], find: ['🔎', '파일 검색'],
+    run_command: ['⚡', '명령 실행'], serve: ['🖥️', '서버 실행'], open: ['🖥️', '열기'],
+    web_search: ['🔍', '웹 검색'], fetch_url: ['🔗', '페이지 읽기'],
+    revenue: ['💰', '매출 데이터 조회'], youtube: ['📺', '채널 데이터 조회'],
+    telegram: ['✈️', '텔레그램 보고'], approve: ['✅', '결재 요청'], remember: ['🧠', '기억 저장'], task: ['📋', '할 일 등록'],
+    screenshot: ['📸', '화면 확인'], clipboard: ['📋', '클립보드'], mcp: ['🔌', '외부 도구'],
+  };
   const collect = (ev: any) => {
     emitEngine(ev);
-    if (ev?.kind === 'tool' && ev.ok !== false) {
-      let tag = '';
-      if (ev.name === 'write_file') tag = `📄 ${base(ev.path)}`;
-      else if (ev.name === 'run_command') tag = `⚡ ${String(ev.path || '').slice(0, 36)}`;
-      else if (ev.name === 'serve' || ev.name === 'open') tag = `🖥️ ${String(ev.path || '').slice(0, 36)}`;
-      else if (ev.name === 'web_search') tag = `🌐 검색: ${String(ev.path || '').slice(0, 26)}`;
-      else if (ev.name === 'fetch_url') tag = `🔗 ${String(ev.path || '').slice(0, 36)}`;
-      else if (ev.name === 'request_approval') tag = `✅ 승인요청: ${String(ev.path || '').slice(0, 30)}`;
-      else if (ev.name === 'telegram') tag = '✈️ 텔레그램 발송';
-      if (tag && !seen.has(tag)) { seen.add(tag); artifacts.push(tag); }
+    if (ev?.kind === 'tool') {
+      const [icon, label] = FEED_LABEL[ev.name] || ['🔧', ev.name];
+      const detail = String(ev.path || '').slice(0, 40);
+      feedPush(icon, detail ? `${label}: ${detail}` : label, ev.ok !== false);
     }
+    if (ev?.kind !== 'tool' || ev.ok === false) return;
+    let tag = '';
+    if (ev.name === 'write_file') tag = `📄 ${base(ev.path)}`;
+    else if (ev.name === 'run_command') tag = `⚡ ${String(ev.path || '').slice(0, 36)}`;
+    else if (ev.name === 'serve' || ev.name === 'open') tag = `🖥️ ${String(ev.path || '').slice(0, 36)}`;
+    else if (ev.name === 'web_search') tag = `🌐 검색: ${String(ev.path || '').slice(0, 26)}`;
+    else if (ev.name === 'fetch_url') tag = `🔗 ${String(ev.path || '').slice(0, 36)}`;
+    else if (ev.name === 'request_approval') tag = `✅ 승인: ${String(ev.path || '').slice(0, 28)}`;
+    else if (ev.name === 'telegram') tag = '✈️ 텔레그램';
+    if (tag && !seen.has(tag)) { seen.add(tag); artifacts.push(tag); }
   };
+  feedPush(AGENTS[a.agent]?.emoji || '🤖', `${AGENTS[a.agent]?.name || a.agent} 작전 시작 — ${a.title.slice(0, 40)}`);
   let result = '';
   try { result = await agentWithTools([], instr, opts, collect); }
   catch (e: any) { result = `중단(${e?.message || e})`; }
   const did = artifacts.length > 0;
+  feedPush(did ? '✅' : '⚠️', did ? `완료 — 산출물 ${artifacts.length}개` : '결과물 없이 종료', did);
   const ship: OpsShip = { title: a.title, agent: a.agent, artifacts, ok: did, result: did ? (result || '').replace(/\s+/g, ' ').trim().slice(0, 140) : (result || '결과물 없음').replace(/\s+/g, ' ').trim().slice(0, 160), ts: Date.now() };
   opsState.shipped.unshift(ship); opsState.shipped = opsState.shipped.slice(0, 20);
   opsState.executingTitle = ''; opsState.activity = ''; saveOpsState(); opsEmit();
@@ -606,7 +692,7 @@ ipcMain.handle('ops:executeSelected', async (_e, titles: string[]) => {
   const chosen = opsState.actions.filter(a => set.has(a.title));
   if (!chosen.length) { opsState.phase = 'done'; saveOpsState(); opsEmit(); return opsPublic(); }
   const c = loadConfig();
-  opsState.executing = true; opsState.phase = 'executing'; opsEmit();
+  opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsEmit();
   try { openOfficeWindow(); } catch { /* */ }   // 🏢 일하는 모습이 보이게
   try {
     for (const a of chosen) {
@@ -619,21 +705,75 @@ ipcMain.handle('ops:executeSelected', async (_e, titles: string[]) => {
 ipcMain.handle('ops:status', () => opsPublic());
 ipcMain.handle('ops:stop', () => { opsState.running = false; opsState.executing = false; opsState.phase = 'idle'; opsState.activity = ''; opsState.executingTitle = ''; opsExecAbort?.abort(); saveOpsState(); opsEmit(); return opsPublic(); });
 // 💬 사무실 진짜 대화 — 현황(매출·작전·방금 한 일)을 반영해 캐릭터별 짧은 대사를 AI가 생성
+// 개선: 각 에이전트의 성격·역할·최근 업무를 깊게 반영해 더 생생한 대화로
 ipcMain.handle('office:banter', async () => {
   const c = loadConfig();
   const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
   if (!target) return { ok: false };
+
+  // 실시간 상황 데이터 구성
   const svc = (c.services || []).map(s => s.name).join(', ');
-  const ship = opsState.shipped.slice(0, 3).map(s => s.title).join(' / ');
-  const ctx = [`회사: ${c.company}`, svc && `서비스: ${svc}`, opsState.summary && `현황: ${opsState.summary}`, opsState.activity && `지금 하는 일: ${opsState.activity}`, ship && `방금 처리한 일: ${ship}`].filter(Boolean).join('\n');
-  const roster = AGENT_ORDER.map(id => `${id}=${AGENTS[id]?.name}(${AGENTS[id]?.role})`).join(', ');
-  const sys = '너는 1인 기업 AI 팀 사무실의 대화 작가야. 짧고 자연스럽게, 캐릭터 성격과 실제 업무 맥락을 살려서 써.';
-  const user = `팀: ${roster}\n\n이 팀이 지금 사무실에서 주고받을 짧은 대화 7줄을 만들어줘.\n줄마다 형식: 말하는사람id|상대id또는빈칸|대사\n- 대사는 한국어 25자 이내, 이모지 최대 1개\n- 아래 현황을 실제로 반영(매출·작전·방금 한 일 언급 OK)\n- id는 위 목록 id만 사용\n\n[현황]\n${ctx}`;
+  const recentShip = opsState.shipped.slice(0, 5).filter((s: any) => s.ok).map((s: any) => s.title);
+  const agentActivity = new Map<string, string>();  // 각 에이전트가 뭘 했는지
+  for (const ship of opsState.shipped.slice(0, 10)) {
+    if (!agentActivity.has(ship.agent)) agentActivity.set(ship.agent, ship.title);
+  }
+
+  const ctx = [
+    `회사: ${c.company}`,
+    svc && `서비스: ${svc}`,
+    opsState.summary && `현황: ${opsState.summary}`,
+    recentShip.length && `완료: ${recentShip.join(', ')}`,
+    openTasks().length && `할 일: ${openTasks().slice(0, 2).map(t => t.title).join(' · ')}`,
+  ].filter(Boolean).join('\n');
+
+  // 각 에이전트의 성격·최근 역할을 명시
+  const agentProfiles = AGENT_ORDER.map(id => {
+    const ag = AGENTS[id];
+    const recentWork = agentActivity.get(id) ? ` (최근: ${agentActivity.get(id)?.slice(0, 20)})` : '';
+    return `- ${ag?.name}(${id}): ${ag?.tagline}${recentWork}`;
+  }).join('\n');
+
+  const sys = `너는 1인 기업 AI팀의 사무실 작가야.
+각 에이전트는 고유한 성격과 전문성을 가진 인물이다:
+${agentProfiles}
+
+핵심:
+- 캐릭터 성격을 살려서(예: 레오는 데이터·결과 중심, 영숙은 챙겨주는 톤)
+- 실제 일을 주제로(매출·콘텐츠·코드·마케팅 등)
+- 자연스럽고 짧게(25자 이내, 이모지 최대 1개)
+- 대화 흐름이 자연스럽게(한 사람 말 → 다음 사람이 받아서 이어감)`;
+
+  const user = `아래 상황 속에서 이 팀이 오늘 사무실에서 나눌 법한 짧은 대화 9줄을 만들어줘.
+응답 형식:
+${AGENT_ORDER.slice(0, 3).map(id => id).join('|말할사람(한글)|대사')}
+
+각 줄 형식: 말하는사람id|상대방이름또는|대사
+예시:
+youtube|secretary|영숙, 이번 달 조회수 50% 올렸대!
+secretary||정말? 축하합니다! 🎉
+developer|youtube|근데 렌더링이 느려지네…
+
+[현황]
+${ctx}`;
+
   try {
-    const text = await chat(target, sys, user, { temperature: 0.85 });
+    const text = await chat(target, sys, user, { temperature: 0.8 });
     const ok = new Set(AGENT_ORDER);
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l.includes('|')).map(l => { const p = l.split('|'); return { from: (p[0] || '').trim().toLowerCase(), to: (p[1] || '').trim().toLowerCase(), text: (p.slice(2).join('|') || '').trim().replace(/^["'\-•*\s]+|["']+$/g, '').slice(0, 46) }; }).filter(x => ok.has(x.from) && x.text);
-    return { ok: true, lines: lines.slice(0, 10) };
+    const lines = text.split('\n')
+      .map(l => l.trim())
+      .filter(l => l && (l.includes('|') || l.includes('：')))
+      .map(l => {
+        const p = l.replace(/：/g, '|').split('|');
+        const from = (p[0] || '').trim().toLowerCase();
+        const dialogue = (p.slice(2).join('|') || p[1] || '').trim()
+          .replace(/^["'\-•*\s]+|["']+$/g, '')
+          .replace(/^(사람이름|[가-힣]+)\s*[:：]?\s*/, '')  // 이름 제거
+          .slice(0, 50);
+        return dialogue && ok.has(from) ? { from, text: dialogue } : null;
+      })
+      .filter((x): x is { from: string; text: string } => !!x);
+    return { ok: true, lines: lines.slice(0, 12) };
   } catch { return { ok: false }; }
 });
 // 🎙️ 리포트 AI 브리핑 — 실데이터(서비스·매출·할일)로 음성 브리핑 텍스트 생성
@@ -1431,6 +1571,15 @@ ipcMain.handle('approvals:approve', async (_e, id: string) => {
   return { list: listApprovals(), result };
 });
 ipcMain.handle('approvals:reject', (_e, id: string) => { setApprovalStatus(id, 'rejected'); return { list: listApprovals() }; });
+// 🧪 결재 플로우 체험 — 테스트 결재를 만들고 즉시 폰(텔레그램)으로 푸시. 폰에서 "보내기" 답장 → 실제 실행까지 한 바퀴.
+ipcMain.handle('approvals:test', async () => {
+  const c = loadConfig();
+  if (!c.telegramToken || !c.telegramChatId) return { ok: false, reason: '먼저 🗂️ 연동 → Telegram에 봇 토큰·챗 ID를 연결하세요' };
+  addApproval('🧪 결재 플로우 테스트', '폰에서 승인하면 이 메시지가 실제로 발송됩니다', '🧪',
+    { kind: 'telegram', payload: `🎉 결재 테스트 성공! ${c.userTitle || '사장님'}이 폰에서 승인하신 메시지가 실제로 실행됐어요. 이제 이메일 답장·발송·배포도 이 흐름으로 결재됩니다.` } as any);
+  try { await tgPushApprovals(); } catch { /* */ }
+  return { ok: true };
+});
 
 // 📲 텔레그램 결재 브리지 — 실행 가능한 승인을 폰으로 보내고, 답장(보내기/수정/취소)으로 진짜 실행한다.
 // 자리에 없어도 폰에서 "보내기"면 실제 발송, "수정 …"이면 AI가 고쳐서 다시 물어봄.
