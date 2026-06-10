@@ -47,6 +47,7 @@ interface Config {
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
   voiceQuality: string;   // 🔊 'browser'(기본·빠름) | 'qwen'(Qwen3-TTS 고품질·클라우드)
+  officeVoice?: boolean;  // 🎭 사무실 에이전트 음성 대화 (자비스처럼 서로 말함)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
   ttsLocalUrl: string;    // 🖥️ 로컬 Qwen3-TTS 서버 주소 (완전 로컬·무료)
   localModelPath: string; // 🧠 내장 추론 모델(GGUF) 경로 — 있으면 LM Studio 없이 앱이 직접 실행
@@ -845,6 +846,23 @@ ipcMain.handle('tts:speak', async (_e, text: string) => {
   if (c.ttsLocalUrl) return await localTTS(c.ttsLocalUrl, text, c.qwenVoice || 'Sohee');
   const token = (c.apiConn?.replicate?.REPLICATE_API_TOKEN) || (c.apiKeys?.replicate) || '';
   return await qwenTTS(token, text, c.qwenVoice || 'Sohee');
+});
+// 🎭 에이전트별 목소리 — 자비스처럼 각자 다른 음색으로 말한다 (보이스 + 음높이/속도 변주, 무료 Edge TTS)
+const AGENT_VOICE: Record<string, { voice: string; rate?: string; pitch?: string }> = {
+  secretary:  { voice: 'ko-KR-SunHiNeural' },                                          // 영숙 — 밝고 또렷한 비서
+  youtube:    { voice: 'ko-KR-InJoonNeural', rate: '+12%', pitch: '+10Hz' },           // 레오 — 에너지 넘침
+  developer:  { voice: 'ko-KR-HyunsuMultilingualNeural', rate: '-4%', pitch: '-4Hz' }, // 코다리 — 차분한 엔지니어
+  business:   { voice: 'ko-KR-InJoonNeural', rate: '-8%', pitch: '-16Hz' },            // 현빈 — 묵직한 전략가 (자비스 톤)
+  designer:   { voice: 'ko-KR-JiMinNeural', pitch: '+8Hz' },                           // 밝은 디자이너
+  editor:     { voice: 'ko-KR-JiMinNeural', rate: '-6%', pitch: '-4Hz' },              // 루나 — 잔잔한 사운드 감독
+  writer:     { voice: 'ko-KR-SunHiNeural', rate: '-6%', pitch: '-8Hz' },              // 낮고 단정한 작가
+  researcher: { voice: 'ko-KR-HyunsuMultilingualNeural', rate: '+8%' },                // 빠릿한 리서처
+  instagram:  { voice: 'ko-KR-SunHiNeural', rate: '+10%', pitch: '+12Hz' },            // 통통 튀는 SNS
+  ceo:        { voice: 'ko-KR-InJoonNeural', rate: '-4%', pitch: '-10Hz' },            // 지휘하는 CEO
+};
+ipcMain.handle('tts:speakAgent', async (_e, agentId: string, text: string) => {
+  const v = AGENT_VOICE[agentId] || AGENT_VOICE.secretary;
+  return await edgeTTS(v.voice, String(text || '').slice(0, 300), { rate: v.rate, pitch: v.pitch });
 });
 
 // ─────────────────────────── 일반 모드 (단일 에이전트 1:1 + 대화 기억)

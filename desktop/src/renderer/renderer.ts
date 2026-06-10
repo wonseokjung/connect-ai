@@ -1027,6 +1027,7 @@ function officeConfer(e: any) {
   const el = document.getElementById('vo-' + e.from), b = document.getElementById('vob-' + e.from);
   voMove(e.from, to[0] + (to[0] > 50 ? -9 : 9), to[1] + 4);
   if (b) { b.textContent = e.text; b.classList.add('show', 'speech'); b.classList.remove('typing'); }
+  officeSay(e.from, e.text);   // 🎭 회의 발언도 그 에이전트 목소리로
   setTimeout(() => { voMove(e.from, fr[0], fr[1]); if (b) b.classList.remove('show', 'speech'); }, 2600);
   const feed = $('conferFeed');
   const line = document.createElement('div'); line.className = 'cf-line';
@@ -1066,13 +1067,52 @@ let taskActive = false;   // 진짜 작업(팀 소집) 중엔 자율생활 멈�
 const officeMemory: string[] = [];   // 🧠 사무실 기억 — 최근 사건(에이전트가 잡담에서 언급)
 function rememberOffice(ev: string) { if (!ev) return; officeMemory.push(ev); if (officeMemory.length > 8) officeMemory.shift(); }
 const REACT = ['그거 봤어요? ', '아까 ', '오 ', '대박 ', '역시 ', '와 '];
-function startOfficeLife() { if (lifeTimer) return; lifeTimer = window.setInterval(lifeTick, 2800); }
+function startOfficeLife() { if (lifeTimer) return; syncOfficeVoiceBtn(); lifeTimer = window.setInterval(lifeTick, 2800); }
 function officeLive() { if (!taskActive) $('officeStatus').textContent = '🟢 LIVE · 사무실 가동 중'; }
+
+// 🎭 에이전트 음성 대화 — 각자 다른 목소리로(자비스 모드). 큐로 한 명씩 차례로 말한다(안 겹침).
+let officeVoiceOn = false;
+const officeVoiceQ: { id: string; text: string }[] = [];
+let officeVoicePlaying = false;
+async function pumpOfficeVoice() {
+  if (officeVoicePlaying || !officeVoiceQ.length) return;
+  officeVoicePlaying = true;
+  const { id, text } = officeVoiceQ.shift()!;
+  try {
+    const r = await connect.ttsSpeakAgent?.(id, text);
+    if (officeVoiceOn && r?.ok && r.dataUri) {
+      // 말하는 동안 말풍선·아바타 강조
+      const b = document.getElementById('vob-' + id); b?.classList.add('show', 'speech');
+      await new Promise<void>((res) => { const a = new Audio(r.dataUri); a.onended = () => res(); a.onerror = () => res(); a.play().catch(() => res()); });
+    }
+  } catch { /* */ }
+  officeVoicePlaying = false;
+  pumpOfficeVoice();
+}
+function officeSay(id: string, text: string) {
+  if (!officeVoiceOn || !text || !AGENTS[id]) return;
+  if (officeVoiceQ.length > 2) officeVoiceQ.shift();   // 밀리면 옛 대사 버림 (라이브 느낌 유지)
+  officeVoiceQ.push({ id, text: stripMd(text).slice(0, 120) });
+  pumpOfficeVoice();
+}
+function syncOfficeVoiceBtn() {
+  officeVoiceOn = !!cfg.officeVoice;
+  const b = $('officeVoiceBtn'); if (b) { b.textContent = officeVoiceOn ? '🔊' : '🔇'; b.classList.toggle('on', officeVoiceOn); }
+}
+$('officeVoiceBtn')?.addEventListener('click', async () => {
+  officeVoiceOn = !officeVoiceOn;
+  cfg.officeVoice = officeVoiceOn;
+  connect.setConfig?.({ officeVoice: officeVoiceOn });
+  syncOfficeVoiceBtn();
+  if (officeVoiceOn) officeSay('secretary', '음성 대화를 켰어요! 이제 저희끼리도 목소리로 이야기할게요, 사장님.');
+  hint(officeVoiceOn ? '🎭 에이전트 음성 대화 켜짐 — 각자 다른 목소리로 말해요' : '🔇 음성 대화를 껐어요');
+});
 
 function lifeBubble(id: string, text: string, cls = 'speech') {
   const b = document.getElementById('vob-' + id); if (!b) return;
   b.textContent = text; b.classList.add('show', cls); b.classList.remove('typing');
   window.clearTimeout((b as any)._lt); (b as any)._lt = window.setTimeout(() => b.classList.remove('show', 'speech', 'ambient'), 2900);
+  if (cls !== 'typing') officeSay(id, text);   // 🎭 말풍선이 뜨면 실제 목소리로도 (켜져 있을 때)
 }
 function feedAmbient(html: string) { feedRaw(html, 'ambient'); }
 function feedRaw(html: string, cls: string) {

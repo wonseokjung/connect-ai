@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('connect', {
   safeModeSet: (on: boolean) => ipcRenderer.invoke('safemode:set', on),
   relaunch: () => ipcRenderer.invoke('app:relaunch'),
   ttsSpeak: (text: string) => ipcRenderer.invoke('tts:speak', text),  // 🔊 Qwen3-TTS
+  ttsSpeakAgent: (id: string, text: string) => ipcRenderer.invoke('tts:speakAgent', id, text),  // 🎭 에이전트별 목소리
   openDiagnostics: () => ipcRenderer.invoke('diag:open'),
 
   // 비서 엔진
