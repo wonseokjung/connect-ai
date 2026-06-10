@@ -467,8 +467,10 @@ const fileIcon = (name: string): string => {
 function artsHtml(arr: string[]) {
   if (!arr || !arr.length) return '';
   return `<div class="cyc-arts">${arr.map(x => {
-    const icon = fileIcon(x);
-    return `<span class="cyc-art" data-icon="${icon}" title="${escapeHtml(x)}">${escapeHtml(x.split('/').pop() || x)}</span>`;
+    const m = x.match(/^(\p{Extended_Pictographic}️?)\s*(.*)$/u);   // 산출물 태그 앞 이모지를 아이콘으로 분리
+    const icon = m ? m[1] : fileIcon(x);
+    const label = m ? m[2] : x;
+    return `<span class="cyc-art" data-icon="${icon}" title="${escapeHtml(label)}">${escapeHtml(label.split('/').pop() || label)}</span>`;
   }).join('')}</div>`;
 }
 function renderCycle(s: any) {
@@ -482,11 +484,22 @@ function renderCycle(s: any) {
     body.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 현황을 분석해 오늘의 작전을 짜는 중…</div>`;
     foot.innerHTML = '';
   } else if (s.phase === 'review') {
-    body.innerHTML = `<div class="cyc-step">① AI가 제안한 작전 — 할 것만 체크하세요</div>` + (s.actions || []).map((a: any, i: number) => {
+    // ① 오늘의 TODO — 체크로 할 일 고르고, 🤖/🙋 토글로 누가 할지 정한다
+    body.innerHTML = `<div class="cyc-step">① 오늘의 TODO — 할 것만 체크하고, 누가 할지 정하세요</div>` + (s.actions || []).map((a: any, i: number) => {
       const risky = a.risk && a.risk !== 'safe';
-      return `<label class="cyc-task"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-n">${i + 1}</span><span class="cyc-t">${escapeHtml(a.title)}</span>${risky ? '<span class="cyc-risk">승인 필요</span>' : '<span class="cyc-auto">자동</span>'}</label>`;
+      const human = a.assignee === 'human';
+      const agName = AGENTS[a.agent]?.name || '에이전트';
+      const agColor = AGENTS[a.agent]?.color || '#39ff14';
+      return `<label class="cyc-task${human ? ' is-me' : ''}"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-n">${i + 1}</span><span class="cyc-t">${escapeHtml(a.title)}</span><button type="button" class="cyc-who${human ? ' me' : ''}" data-title="${escAttr(a.title)}" data-agent="${escAttr(agName)}" style="--ag:${agColor}" title="클릭해서 담당 바꾸기">${human ? '🙋 내가 할게' : `🤖 ${escapeHtml(agName)}`}</button>${risky ? '<span class="cyc-risk">승인 필요</span>' : ''}</label>`;
     }).join('') || '<div class="cyc-loading">작전이 없어요</div>';
-    foot.innerHTML = `<button class="cyc-btn ghost" id="cycReplan">🔄 다시 분석</button><button class="cyc-btn primary" id="cycRun">선택한 작전 실행 ▶</button>`;
+    foot.innerHTML = `<div class="cyc-legend">🤖 = 에이전트가 수행 · 🙋 = 내 할 일로 등록(태스크 보드+폰 알림)</div><button class="cyc-btn ghost" id="cycReplan">🔄 다시 분석</button><button class="cyc-btn primary" id="cycRun">TODO 전부 수행 ▶</button>`;
+    // 담당 토글 — 🤖 에이전트 ↔ 🙋 내가
+    body.querySelectorAll('.cyc-who').forEach(b => b.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const el = b as HTMLElement; const me = el.classList.toggle('me');
+      el.textContent = me ? '🙋 내가 할게' : `🤖 ${el.dataset.agent || '에이전트'}`;
+      el.closest('.cyc-task')?.classList.toggle('is-me', me);
+    }));
   } else if (s.phase === 'executing') {
     // 🔴 실시간 작업 로그 — 에이전트가 지금 어떤 도구로 뭘 하는지 그대로 흐른다
     const feed = (s.feed || []).slice(0, 9);
@@ -514,7 +527,9 @@ function renderCycle(s: any) {
   const run = $('cycRun'); if (run) run.onclick = async () => {
     const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
     if (!titles.length) { hint('실행할 작전을 하나 이상 골라주세요'); return; }
-    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles); renderCycle(_ops);
+    // 🙋 토글이 "내가"인 작전 → 사장님 할 일로 (태스크 보드 등록), 나머지 → 에이전트 실행
+    const humanTitles = Array.from(document.querySelectorAll('.cyc-who.me')).map(b => (b as HTMLElement).dataset.title!).filter(t => titles.includes(t));
+    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles, humanTitles); renderCycle(_ops);
   };
   const replan = $('cycReplan'); if (replan) replan.onclick = async () => { replan.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
   const next = $('cycNext'); if (next) next.onclick = async () => { next.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };

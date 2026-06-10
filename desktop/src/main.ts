@@ -460,8 +460,8 @@ ipcMain.handle('revenue:openSettings', () => { win?.focus(); return true; });
 
 // ───────── 🤖 자율 운영 — 비즈니스 에이전트가 실데이터를 분석해 작전(할 일) 생성, N시간 반복 ─────────
 interface OpsScan { agent: string; label: string; ok: boolean; }
-interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; }
-interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; }
+interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; assignee?: 'agent' | 'human'; }   // assignee: 에이전트가 할 일 vs 사장님만 할 수 있는 일
+interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; files?: string[]; }   // files: 파이프라인용 실제 파일 경로
 type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
 interface OpsFeedItem { icon: string; text: string; agent: string; ok: boolean; ts: number; }
 interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; }
@@ -540,27 +540,28 @@ function fallbackActions(scan: OpsScan[]): OpsAction[] {
   const hit = (a: string) => scan.find(s => s.agent === a && s.ok);
 
   if (miss('business')) {
-    out.push({ title: 'PayPal 계정 연결 및 첫 결제 테스트', agent: 'business', risk: 'safe' });
+    out.push({ title: 'PayPal 계정 만들고 🗂️ 연동에 Client ID/Secret 입력하기', agent: 'business', risk: 'safe', assignee: 'human' });   // 계정 연결은 사람만 가능
+    out.push({ title: '내 서비스에 맞는 수익 모델 3가지 조사·정리', agent: 'business', risk: 'safe', assignee: 'agent' });
   } else if (hit('business')) {
-    out.push({ title: '경쟁사 가격 분석 및 내 수익화 전략 수정안 작성', agent: 'business', risk: 'safe' });
+    out.push({ title: '경쟁사 가격 분석 및 내 수익화 전략 수정안 작성', agent: 'business', risk: 'safe', assignee: 'agent' });
   }
 
   if (miss('youtube')) {
-    out.push({ title: '유튜브 채널 개설 및 로고·배너 디자인 기획', agent: 'designer', risk: 'safe' });
+    out.push({ title: '유튜브 채널 개설하고 🗂️ 연동에 API 키·채널 ID 입력하기', agent: 'youtube', risk: 'safe', assignee: 'human' });
+    out.push({ title: '채널 로고·배너 디자인 컨셉 3안 기획', agent: 'designer', risk: 'safe', assignee: 'agent' });
   } else if (hit('youtube')) {
-    const ch = scan.find(s => s.agent === 'youtube');
-    out.push({ title: `지난달 인기 영상 분석 후 후속 기획안 3개 작성`, agent: 'youtube', risk: 'safe' });
+    out.push({ title: `지난달 인기 영상 분석 후 후속 기획안 3개 작성`, agent: 'youtube', risk: 'safe', assignee: 'agent' });
   }
 
   if (miss('developer')) {
-    out.push({ title: '간단한 자동화 스크립트(뉴스레터 발송 등) 작성', agent: 'developer', risk: 'safe' });
+    out.push({ title: '간단한 자동화 스크립트(뉴스레터 발송 등) 작성', agent: 'developer', risk: 'safe', assignee: 'agent' });
   } else if (hit('developer')) {
-    out.push({ title: '지난 커밋 분석 후 다음 개발 목표 정의 및 일정 수립', agent: 'developer', risk: 'safe' });
+    out.push({ title: '최근 커밋 분석 후 다음 개발 목표 정의 및 일정 수립', agent: 'developer', risk: 'safe', assignee: 'agent' });
   }
 
-  out.push({ title: '이번 주 할 일 정리 및 우선순위 지정', agent: 'secretary', risk: 'safe' });
+  out.push({ title: '이번 주 할 일 정리 및 우선순위 지정', agent: 'secretary', risk: 'safe', assignee: 'agent' });
 
-  return out.slice(0, 3);
+  return out.slice(0, 4);
 }
 // ① 스케줄 짜기 — 현황 분석 → '오늘의 작전' 제안(자동 실행 안 함). 사람이 고를 차례(phase=review).
 // 핵심 개선: 에이전트별 특화 + 두뇌 기반 제안 + 파이프라인 사고
@@ -580,7 +581,7 @@ async function runOperation(): Promise<OpsState> {
       const svcCtx = (c.services || []).length ? '\n\n[내 서비스/사업]\n' + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n') : '';
       const shipped = opsState.shipped.slice(0, 5).filter(s => s.ok).map(s => `✅ ${s.title}`).join('\n');
       const shippedCtx = shipped ? `\n\n[지난 실행 성공]\n${shipped}` : '';
-      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 가장 효과적인 4개 작전을 세워줘.\n\n핵심:\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 에이전트 이름(레오·코다리·현빈 등)을 명시해서 각자 전문성 살릴 것.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록(파이프라인 사고).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [에이전트id] 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}`;
+      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘.\n\n핵심:\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 에이전트가 컴퓨터로 할 수 있는 일(리서치·기획·코드·분석·문서)은 [에이전트id]로.\n- 사람만 할 수 있는 일(계정 만들기·연동 입력·촬영·미팅·결제수단·오프라인)은 [사장님]으로 — 1~2개만, 꼭 필요할 때.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록 순서를 짜라(파이프라인: 예→ 리서치 결과로 기획, 기획으로 스크립트).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람만 할 수 있는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}`;
       try {
         const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -588,9 +589,11 @@ async function runOperation(): Promise<OpsState> {
         const agentMap: Record<string, string> = { youtube: 'youtube', 레오: 'youtube', instagram: 'instagram', designer: 'designer', developer: 'developer', 코다리: 'developer', business: 'business', 현빈: 'business', secretary: 'secretary', 영숙: 'secretary', editor: 'editor', 루나: 'editor', writer: 'writer', researcher: 'researcher' };
         actions = lines.filter(l => /^[-•*]\s*\[?/.test(l))
           .map(l => {
-            const m = l.match(/\[([^\]]*)\]/); const agent = m?.[1] ? agentMap[m[1]] || 'secretary' : 'secretary';
+            const m = l.match(/\[([^\]]*)\]/); const tag = (m?.[1] || '').trim();
+            const human = /사장님|사람|human|user|owner|me/i.test(tag) && !agentMap[tag];   // [사장님] = 사람만 할 수 있는 일
+            const agent = human ? 'human' : (agentMap[tag] || 'secretary');
             const t = l.replace(/^[-•*]\s*\[?[^\]]*\]?\s*/, '').trim().slice(0, 120);
-            return t ? { title: t, agent, risk: opsRisk(t) } : null;
+            return t ? { title: t, agent, risk: opsRisk(t), assignee: human ? 'human' as const : 'agent' as const } : null;
           }).filter(Boolean) as OpsAction[];
       } catch { /* */ }
     }
@@ -606,31 +609,36 @@ async function runOperation(): Promise<OpsState> {
 // 에이전트별 전문 지시 — ①실데이터(API) 수집 → ②리서치 → ③산출물 생성 → ④한 줄 보고. 진짜 도구를 쓰는 전문가.
 function buildAgentInstr(agent: string, title: string, context: { notes?: string; services?: string }): string {
   const today = new Date().toISOString().slice(0, 10);
-  const base = `[운영 사이클 — "${title}" 작전] (오늘: ${today})\n\n규칙(중요):\n- 말로만 하지 마라. 반드시 도구를 호출해서 일해라. "하겠습니다"로 끝내면 실패다.\n- 작업 순서를 지켜라: ① 데이터 도구로 실데이터부터 확인 → ② 필요하면 web_search/fetch_url 리서치 → ③ write_file로 산출물 생성 → ④ 마지막에 한국어 2~3문장으로 결과 보고.\n- 산출물에는 ①②에서 얻은 실제 숫자·사실을 인용해라. 지어내지 마라.\n`;
+  const dir = `오늘업무_${today}`;   // 하루 산출물이 한 폴더에 모인다 (바탕화면 안 어지럽힘)
+  const base = `[운영 사이클 — "${title}" 작전] (오늘: ${today})\n\n규칙(중요):\n- 말로만 하지 마라. 반드시 도구를 호출해서 일해라. "하겠습니다"로 끝내면 실패다.\n- 작업 순서를 지켜라: ① 데이터 도구로 실데이터부터 확인 → ② 필요하면 web_search/fetch_url 리서치 → ③ write_file로 산출물 생성 → ④ 마지막에 한국어 2~3문장으로 결과 보고.\n- 산출물 파일은 전부 "${dir}/" 폴더 안에 만들어라 (예: ${dir}/보고서.md).\n- 산출물에는 ①②에서 얻은 실제 숫자·사실을 인용해라. 지어내지 마라.\n`;
   const agentInstr: Record<string, string> = {
-    youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → youtube_idea_${today}.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
-    instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → insta_content_${today}.md.`,
-    designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → design_guide_${today}.md.`,
-    developer: `${base}너는 시니어 풀스택 개발자(코다리)야.\n① list_dir·read_file로 작업폴더 현황을 먼저 파악하고\n② 완전히 작동하는 자동화 스크립트·코드를 write_file로 작성한 뒤\n③ 가능하면 run_command로 실제 실행·테스트까지 해서 결과를 확인해라. 형식: script_${today.replace(/-/g, '')}.py 또는 .js.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
-    business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → business_strategy_${today}.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
-    secretary: `${base}너는 비서(영숙)야.\n① 할 일을 정리해 add_task로 우선순위별 등록하고\n② 정리한 핵심 현황을 send_telegram으로 사장님께 짧게 보고해라(텔레그램 미연결이면 write_file로 daily_brief_${today}.md 저장).\n③ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
-    editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → sound_guide_${today}.md.`,
-    writer: `${base}너는 카피라이터(Writer)야.\n① web_search로 주제 관련 최신 정보를 확인하고\n② 영상 스크립트·블로그 글·캡션을 write_file로 작성해라 → script_${today.replace(/-/g, '')}.md. 각각 고유한 톤으로.`,
-    researcher: `${base}너는 리서처야.\n① web_search로 2~3개 키워드를 검색하고\n② 좋은 결과는 fetch_url로 본문까지 읽은 뒤\n③ 출처 링크가 달린 분석 보고서를 write_file로 정리해라 → research_${today.replace(/-/g, '')}.md.`,
+    youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → ${dir}/youtube_기획안.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
+    instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → ${dir}/인스타_콘텐츠.md.`,
+    designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → ${dir}/디자인_가이드.md.`,
+    developer: `${base}너는 시니어 풀스택 개발자(코다리)야.\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 완전히 작동하는 자동화 스크립트·코드를 write_file로 작성한 뒤 → ${dir}/script.py 또는 .js\n③ 가능하면 run_command로 실제 실행·테스트까지 해서 결과를 확인해라. 에러가 나면 고쳐서 다시 실행해라.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
+    business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → ${dir}/사업전략.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
+    secretary: `${base}너는 비서(영숙)야.\n① get_tasks로 태스크 보드를 먼저 확인하고, 끝난 건 complete_task로 정리해라.\n② check_email로 안 읽은 메일을 확인하고(미연결이면 생략), 중요한 건 요약해라.\n③ 오늘의 현황·우선순위를 write_file로 정리하고 → ${dir}/오늘브리핑.md, 핵심만 send_telegram으로 사장님께 보고해라.\n④ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
+    editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → ${dir}/사운드_가이드.md.`,
+    writer: `${base}너는 카피라이터(Writer)야.\n① web_search로 주제 관련 최신 정보를 확인하고\n② 영상 스크립트·블로그 글·캡션을 write_file로 작성해라 → ${dir}/스크립트.md. 각각 고유한 톤으로.`,
+    researcher: `${base}너는 리서처야.\n① web_search로 2~3개 키워드를 검색하고\n② 좋은 결과는 fetch_url로 본문까지 읽은 뒤\n③ 출처 링크가 달린 분석 보고서를 write_file로 정리해라 → ${dir}/리서치.md.`,
   };
-  return agentInstr[agent] || base + `네 전문성을 살려 "${title}" 작전을 수행해라. 데이터 도구(get_revenue·get_youtube·web_search)로 사실을 확인하고 write_file로 산출물을 남겨라.`;
+  return agentInstr[agent] || base + `네 전문성을 살려 "${title}" 작전을 수행해라. 데이터 도구(get_revenue·get_youtube·get_github·web_search)로 사실을 확인하고 write_file로 산출물을 남겨라.`;
 }
 
 // ③ 작전 1개를 실제 에이전트로 수행 → 진짜 산출물(파일·검색)만 SHIPPED 기록
 let opsExecAbort: AbortController | null = null;
-async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
+async function executeOne(c: Config, a: OpsAction, prior: OpsShip[] = []): Promise<OpsShip> {
   opsExecAbort = new AbortController();
   opsState.executingTitle = a.title; opsState.activity = a.title; opsEmit();
   const opts = buildRunOpts(c, opsExecAbort.signal);
   const notes = allNotes().slice(-5).map(n => n.text.slice(0, 80)).join(' / ');
   const services = c.services.map(s => s.name).join(', ');
-  const instr = buildAgentInstr(a.agent, a.title, { notes, services });
-  const artifacts: string[] = []; const seen = new Set<string>();
+  // 🔗 파이프라인 — 같은 사이클에서 동료가 방금 만든 산출물을 받아 이어서 작업한다
+  const pipe = prior.filter(p => p.ok && (p.files || []).length)
+    .map(p => `- ${AGENTS[p.agent]?.name || p.agent}가 "${p.title.slice(0, 50)}" 완료 → 파일: ${(p.files || []).join(', ')}`).join('\n');
+  const instr = buildAgentInstr(a.agent, a.title, { notes, services })
+    + (pipe ? `\n\n[같은 사이클에서 동료가 방금 만든 산출물 — 관련 있으면 read_file로 읽고 이어받아 작업해라]\n${pipe}` : '');
+  const artifacts: string[] = []; const files: string[] = []; const seen = new Set<string>();
   const base = (p: string) => (p || '').split('/').pop() || (p || '');
   // 🔴 라이브 피드 — 도구 한 번 쓸 때마다 화면에 실시간으로 (일하는 게 보인다)
   const feedPush = (icon: string, text: string, ok = true) => {
@@ -641,7 +649,8 @@ async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
     write_file: ['📄', '파일 생성'], read_file: ['📖', '파일 읽기'], list_dir: ['📂', '폴더 확인'], find: ['🔎', '파일 검색'],
     run_command: ['⚡', '명령 실행'], serve: ['🖥️', '서버 실행'], open: ['🖥️', '열기'],
     web_search: ['🔍', '웹 검색'], fetch_url: ['🔗', '페이지 읽기'],
-    revenue: ['💰', '매출 데이터 조회'], youtube: ['📺', '채널 데이터 조회'],
+    revenue: ['💰', '매출 데이터 조회'], youtube: ['📺', '채널 데이터 조회'], github: ['💻', '깃허브 커밋 조회'], email_in: ['📥', '메일함 확인'],
+    tasks: ['📋', '할 일 목록 확인'], task_done: ['☑️', '할 일 완료 처리'],
     telegram: ['✈️', '텔레그램 보고'], approve: ['✅', '결재 요청'], remember: ['🧠', '기억 저장'], task: ['📋', '할 일 등록'],
     screenshot: ['📸', '화면 확인'], clipboard: ['📋', '클립보드'], mcp: ['🔌', '외부 도구'],
   };
@@ -653,6 +662,7 @@ async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
       feedPush(icon, detail ? `${label}: ${detail}` : label, ev.ok !== false);
     }
     if (ev?.kind !== 'tool' || ev.ok === false) return;
+    if (ev.name === 'write_file' && ev.path) files.push(String(ev.path));   // 파이프라인 — 다음 에이전트에게 전달할 파일
     let tag = '';
     if (ev.name === 'write_file') tag = `📄 ${base(ev.path)}`;
     else if (ev.name === 'run_command') tag = `⚡ ${String(ev.path || '').slice(0, 36)}`;
@@ -669,7 +679,7 @@ async function executeOne(c: Config, a: OpsAction): Promise<OpsShip> {
   catch (e: any) { result = `중단(${e?.message || e})`; }
   const did = artifacts.length > 0;
   feedPush(did ? '✅' : '⚠️', did ? `완료 — 산출물 ${artifacts.length}개` : '결과물 없이 종료', did);
-  const ship: OpsShip = { title: a.title, agent: a.agent, artifacts, ok: did, result: did ? (result || '').replace(/\s+/g, ' ').trim().slice(0, 140) : (result || '결과물 없음').replace(/\s+/g, ' ').trim().slice(0, 160), ts: Date.now() };
+  const ship: OpsShip = { title: a.title, agent: a.agent, artifacts, files, ok: did, result: did ? (result || '').replace(/\s+/g, ' ').trim().slice(0, 140) : (result || '결과물 없음').replace(/\s+/g, ' ').trim().slice(0, 160), ts: Date.now() };
   opsState.shipped.unshift(ship); opsState.shipped = opsState.shipped.slice(0, 20);
   opsState.executingTitle = ''; opsState.activity = ''; saveOpsState(); opsEmit();
   return ship;
@@ -685,19 +695,39 @@ ipcMain.handle('ops:nextCycle', async () => {
   opsState.running = true; opsState.cycle = (opsState.cycle || 0) + 1;
   return await runOperation();
 });
-// ②→③ 사람이 고른 작전만 하나씩 수행
-ipcMain.handle('ops:executeSelected', async (_e, titles: string[]) => {
+// ②→③ 사람이 고른 작전 수행 — 🙋 사장님 몫은 태스크 보드 등록, 🤖 에이전트 몫은 파이프라인으로 하나씩
+ipcMain.handle('ops:executeSelected', async (_e, titles: string[], humanTitles: string[] = []) => {
   if (opsState.executing) return opsPublic();
   const set = new Set(titles || []);
-  const chosen = opsState.actions.filter(a => set.has(a.title));
+  const humanSet = new Set(humanTitles || []);
+  const chosen = opsState.actions.filter(a => set.has(a.title))
+    .map(a => ({ ...a, assignee: humanSet.has(a.title) ? 'human' as const : 'agent' as const }));   // UI 토글이 최종 결정
   if (!chosen.length) { opsState.phase = 'done'; saveOpsState(); opsEmit(); return opsPublic(); }
   const c = loadConfig();
   opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsEmit();
   try { openOfficeWindow(); } catch { /* */ }   // 🏢 일하는 모습이 보이게
+  const batch: OpsShip[] = [];   // 이번 사이클 산출물 — 파이프라인으로 다음 에이전트에 전달
   try {
-    for (const a of chosen) {
+    // 🙋 사장님 몫 — 태스크 보드에 등록하고 폰으로도 알림 (에이전트는 못 하는 일)
+    const humans = chosen.filter(a => a.assignee === 'human');
+    for (const h of humans) {
+      addTask(h.title, { owner: 'user', agentEmoji: '🙋', priority: 'high' });
+      const ship: OpsShip = { title: h.title, agent: 'human', artifacts: ['📋 사장님 할 일로 등록'], files: [], ok: true, result: '태스크 보드에 등록했어요 — 사장님이 직접 진행해 주세요', ts: Date.now() };
+      opsState.shipped.unshift(ship); batch.push(ship);
+      opsState.feed.unshift({ icon: '🙋', text: `사장님 할 일 등록: ${h.title.slice(0, 44)}`, agent: 'secretary', ok: true, ts: Date.now() });
+    }
+    if (humans.length) { opsEmit(); tgSend(`🙋 사장님 몫 할 일 ${humans.length}개가 등록됐어요:\n${humans.map(h => `□ ${h.title}`).join('\n')}`).catch(() => undefined); }
+    // 🤖 에이전트 몫 — 앞 작전의 산출물을 이어받으며 하나씩 실행
+    for (const a of chosen.filter(x => x.assignee !== 'human')) {
       if (!opsState.running) break;
-      await executeOne(c, a);   // 에이전트가 위험 단계는 알아서 request_approval(→텔레그램)로 보냄
+      const ship = await executeOne(c, a, batch);   // 위험 단계는 에이전트가 알아서 request_approval(→텔레그램)
+      batch.push(ship);
+    }
+    // 🧠 사이클 기억 — 완수한 작전을 두뇌에 기록 → 다음 사이클 계획이 이걸 참고한다
+    const done = batch.filter(s => s.ok && s.agent !== 'human');
+    if (done.length) {
+      const today = new Date().toISOString().slice(0, 10);
+      brainAddNote(`[운영 ${today} 사이클#${opsState.cycle}] ${done.map(s => `${AGENTS[s.agent]?.name || s.agent}: ${s.title.slice(0, 60)}${(s.files || []).length ? ` (${(s.files || []).join(', ')})` : ''}`).join(' / ')}`, undefined, { source: 'agent', verified: true });
     }
   } finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsExecAbort = null; opsState.phase = 'done'; saveOpsState(); opsEmit(); }
   return opsPublic();
@@ -921,13 +951,31 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
   const getYoutube = () => realtimeFor('youtube');
+  // 💻 깃허브 실데이터 — 개발자 에이전트가 커밋 현황을 직접 본다
+  const getGithub = async (): Promise<string> => {
+    const cc = loadConfig(); const g = (cc.apiConn || {}).github || {};
+    if (!g.GITHUB_TOKEN || !g.GITHUB_DEFAULT_REPO) return '(깃허브 미연결 — 🗂️ 연동 → GitHub에 토큰·레포를 넣으면 커밋 현황을 보여드려요)';
+    const r = await listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, 15).catch(() => null);
+    if (!r?.ok || !r.commits?.length) return `(커밋을 못 읽었어요: ${(r as any)?.error || '레포 확인 필요'})`;
+    return `[레포 ${g.GITHUB_DEFAULT_REPO} — 최근 커밋 ${r.commits.length}개]\n` + r.commits.map(c => `- ${c.date?.slice(0, 10)} ${c.msg.split('\n')[0].slice(0, 70)} (${c.author})`).join('\n');
+  };
+  // 📥 받은 메일함 — 비서 에이전트가 안 읽은 메일을 직접 확인
+  const checkEmail = async (): Promise<string> => {
+    const cc = loadConfig(); const e = (cc.apiConn || {}).email || {};
+    if (!e.SMTP_USER || !e.SMTP_PASS) return '(이메일 미연결 — 🗂️ 연동 → Email에 계정을 넣으면 메일함을 확인해드려요)';
+    const host = e.IMAP_HOST || (e.SMTP_HOST || '').replace(/^smtp\./, 'imap.') || 'imap.gmail.com';
+    const r = await fetchUnseen({ host, port: e.IMAP_PORT || '993', user: e.SMTP_USER, pass: e.SMTP_PASS }, 5).catch(() => null);
+    if (!r?.ok) return `(메일함을 못 열었어요: ${(r as any)?.error || 'IMAP 설정 확인'})`;
+    if (!r.mails?.length) return '안 읽은 새 메일이 없어요. 메일함이 깨끗합니다.';
+    return `[안 읽은 메일 ${r.mails.length}통]\n` + r.mails.map(m => `- ${m.fromName || m.from} | ${m.subject} | ${(m.text || '').replace(/\s+/g, ' ').slice(0, 100)}`).join('\n');
+  };
   const sendTelegram = async (msg: string): Promise<string> => {
     const cc = loadConfig(); const tok = cc.telegramToken, chat = cc.telegramChatId;
     if (!tok || !chat) return '텔레그램이 연결 안 됐어요. 🗂️ 연동 → Telegram에 봇 토큰과 chat_id를 넣으세요.';
     try { await tgPost(tok, chat, msg); return '✅ 텔레그램으로 보냈어요.'; }
     catch (e: any) { return `텔레그램 전송 실패: ${e?.response?.data?.description || e?.message}`; }
   };
-  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
+  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, getGithub, checkEmail, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
 }
 
 ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {

@@ -374,6 +374,7 @@ const OPS_AGENTS = {
   developer: { emoji: '⚡', name: '개발', color: '#7c9cff' },
   designer: { emoji: '🎨', name: '디자인', color: '#ff9ec7' },
   secretary: { emoji: '📋', name: '비서', color: '#ffd166' },
+  human: { emoji: '🙋', name: '사장님', color: '#ffd166' },
 };
 function opsRel(ts) { if (!ts) return ''; const s = Math.floor((Date.now() - ts) / 1000); if (s < 60) return '방금'; const m = Math.floor(s / 60); if (m < 60) return m + '분 전'; return Math.floor(m / 60) + '시간 전'; }
 const OPS_ROSTER = ['business', 'youtube', 'developer', 'designer', 'secretary'];

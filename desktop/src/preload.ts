@@ -127,7 +127,7 @@ contextBridge.exposeInMainWorld('connect', {
   opsStart: () => ipcRenderer.invoke('ops:start'),
   opsStatus: () => ipcRenderer.invoke('ops:status'),
   opsNextCycle: () => ipcRenderer.invoke('ops:nextCycle'),
-  opsExecuteSelected: (titles: string[]) => ipcRenderer.invoke('ops:executeSelected', titles),
+  opsExecuteSelected: (titles: string[], humanTitles?: string[]) => ipcRenderer.invoke('ops:executeSelected', titles, humanTitles || []),
   opsStop: () => ipcRenderer.invoke('ops:stop'),
   officeBanter: () => ipcRenderer.invoke('office:banter'),   // 💬 사무실 진짜 AI 대화
   onOpsUpdate: (cb: (s: any) => void) => {

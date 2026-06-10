@@ -4,7 +4,7 @@ import { chat, completeMessages, completeWithTools, detectTarget, embed, apiErro
 import { AGENTS, SPECIALIST_IDS, specialistPrompt, agentPrompt, triagePrompt } from './persona';
 import { parseTools, runTool, toolGuide, stripTools } from './tools';
 import { search as brainSearch, addNote as brainAdd, CATEGORIES, type Category } from './brain';
-import { addTask } from './tasks';
+import { addTask, openTasks, setStatus as setTaskStatus } from './tasks';
 import { addApproval } from './approvals';
 import { listMcpTools, callMcpTool } from './mcp';
 import { webSearch, fetchUrl } from './web';
@@ -23,7 +23,7 @@ export type EngineEvent =
   | { kind: 'final'; text: string }
   | { kind: 'error'; text: string };
 
-export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; agentModels?: Record<string, string>; getYoutube?: () => Promise<string>; sendTelegram?: (msg: string) => Promise<string>; }
+export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; agentModels?: Record<string, string>; getYoutube?: () => Promise<string>; sendTelegram?: (msg: string) => Promise<string>; getGithub?: () => Promise<string>; checkEmail?: () => Promise<string>; }
 const aborted = (opts: { signal?: AbortSignal }) => !!opts.signal?.aborted;
 
 // ── 네이티브 tool calling ───────────────────────────────────────────────
@@ -47,6 +47,10 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
   if (opts.getRevenue) reg.push({ name: 'get_revenue', description: '내 매출/수익 확인(PayPal 실데이터 — 파일 찾지 말고 이걸 써라)', event: 'revenue', parameters: obj({}), run: async () => { const r = await opts.getRevenue!(); return { text: r, ok: true, path: 'PayPal' }; } });
   if (opts.getYoutube) reg.push({ name: 'get_youtube', description: '내 유튜브 채널 실데이터(구독자·조회수·최근 영상·28일 분석). "내 채널 분석/유튜브" 물으면 이걸 써라(API 연동돼 있음)', event: 'youtube', parameters: obj({}), run: async () => { const r = await opts.getYoutube!(); return { text: r || '유튜브가 아직 연결 안 됐어요. 🗂️ 연동 → YouTube에 API 키와 채널 ID를 넣으세요.', ok: !!r, path: '유튜브' }; } });
   if (opts.sendTelegram) reg.push({ name: 'send_telegram', description: '사장님 텔레그램으로 메시지 전송(알림·보고). 사장님에게 알려달라/텔레그램으로 보내달라 할 때', event: 'telegram', parameters: obj({ message: { type: 'string' } }, ['message']), run: async a => { const r = await opts.sendTelegram!(a.message || ''); return { text: r, ok: !/실패/.test(r), path: '텔레그램' }; } });
+  if (opts.getGithub) reg.push({ name: 'get_github', description: '내 깃허브 레포 실데이터(최근 커밋·메시지·날짜). 개발 현황 파악·코드 작업 전에 먼저 이걸로 확인해라', event: 'github', parameters: obj({}), run: async () => { const r = await opts.getGithub!(); return { text: r, ok: !r.startsWith('('), path: 'GitHub' }; } });
+  if (opts.checkEmail) reg.push({ name: 'check_email', description: '받은 메일함 확인(최근 안 읽은 메일 — 보낸사람·제목·내용). 메일 정리·답장 업무 전에 먼저 호출', event: 'email_in', parameters: obj({}), run: async () => { const r = await opts.checkEmail!(); return { text: r, ok: !r.startsWith('('), path: '메일함' }; } });
+  reg.push({ name: 'get_tasks', description: '태스크 보드의 열린 할 일 목록 조회(id·제목·우선순위). 할 일 정리·우선순위 작업 전에 먼저 호출', event: 'tasks', parameters: obj({}), run: async () => { const list = openTasks(); return { text: list.length ? list.map(t => `- (${t.id}) [${t.priority}] ${t.title}`).join('\n') : '열린 할 일이 없어요.', ok: true, path: `할 일 ${list.length}개` }; } });
+  reg.push({ name: 'complete_task', description: '끝낸 할 일을 완료 처리(태스크 보드에서 체크). get_tasks로 확인한 id를 넘겨라', event: 'task_done', parameters: obj({ id: { type: 'string', description: 'get_tasks가 보여준 할 일 id' } }, ['id']), run: async a => { const t = setTaskStatus(String(a.id || '').trim(), 'done'); return t ? { text: `완료 처리: ${t.title}`, ok: true, path: t.title.slice(0, 30) } : { text: '그 id의 할 일을 못 찾았어요. get_tasks로 다시 확인하세요.', ok: false }; } });
   if (opts.readClipboard) reg.push({ name: 'read_clipboard', description: '사용자가 방금 복사한 클립보드 내용 읽기', event: 'clipboard', parameters: obj({}), run: async () => { const r = await opts.readClipboard!(); return { text: r || '(비어 있음)', ok: true, path: '클립보드' }; } });
   if (opts.captureScreen) reg.push({ name: 'capture_screen', description: '사용자 화면을 캡처해서 직접 본다(화면 분석·에러 확인 — 비전 모델 필요)', event: 'screenshot', parameters: obj({}), run: async () => { const img = await opts.captureScreen!(); return img ? { text: '화면을 캡처했어요. 아래 이미지를 보고 분석하세요.', ok: true, path: '화면', image: img } : { text: '화면 캡처 실패 — macOS 시스템 설정 → 개인정보 보호 → 화면 기록 에서 권한을 켜야 해요.', ok: false, path: '화면' }; } });
   reg.push({ name: 'remember', description: '두뇌에 지식을 영구 저장', event: 'remember', parameters: obj({ text: { type: 'string' } }, ['text']), run: async a => { let e: number[] | null = null; try { e = await embed(target.base, a.text); } catch { /* */ } brainAdd(a.text, e || undefined, { source: 'agent', verified: false }); return { text: '기억했어요.', ok: true, path: a.text }; } });
