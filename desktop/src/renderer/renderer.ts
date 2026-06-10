@@ -478,6 +478,12 @@ function renderCycle(s: any) {
   $('cycleNum').textContent = '#' + (s.cycle || 1);
   $('cyclePhase').textContent = PHASE_LABEL[s.phase] || '';
   $('cyclePhase').className = 'cycle-phase ph-' + (s.phase || 'idle');
+  // 단계 스테퍼 — 분석 → 검토·분담 → 실행 → 완료 (지금 어디인지 한눈에)
+  const stepIdx = ['planning', 'review', 'executing', 'done'].indexOf(s.phase);
+  $('cycleSteps')?.querySelectorAll('.cstep').forEach((el, i) => {
+    el.classList.toggle('on', i === stepIdx);
+    el.classList.toggle('past', stepIdx > i);
+  });
   const sm = $('cycleSummary'); sm.textContent = s.summary ? '“' + s.summary + '”' : ''; sm.style.display = s.summary ? '' : 'none';
   const body = $('cycleBody'), foot = $('cycleFoot');
   if (s.phase === 'planning') {
@@ -537,6 +543,7 @@ function renderCycle(s: any) {
   const end = $('cycEnd'); if (end) end.onclick = async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 종료했어요'); };
 }
 connect.onOpsUpdate?.((s: any) => { _ops = s; setOpsBtn(!!s?.running); renderCycle(s); });   // 상태 변할 때마다 버튼+패널 동기화
+connect.onOpsOpenPanel?.(() => openCyclePanel());   // 🔗 대시보드 "작전 검토" 버튼 → 메인 창 패널 열림
 connect.opsStatus?.().then((s: any) => { _ops = s; setOpsBtn(!!s?.running); }).catch(() => { /* */ });
 async function renderAiCurrent() {
   const cfg = await connect.getConfig();

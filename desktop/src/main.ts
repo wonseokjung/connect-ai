@@ -470,9 +470,15 @@ const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
 function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
 function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
 const opsPublic = () => ({ ...opsState });
-const opsEmit = () => { try { win?.webContents.send('ops:update', opsPublic()); } catch { /* */ } if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
-// 가벼운 즉시 전송 — 도구 사용 한 번마다 호출해도 부담 없게(대시보드 재수집 없이 메인 창만)
-const opsEmitLight = () => { try { win?.webContents.send('ops:update', opsPublic()); } catch { /* */ } };
+// 📡 모든 창이 같은 운영 상태를 본다 — 메인 창 + 대시보드에 동시 전송 (단절 금지)
+const opsBroadcast = () => {
+  const s = opsPublic();
+  try { win?.webContents.send('ops:update', s); } catch { /* */ }
+  try { if (revenueWin && !revenueWin.isDestroyed()) revenueWin.webContents.send('ops:update', s); } catch { /* */ }
+};
+const opsEmit = () => { opsBroadcast(); if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
+// 가벼운 즉시 전송 — 도구 사용 한 번마다 호출해도 부담 없게(데이터 재수집 없이 상태만)
+const opsEmitLight = opsBroadcast;
 const fmtN = (n: number) => Math.round(n || 0).toLocaleString();
 
 async function gatherOps() {
@@ -592,7 +598,7 @@ async function runOperation(): Promise<OpsState> {
             const m = l.match(/\[([^\]]*)\]/); const tag = (m?.[1] || '').trim();
             const human = /사장님|사람|human|user|owner|me/i.test(tag) && !agentMap[tag];   // [사장님] = 사람만 할 수 있는 일
             const agent = human ? 'human' : (agentMap[tag] || 'secretary');
-            const t = l.replace(/^[-•*]\s*\[?[^\]]*\]?\s*/, '').trim().slice(0, 120);
+            const t = l.replace(/^[-•*]\s*\[?[^\]]*\]?\s*/, '').replace(/^<[^>]{1,16}>\s*/, '').replace(/^\*+|\*+$/g, '').trim().slice(0, 120);   // <행동1>·마크다운 찌꺼기 제거
             return t ? { title: t, agent, risk: opsRisk(t), assignee: human ? 'human' as const : 'agent' as const } : null;
           }).filter(Boolean) as OpsAction[];
       } catch { /* */ }
@@ -733,6 +739,10 @@ ipcMain.handle('ops:executeSelected', async (_e, titles: string[], humanTitles: 
   return opsPublic();
 });
 ipcMain.handle('ops:status', () => opsPublic());
+// 🔗 대시보드 → 메인 창 작전 검토 열기 (창 사이 단절 제거)
+ipcMain.handle('ops:openReview', () => { try { win?.show(); win?.focus(); win?.webContents.send('ops:openPanel'); } catch { /* */ } return true; });
+// 🧹 지난 산출물 기록 비우기 — 옛 실패 기록이 화면을 어지럽히지 않게
+ipcMain.handle('ops:clearShipped', () => { opsState.shipped = []; saveOpsState(); opsEmit(); return opsPublic(); });
 ipcMain.handle('ops:stop', () => { opsState.running = false; opsState.executing = false; opsState.phase = 'idle'; opsState.activity = ''; opsState.executingTitle = ''; opsExecAbort?.abort(); saveOpsState(); opsEmit(); return opsPublic(); });
 // 💬 사무실 진짜 대화 — 현황(매출·작전·방금 한 일)을 반영해 캐릭터별 짧은 대사를 AI가 생성
 // 개선: 각 에이전트의 성격·역할·최근 업무를 깊게 반영해 더 생생한 대화로

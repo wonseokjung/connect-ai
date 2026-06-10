@@ -743,3 +743,22 @@ body::before { content: ''; position: fixed; inset: -30%; z-index: 0; pointer-ev
 .opl-art { font-size: .74rem; font-weight: 600; color: #d6ffe6; background: rgba(0,255,122,.08); border: 1px solid rgba(0,255,122,.25); border-radius: 7px; padding: 3px 9px; font-family: ui-monospace, 'SF Mono', monospace; }
 .opl-stop { margin-left: 6px; font-size: .72rem; font-weight: 700; color: var(--text-2); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 4px 11px; cursor: pointer; transition: all .2s; }
 .opl-stop:hover { color: #ff8a8a; border-color: rgba(255,120,120,.45); background: rgba(255,80,80,.08); }
+
+/* 🔴 실시간 작업 로그 — 메인 창과 같은 피드가 대시보드에도 (창 사이 단절 제거) */
+.opl-feed { margin: 10px 0 4px; border: 1px solid rgba(0,255,122,.16); border-radius: 12px; background: rgba(0,12,5,.5); padding: 9px 12px; max-height: 160px; overflow-y: auto; }
+.oplf-line { display: flex; align-items: center; gap: 8px; padding: 3px 4px; font: .78rem/1.5 ui-monospace, 'SF Mono', monospace; color: #cfeedd; }
+.oplf-line.new { animation: oplfIn .35s ease; }
+@keyframes oplfIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.oplf-line.bad { color: #ffb3b3; }
+.oplf-ic { flex-shrink: 0; }
+.oplf-tx { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 📋 대시보드 → 메인 창 작전 검토 버튼 */
+.opl-review { display: block; width: 100%; margin-top: 8px; padding: 10px 14px; border-radius: 10px; font-size: .85rem; font-weight: 800; cursor: pointer; color: #052; background: linear-gradient(135deg, #39ff14, #16a34a); border: none; box-shadow: 0 0 16px rgba(57,255,20,.35); transition: box-shadow .2s; }
+.opl-review:hover { box-shadow: 0 0 26px rgba(57,255,20,.6); }
+/* 🤖/🙋 작전 담당 배지 */
+.opl-who { font-size: .68rem; font-weight: 800; color: #9fe6b4; background: rgba(0,255,122,.08); border: 1px solid rgba(0,255,122,.25); border-radius: 999px; padding: 2px 9px; flex-shrink: 0; white-space: nowrap; }
+.opl-who.me { color: #ffd166; background: rgba(255,209,102,.1); border-color: rgba(255,209,102,.4); }
+/* 🧹 비우기 + 미완 더보기 */
+.opl-clear { margin-left: auto; font-size: .7rem; font-weight: 700; color: var(--text-3); background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1); border-radius: 999px; padding: 3px 10px; cursor: pointer; transition: all .2s; }
+.opl-clear:hover { color: #ffd166; border-color: rgba(255,209,102,.45); }
+.opl-more-fails { font-size: .74rem; color: var(--text-3); padding: 6px 4px; text-align: center; }

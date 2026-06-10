@@ -406,14 +406,32 @@ function renderOps(ops) {
   }).join('');
   $('oplActions').innerHTML = (ops.actions || []).map((x, i) => {
     const risky = x.risk && x.risk !== 'safe';
-    return `<div class="opl-action"><span class="opl-n">0${i + 1}</span><span class="opl-at">${esc(x.title)}</span>${risky ? '<span class="opl-risk">승인 필요</span>' : '<span class="opl-ok">자동</span>'}</div>`;
+    const who = x.assignee === 'human' ? '<span class="opl-who me">🙋 사장님</span>' : `<span class="opl-who">${(OPS_AGENTS[x.agent] || { emoji: '🤖' }).emoji} ${(OPS_AGENTS[x.agent] || { name: '에이전트' }).name}</span>`;
+    return `<div class="opl-action"><span class="opl-n">0${i + 1}</span><span class="opl-at">${esc(String(x.title || '').replace(/^<[^>]{1,16}>\s*/, ''))}</span>${who}${risky ? '<span class="opl-risk">승인 필요</span>' : ''}</div>`;
   }).join('') || `<div class="opl-empty">${busy ? '에이전트가 작전을 짜는 중…' : '곧 작전이 올라옵니다'}</div>`;
   // 🚀 지금 실행 중인 작업
   const act = $('oplActivity');
   if (ops.executing && ops.activity) { act.classList.remove('hidden'); act.innerHTML = `<span class="opl-spin"></span><span>${esc(ops.activity)}</span>`; }
   else act.classList.add('hidden');
-  // 🚀 실제로 처리한 일 (SHIPPED)
-  const ships = ops.shipped || [];
+  // 🔴 실시간 작업 로그 — 메인 창과 똑같은 피드가 대시보드에도 흐른다
+  const feedEl = $('oplFeed');
+  if (feedEl) {
+    const feed = (ops.feed || []).slice(0, 6);
+    if (exec && feed.length) {
+      feedEl.classList.remove('hidden');
+      feedEl.innerHTML = feed.map((f, i) => `<div class="oplf-line${i === 0 ? ' new' : ''}${f.ok === false ? ' bad' : ''}"><span class="oplf-ic">${f.icon || '🔧'}</span><span class="oplf-tx">${esc(f.text || '')}</span></div>`).join('');
+    } else feedEl.classList.add('hidden');
+  }
+  // 검토 단계면 대시보드에서 바로 메인 창 검토 열기 (창 사이 단절 제거)
+  if (ops.phase === 'review') {
+    $('oplActions').innerHTML += `<button class="opl-review" id="oplReview">📋 작전 검토 열기 — 체크하고 실행 →</button>`;
+    $('oplReview')?.addEventListener('click', () => window.connect.opsOpenReview && window.connect.opsOpenReview());
+  }
+  // 🚀 실제로 처리한 일 — 성공 우선·실패는 최근 2개만 (옛 쓰레기로 화면 안 어지럽힘)
+  const cleanT = (t) => String(t || '').replace(/^<[^>]{1,16}>\s*/, '');
+  const okShips2 = [], failShips = [];
+  for (const s of shippedAll) { ((s.ok !== false && (s.artifacts || []).length) ? okShips2 : failShips).push(s); }
+  const ships = [...okShips2.slice(0, 8), ...failShips.slice(0, 2)];
   const sw = $('oplShippedWrap');
   if (ships.length) {
     sw.classList.remove('hidden');
@@ -424,8 +442,8 @@ function renderOps(ops) {
       const chips = arts.length ? `<div class="opl-ship-arts">${arts.map((x) => `<span class="opl-art">${esc(x)}</span>`).join('')}</div>` : '';
       const body = chips || `<div class="opl-ship-r fail">결과물 없음 — 다음 사이클에서 다시 시도해요</div>`;
       const badge = ok ? '<span class="opl-ship-ok">✓ 산출물</span>' : '<span class="opl-ship-fail">미완</span>';
-      return `<div class="opl-ship ${ok ? '' : 'isfail'}" style="--ag:${a.color}"><div class="opl-ship-top"><span class="opl-ship-ico">${a.emoji}</span><span class="opl-ship-t">${esc(s.title)}</span>${badge}<span class="opl-ship-when">${opsRel(s.ts)}</span></div>${body}</div>`;
-    }).join('');
+      return `<div class="opl-ship ${ok ? '' : 'isfail'}" style="--ag:${a.color}"><div class="opl-ship-top"><span class="opl-ship-ico">${a.emoji}</span><span class="opl-ship-t">${esc(cleanT(s.title))}</span>${badge}<span class="opl-ship-when">${opsRel(s.ts)}</span></div>${body}</div>`;
+    }).join('') + (failShips.length > 2 ? `<div class="opl-more-fails">미완 ${failShips.length - 2}개 더 — 🧹 비우기로 정리하세요</div>` : '');
   } else sw.classList.add('hidden');
 }
 
@@ -473,6 +491,11 @@ $('oplStop')?.addEventListener('click', async () => {
   if (!window.connect.opsStop) return;
   await window.connect.opsStop();
   renderOps({ running: false });
+});
+$('oplClear')?.addEventListener('click', async () => {
+  if (!window.connect.opsClearShipped) return;
+  const s = await window.connect.opsClearShipped();
+  renderOps(s);
 });
 window.connect.onRevenueState((m) => { if (m && m.type === 'state') render(m); });
 // 🤖 자율 운영 라이브 업데이트(24시간 루프가 도는 동안 패널만 갱신)
