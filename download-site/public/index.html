@@ -1,0 +1,86 @@
+<!DOCTYPE html><html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Connect AI — 나만의 AI 1인 기업, 데스크톱에서</title>
+<meta name="description" content="100% 로컬 AI 비서. 에이전트 팀이 분석하고, 기획하고, 코딩하고, 폰으로 결재받는 진짜 AI 1인 기업. 무료 다운로드."/>
+<meta property="og:title" content="Connect AI — 나만의 AI 1인 기업"/>
+<meta property="og:description" content="에이전트 팀이 일하고, 나는 폰에서 결재만. 무료·로컬·자비스 보이스."/>
+<style>
+:root{--g:#39ff14;--g2:#16a34a;--bg:#020804;--dim:#86a096;--bd:rgba(57,255,20,.25)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#d6ffe0;font-family:-apple-system,'SF Pro Display','Pretendard',system-ui,sans-serif;min-height:100vh;overflow-x:hidden}
+.rain{position:fixed;inset:0;opacity:.16;pointer-events:none}
+.wrap{position:relative;max-width:780px;margin:0 auto;padding:60px 22px 80px;text-align:center}
+.mark{font-family:ui-monospace,monospace;letter-spacing:6px;color:rgba(57,255,20,.65);font-size:12px}
+h1{color:#fff;font-size:clamp(30px,6vw,46px);margin:16px 0 8px;letter-spacing:-1px;line-height:1.25}
+h1 b{color:var(--g);text-shadow:0 0 24px rgba(57,255,20,.5)}
+.sub{color:var(--dim);font-size:16.5px;line-height:1.7;margin:14px auto 36px;max-width:560px}
+.btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+.dl{display:flex;align-items:center;gap:12px;padding:15px 24px;border-radius:14px;background:rgba(0,30,15,.6);border:1px solid var(--bd);color:#fff;text-decoration:none;transition:all .2s;backdrop-filter:blur(8px)}
+.dl:hover{border-color:var(--g);box-shadow:0 0 24px rgba(57,255,20,.35);transform:translateY(-2px)}
+.dl.hot{border-color:rgba(57,255,20,.6);background:rgba(57,255,20,.08)}
+.dl .ic{font-size:24px}
+.dl .lb{text-align:left}
+.dl .s{font-size:11px;opacity:.65}
+.dl .b{font-size:17px;font-weight:800}
+.note{margin:26px auto 0;max-width:540px;background:rgba(0,20,10,.5);border:1px solid rgba(57,255,20,.15);border-radius:12px;padding:14px 18px;font-size:13px;color:#9fe6b4;line-height:1.8;text-align:left}
+.ver{margin-top:18px;font-size:12px;color:var(--dim)}
+.ver a{color:#9fe6b4}
+.feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:54px 0 0;text-align:left}
+.f{background:rgba(0,25,12,.45);border:1px solid rgba(57,255,20,.14);border-radius:14px;padding:18px}
+.f .e{font-size:24px}
+.f .t{color:#eaffef;font-weight:800;font-size:14.5px;margin:8px 0 4px}
+.f .d{color:var(--dim);font-size:12.5px;line-height:1.6}
+.foot{margin-top:60px;font-size:12px;color:rgba(134,160,150,.6)}
+.foot a{color:#9fe6b4;text-decoration:none}
+</style></head><body>
+<canvas class="rain" id="rain"></canvas>
+<div class="wrap">
+  <div class="mark">◈ CONNECT · AI</div>
+  <h1>나만의 <b>AI 1인 기업</b>을<br/>데스크톱에서</h1>
+  <p class="sub">에이전트 팀이 분석하고, 기획하고, 코딩하고 — 사장님은 폰에서 결재만.
+  100% 내 컴퓨터에서 도는 무료 AI 비서. 자비스 보이스 탑재. 별도 프로그램 없이 모델 하나만 받으면 바로 작동.</p>
+
+  <div class="btns">
+    <a class="dl" id="dl-mac-arm" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-mac-arm64.dmg" onclick="track('mac-arm64')">
+      <span class="ic"></span><span class="lb"><span class="s">macOS · 애플 실리콘</span><br/><span class="b">Mac (M1~M5)</span></span>
+    </a>
+    <a class="dl" id="dl-mac-x64" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-mac-x64.dmg" onclick="track('mac-x64')">
+      <span class="ic"></span><span class="lb"><span class="s">macOS · 인텔</span><br/><span class="b">Mac (Intel)</span></span>
+    </a>
+    <a class="dl" id="dl-win" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-win-x64-Setup.exe" onclick="track('win-x64')">
+      <span class="ic">⊞</span><span class="lb"><span class="s">Download for</span><br/><span class="b">Windows (.exe)</span></span>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>맥</b> 🍎 애플 공증 완료 — 받아서 바로 실행돼요 (경고 없음)<br/>
+    <b>윈도우</b> ⊞ 첫 실행 시 "Windows가 PC를 보호함" → <b>추가 정보 → 실행</b> 클릭
+  </div>
+  <div class="ver">v0.3.0 · <a href="https://github.com/wonseokjung/connect-ai/releases" target="_blank" rel="noreferrer">릴리스 노트</a> · 무료</div>
+
+  <div class="feat">
+    <div class="f"><div class="e">🎯</div><div class="t">운영 사이클</div><div class="d">매출·유튜브·코드를 분석해 오늘의 작전을 제안 — 체크하면 에이전트들이 실제 파일·보고서를 만듭니다.</div></div>
+    <div class="f"><div class="e">📱</div><div class="t">폰으로 결재</div><div class="d">텔레그램으로 "운영" 한 마디. 작전 승인, 이메일 답장 결재, 자산 변화 알림까지 폰에서.</div></div>
+    <div class="f"><div class="e">🦾</div><div class="t">자비스 보이스</div><div class="d">낮고 진중한 AI 집사 톤(무료). 에이전트들끼리도 각자 다른 목소리로 대화합니다.</div></div>
+    <div class="f"><div class="e">🧠</div><div class="t">100% 로컬 + 학습</div><div class="d">내 컴퓨터에서 도는 AI. 쌓인 지식으로 월 1회 무료 클라우드 학습 — 나만의 모델로 성장.</div></div>
+  </div>
+
+  <div class="foot">© EZER AI · <a href="/remote.html">📱 폰 리모컨</a></div>
+</div>
+<script>
+// 글리프 레인
+const cv=document.getElementById('rain'),cx=cv.getContext('2d');
+function rs(){cv.width=innerWidth;cv.height=innerHeight}rs();addEventListener('resize',rs);
+const cols=()=>Math.floor(cv.width/16);let drops=Array(cols()).fill(0).map(()=>Math.random()*-cv.height);
+const ch='アイウエオ0123456789ABCDEF<>$#';
+setInterval(()=>{cx.fillStyle='rgba(2,8,4,.12)';cx.fillRect(0,0,cv.width,cv.height);cx.font='14px monospace';
+for(let i=0;i<drops.length;i++){cx.fillStyle=Math.random()>.95?'#b6ffce':'#22c55e';cx.fillText(ch[Math.floor(Math.random()*ch.length)],i*16,drops[i]);drops[i]=drops[i]>cv.height&&Math.random()>.97?0:drops[i]+15}},66);
+// OS 자동 감지 — 내 OS 버튼 강조
+const ua=navigator.userAgent;
+const id=/Windows/i.test(ua)?'dl-win':/Mac/i.test(ua)?'dl-mac-arm':'';
+if(id)document.getElementById(id).classList.add('hot');
+// 다운로드 카운트 (RTDB 이벤트 — 익명)
+function track(p){try{fetch('https://samoyed-fit-2026-jay-default-rtdb.asia-southeast1.firebasedatabase.app/cai-dl.json',{method:'POST',body:JSON.stringify({p,t:Date.now()})})}catch(e){}}
+</script>
+</body></html>

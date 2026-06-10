@@ -1,0 +1,127 @@
+<!DOCTYPE html><html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="robots" content="noindex, nofollow"/>
+<title>Connect AI — 관리자</title>
+<style>
+:root{--g:#39ff14;--bg:#020804;--card:rgba(0,30,15,.55);--bd:rgba(57,255,20,.22);--dim:#86a096}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:#d6ffe0;font-family:-apple-system,'SF Pro Display',system-ui,sans-serif;min-height:100vh;padding:26px 18px 60px;max-width:860px;margin:0 auto}
+.logo{font-weight:900;letter-spacing:2px;color:var(--g);text-shadow:0 0 16px rgba(57,255,20,.55);font-size:17px}
+.sub{color:var(--dim);font-size:12px;margin:3px 0 20px}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+.kpi{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:15px 16px}
+.kpi .l{font-size:11px;color:var(--dim);letter-spacing:1px}
+.kpi .v{font-size:26px;font-weight:900;color:#eaffef;margin-top:4px}
+.kpi .v small{font-size:12px;color:var(--g)}
+.sec{margin-top:22px}
+.h{font-size:12px;font-weight:800;letter-spacing:2px;color:#9fe6b4;text-transform:uppercase;margin-bottom:9px}
+.plat{display:flex;flex-direction:column;gap:7px}
+.pr{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.pr .n{width:110px;color:#cfeedd}
+.pr .bar{flex:1;height:9px;border-radius:99px;background:rgba(57,255,20,.08);overflow:hidden}
+.pr .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,#16a34a,#39ff14);box-shadow:0 0 10px rgba(57,255,20,.5)}
+.pr .c{width:46px;text-align:right;font-weight:800;color:#eaffef}
+.chart{display:flex;align-items:flex-end;gap:4px;height:90px;padding:8px 2px 0}
+.cb{flex:1;background:linear-gradient(180deg,#39ff14,#16a34a);border-radius:3px 3px 0 0;min-height:2px;opacity:.85;position:relative}
+.cb span{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:9px;color:var(--dim)}
+.cl{display:flex;gap:4px;font-size:9px;color:var(--dim)}
+.cl div{flex:1;text-align:center}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{font-size:10.5px;color:var(--dim);text-align:left;letter-spacing:1px;padding:6px 8px;border-bottom:1px solid var(--bd)}
+td{padding:7px 8px;border-bottom:1px solid rgba(57,255,20,.08);color:#cfeedd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px}
+.tag{font-size:10px;font-weight:800;border:1px solid var(--bd);border-radius:99px;padding:2px 8px;color:#9fe6b4}
+#login{max-width:360px;margin:80px auto;text-align:center}
+input{width:100%;background:rgba(0,16,9,.9);border:1px solid var(--bd);border-radius:10px;color:#d6ffe0;padding:13px;font-size:14px;margin:5px 0;font-family:inherit}
+button{width:100%;padding:14px;border-radius:12px;border:none;font-size:15px;font-weight:800;background:linear-gradient(135deg,#39ff14,#16a34a);color:#052;cursor:pointer;font-family:inherit;margin-top:8px}
+.err{color:#ff8a8a;font-size:12.5px;min-height:16px;margin-top:8px}
+.muted{color:var(--dim);font-size:11.5px}
+#dash{display:none}
+.top{display:flex;align-items:center;gap:10px}
+.top .sp{flex:1}
+.mini{width:auto;padding:8px 14px;font-size:12px;background:rgba(255,255,255,.06);color:var(--dim);border:1px solid rgba(255,255,255,.14)}
+</style></head><body>
+<div class="top"><div><div class="logo">✦ CONNECT AI · 관리자</div><div class="sub" id="me">다운로드·회원 현황</div></div><div class="sp"></div><button class="mini" id="rf" style="display:none">↻ 새로고침</button></div>
+
+<div id="login">
+  <div style="font-size:30px">🔐</div>
+  <div style="color:#fff;font-weight:800;font-size:18px;margin:8px 0 14px">관리자 로그인</div>
+  <input id="em" type="email" placeholder="관리자 이메일" autocomplete="username"/>
+  <input id="pw" type="password" placeholder="비밀번호" autocomplete="current-password"/>
+  <button onclick="login()">로그인</button>
+  <div class="err" id="lerr"></div>
+  <div class="muted">계정이 없으면 먼저 EZERAI에서 관리자 이메일로 가입하세요</div>
+</div>
+
+<div id="dash">
+  <div class="kpis">
+    <div class="kpi"><div class="l">총 다운로드</div><div class="v" id="kAll">0</div></div>
+    <div class="kpi"><div class="l">오늘</div><div class="v" id="kToday">0</div></div>
+    <div class="kpi"><div class="l">최근 7일</div><div class="v" id="k7">0</div></div>
+    <div class="kpi"><div class="l">회원 수</div><div class="v" id="kUsers">0</div></div>
+  </div>
+  <div class="sec"><div class="h">플랫폼별</div><div class="plat" id="plat"></div></div>
+  <div class="sec"><div class="h">최근 14일 추이</div><div class="chart" id="chart"></div><div class="cl" id="clabel"></div></div>
+  <div class="sec"><div class="h">최근 다운로드</div><div style="overflow-x:auto"><table><thead><tr><th>시간</th><th>누가</th><th>플랫폼</th><th>버전</th><th>출처</th></tr></thead><tbody id="rows"></tbody></table></div></div>
+  <div class="sec"><div class="h">회원 목록 (최근 가입순)</div><div style="overflow-x:auto"><table><thead><tr><th>가입</th><th>이름</th><th>이메일</th><th>플랜</th></tr></thead><tbody id="urows"></tbody></table></div></div>
+</div>
+
+<script>
+const K='AIzaSyAKcmDV-_1OF8XRQHLdxQcvSb7vqbrlAnU';
+const DB='https://samoyed-fit-2026-jay-default-rtdb.asia-southeast1.firebasedatabase.app';
+const $=id=>document.getElementById(id);
+let TOK=sessionStorage.caiAdminTok||'';
+const PLAT={'mac-arm64':' Mac (M1~M5)','mac-x64':' Mac (Intel)','win-x64':'⊞ Windows'};
+
+async function login(){
+  $('lerr').textContent='';
+  try{
+    const r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+K,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('em').value.trim(),password:$('pw').value,returnSecureToken:true})});
+    const j=await r.json();
+    if(!r.ok){$('lerr').textContent=({EMAIL_NOT_FOUND:'가입되지 않은 이메일',INVALID_LOGIN_CREDENTIALS:'이메일 또는 비밀번호가 틀렸어요',INVALID_PASSWORD:'비밀번호가 틀렸어요'})[(j.error&&j.error.message||'').split(':')[0]]||'로그인 실패';return;}
+    TOK=j.idToken;sessionStorage.caiAdminTok=TOK;$('me').textContent=j.email;
+    show();
+  }catch(e){$('lerr').textContent='연결 실패';}
+}
+async function get(p){const r=await fetch(DB+'/'+p+'.json?auth='+TOK);if(r.status===401||r.status===403)throw new Error('perm');return r.json();}
+function show(){$('login').style.display='none';$('dash').style.display='';$('rf').style.display='';load();}
+async function load(){
+  let all=[],users={};
+  try{
+    const [da,cd,us]=await Promise.all([get('downloads_all'),get('cai-dl'),get('users')]);
+    users=us||{};
+    for(const v of Object.values(da||{}))all.push({t:v.ts,who:v.email||v.name||v.userId,p:v.platform,ver:v.version,src:'EZERAI'});
+    for(const v of Object.values(cd||{}))all.push({t:v.t,who:'(익명)',p:v.p,ver:'-',src:'다운로드 사이트'});
+  }catch(e){
+    sessionStorage.removeItem('caiAdminTok');TOK='';
+    $('dash').style.display='none';$('login').style.display='';$('lerr').textContent='권한 없음 — 관리자 이메일로 로그인하세요 (세션 만료 포함)';return;
+  }
+  all.sort((a,b)=>(b.t||0)-(a.t||0));
+  const now=Date.now(),day=86400000,sod=new Date();sod.setHours(0,0,0,0);
+  $('kAll').textContent=all.length.toLocaleString();
+  $('kToday').textContent=all.filter(x=>x.t>=sod.getTime()).length;
+  $('k7').textContent=all.filter(x=>x.t>now-7*day).length;
+  $('kUsers').textContent=Object.keys(users).length;
+  // 플랫폼별
+  const pc={};for(const x of all)pc[x.p]=(pc[x.p]||0)+1;
+  const mx=Math.max(1,...Object.values(pc));
+  $('plat').innerHTML=Object.entries(pc).sort((a,b)=>b[1]-a[1]).map(([p,c])=>'<div class="pr"><div class="n">'+(PLAT[p]||p||'?')+'</div><div class="bar"><div class="fill" style="width:'+(c/mx*100)+'%"></div></div><div class="c">'+c+'</div></div>').join('')||'<div class="muted">아직 기록 없음</div>';
+  // 14일 차트
+  const days=[];for(let i=13;i>=0;i--){const d=new Date(sod.getTime()-i*day);days.push({k:d.getTime(),l:(d.getMonth()+1)+'/'+d.getDate(),c:0});}
+  for(const x of all){const d=days.find(dd=>x.t>=dd.k&&x.t<dd.k+day);if(d)d.c++;}
+  const cm=Math.max(1,...days.map(d=>d.c));
+  $('chart').innerHTML=days.map(d=>'<div class="cb" style="height:'+(d.c/cm*100)+'%">'+(d.c?'<span>'+d.c+'</span>':'')+'</div>').join('');
+  $('clabel').innerHTML=days.map((d,i)=>'<div>'+(i%2?'':d.l)+'</div>').join('');
+  // 최근 다운로드 30
+  const f=t=>t?new Date(t).toLocaleString('ko-KR',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'-';
+  $('rows').innerHTML=all.slice(0,30).map(x=>'<tr><td>'+f(x.t)+'</td><td>'+esc(x.who)+'</td><td>'+(PLAT[x.p]||x.p||'?')+'</td><td>'+esc(x.ver)+'</td><td><span class="tag">'+x.src+'</span></td></tr>').join('')||'<tr><td colspan="5" class="muted">아직 다운로드 기록이 없어요</td></tr>';
+  // 회원 목록
+  const ul=Object.entries(users).map(([uid,u])=>({uid,...(u||{})})).sort((a,b)=>(b.createdAt||0)-(a.createdAt||0));
+  $('urows').innerHTML=ul.slice(0,50).map(u=>'<tr><td>'+f(u.createdAt)+'</td><td>'+esc(u.name||'-')+'</td><td>'+esc(u.email||'-')+'</td><td><span class="tag">'+esc(u.plan||'free')+'</span></td></tr>').join('')||'<tr><td colspan="4" class="muted">아직 회원이 없어요</td></tr>';
+}
+function esc(s){return String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]))}
+$('rf').onclick=load;
+$('pw').addEventListener('keydown',e=>{if(e.key==='Enter')login()});
+if(TOK){show();}
+setInterval(()=>{if(TOK&&$('dash').style.display!=='none')load()},30000);
+</script></body></html>

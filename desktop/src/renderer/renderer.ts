@@ -69,11 +69,40 @@ function chime(kind: 'wake' | 'speak') {
   } catch { /* */ }
 }
 let ttsAudio: HTMLAudioElement | null = null;
+// 🦾 자비스 전자음 — 짧은 딜레이 콤필터(금속성 울림) + 하이패스(스피커 느낌). 영화 AI 보이스의 그 질감.
+let jarvisCtx: AudioContext | null = null;
+let jarvisSrc: AudioBufferSourceNode | null = null;
+async function playJarvisFx(dataUri: string): Promise<boolean> {
+  try {
+    const AC = window.AudioContext || (window as any).webkitAudioContext;
+    jarvisCtx = jarvisCtx || new AC();
+    if (jarvisSrc) { try { jarvisSrc.stop(); } catch { /* */ } }
+    const buf = await (await fetch(dataUri)).arrayBuffer();
+    const audio = await jarvisCtx.decodeAudioData(buf);
+    const src = jarvisCtx.createBufferSource(); src.buffer = audio; jarvisSrc = src;
+    const hp = jarvisCtx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 130;   // 저역 컷 = 무전기·스피커
+    const dry = jarvisCtx.createGain(); dry.gain.value = 0.8;
+    const dl = jarvisCtx.createDelay(); dl.delayTime.value = 0.013;                              // 13ms 콤필터 = 금속성
+    const wet = jarvisCtx.createGain(); wet.gain.value = 0.42;
+    const dl2 = jarvisCtx.createDelay(); dl2.delayTime.value = 0.029;                            // 2차 반사 = 홀로그램 룸톤
+    const wet2 = jarvisCtx.createGain(); wet2.gain.value = 0.16;
+    src.connect(hp);
+    hp.connect(dry); dry.connect(jarvisCtx.destination);
+    hp.connect(dl); dl.connect(wet); wet.connect(jarvisCtx.destination);
+    hp.connect(dl2); dl2.connect(wet2); wet2.connect(jarvisCtx.destination);
+    brainEnergy(0.95);
+    await new Promise<void>((res) => { src.onended = () => res(); src.start(); });
+    brainEnergy(0.14); jarvisSrc = null;
+    return true;
+  } catch { return false; }
+}
 async function speakCloud(text: string): Promise<boolean> {
   try {
     const r = await connect.ttsSpeak(text);
     if (!r || !r.ok || !r.dataUri) return false;
     if (ttsAudio) { try { ttsAudio.pause(); } catch { /* */ } }
+    // 자비스 보이스면 전자음 이펙트 체인으로 재생
+    if (/^jarvis/.test(cfg.qwenVoice || '') && await playJarvisFx(r.dataUri)) return true;
     ttsAudio = new Audio(r.dataUri);
     ttsAudio.onplay = () => brainEnergy(0.95);
     ttsAudio.onended = () => brainEnergy(0.14);
@@ -133,6 +162,7 @@ async function loadCfg() {
   ($('cfgBriefing') as HTMLInputElement).checked = cfg.briefingOn !== false;
   ($('cfgAutoSync') as HTMLInputElement).checked = cfg.autoSync !== false;
   ($('cfgEmailAuto') as HTMLInputElement).checked = !!cfg.emailAutoReply;
+  ($('cfgMonitor') as HTMLInputElement).checked = cfg.monitorOn !== false;
   ($('cfgBriefingTime') as HTMLInputElement).value = `${String(cfg.briefingHour ?? 9).padStart(2, '0')}:${String(cfg.briefingMin ?? 0).padStart(2, '0')}`;
   ($('cfgTrainUrl') as HTMLInputElement).value = cfg.trainNotebookUrl || '';
   connect.safeModeGet().then((on: boolean) => { ($('cfgSafeMode') as HTMLInputElement).checked = !!on; });
@@ -173,6 +203,7 @@ $('saveCfg').addEventListener('click', async () => {
     briefingOn: ($('cfgBriefing') as HTMLInputElement).checked,
     autoSync: ($('cfgAutoSync') as HTMLInputElement).checked,
     emailAutoReply: ($('cfgEmailAuto') as HTMLInputElement).checked,
+    monitorOn: ($('cfgMonitor') as HTMLInputElement).checked,
     briefingHour: parseInt((($('cfgBriefingTime') as HTMLInputElement).value || '09:00').split(':')[0], 10) || 9,
     briefingMin: parseInt((($('cfgBriefingTime') as HTMLInputElement).value || '09:00').split(':')[1], 10) || 0,
     trainNotebookUrl: ($('cfgTrainUrl') as HTMLInputElement).value.trim(),
@@ -181,6 +212,19 @@ $('saveCfg').addEventListener('click', async () => {
   closeOverlay('settingsPanel'); loadModels(); hint('설정을 저장했어요 ✅');
 });
 $('briefNowBtn').addEventListener('click', () => { connect.briefingRun(); closeOverlay('settingsPanel'); hint('📋 브리핑을 준비하고 있어요…'); });
+// 📱 폰 웹 리모컨 — 같은 와이파이에서 폰 브라우저로 운영 지휘 (주소 복사 + 안내)
+$('remoteBtn')?.addEventListener('click', async () => {
+  const r = await connect.remoteInfo?.().catch(() => null);
+  if (!r?.url) { hint('와이파이(네트워크)에 연결돼 있어야 해요'); return; }
+  try { await navigator.clipboard.writeText(r.url); } catch { /* */ }
+  closeOverlay('settingsPanel');
+  const webUrl = r.relay?.ready ? `https://connectai-desktop.web.app/remote.html#db=${encodeURIComponent(r.relay.db.replace(/\/+$/, ''))}&p=${encodeURIComponent(r.relay.pair)}` : '';
+  if (webUrl) { try { await navigator.clipboard.writeText(webUrl); } catch { /* */ } }   // 외부 링크가 더 유용 — 그걸 복사
+  const relay = webUrl
+    ? `\n\n🌍 어디서든(외부) — 이 링크를 폰에 보내두세요 (복사됨):\n${webUrl}\n\n홈 화면에 추가하면 진짜 리모컨처럼 쓸 수 있어요. 텔레그램 "운영"도 됩니다.`
+    : '\n\n🌍 외부 접속은 텔레그램 "운영" 명령을 쓰세요. (⚙️ 광장 DB URL을 넣으면 웹 리모컨도 활성화)';
+  addLog('📱 폰 리모컨', `같은 와이파이(집)에서는:\n${r.url}${relay}`, false, false, '#00a0ff');
+});
 $('openAiTeamBtn')?.addEventListener('click', () => { closeOverlay('settingsPanel'); openOverlay('aiPanel'); loadAiPanel(); });
 $('pickWorkspace').addEventListener('click', async () => {
   const w = await connect.pickWorkspace();
@@ -464,15 +508,27 @@ const fileIcon = (name: string): string => {
   if (/\.(zip|tar|gz|7z)$/i.test(name)) return '📦';
   return '📎';
 };
-function artsHtml(arr: string[]) {
-  if (!arr || !arr.length) return '';
+function artsHtml(ship: any) {
+  const arr: string[] = ship?.artifacts || [];
+  if (!arr.length) return '';
+  const files: string[] = ship?.files || [];
   return `<div class="cyc-arts">${arr.map(x => {
     const m = x.match(/^(\p{Extended_Pictographic}️?)\s*(.*)$/u);   // 산출물 태그 앞 이모지를 아이콘으로 분리
     const icon = m ? m[1] : fileIcon(x);
     const label = m ? m[2] : x;
-    return `<span class="cyc-art" data-icon="${icon}" title="${escapeHtml(label)}">${escapeHtml(label.split('/').pop() || label)}</span>`;
+    const name = label.split('/').pop() || label;
+    // 📄 실제 생성 파일과 매칭되면 클릭해서 열 수 있게
+    const file = files.find(f => (f.split('/').pop() || f) === name) || '';
+    return `<span class="cyc-art${file ? ' openable' : ''}" data-icon="${icon}"${file ? ` data-file="${escAttr(file)}"` : ''} title="${escapeHtml(file ? label + ' — 클릭해서 열기' : label)}">${escapeHtml(name)}</span>`;
   }).join('')}</div>`;
 }
+// 산출물 칩 클릭 → 실제 파일 오픈 (위임 — 사이클 패널 전체)
+$('opsCyclePanel')?.addEventListener('click', async (e) => {
+  const el = (e.target as HTMLElement)?.closest?.('.cyc-art.openable') as HTMLElement | null;
+  if (!el?.dataset.file) return;
+  const r = await connect.opsOpenArtifact?.(el.dataset.file);
+  hint(r?.ok ? '📄 파일을 열었어요' : (r?.reason || '파일을 못 열었어요'));
+});
 function renderCycle(s: any) {
   if (!s || $('opsCyclePanel')?.classList.contains('hidden')) return;
   $('cycleNum').textContent = '#' + (s.cycle || 1);
@@ -519,14 +575,14 @@ function renderCycle(s: any) {
       let st = '<span class="cyc-st wait">대기</span>';
       if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
       else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅ 완료</span>' : '<span class="cyc-st fail">결과 없음</span>';
-      return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship.artifacts) : ''}</div>`;
+      return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship) : ''}</div>`;
     }).join('') + feedHtml;
     foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
   } else if (s.phase === 'done') {
     const done = (s.actions || []).filter((a: any) => shipFor(s, a.title));
     const okN = done.filter((a: any) => shipFor(s, a.title)?.ok).length;
     body.innerHTML = `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">사이클 #${s.cycle} 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개</div></div>` +
-      done.map((a: any) => { const sh = shipFor(s, a.title); return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(a.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span>${artsHtml(sh.artifacts)}</div>`; }).join('');
+      done.map((a: any) => { const sh = shipFor(s, a.title); return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(a.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span>${artsHtml(sh)}</div>`; }).join('');
     foot.innerHTML = `<div class="cyc-ask">한 사이클이 끝났어요. 다음 사이클을 돌릴까요?</div><div class="cyc-foot-row"><button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button></div>`;
   } else { body.innerHTML = `<div class="cyc-loading">운영을 시작하면 오늘의 작전이 여기 떠요.</div>`; foot.innerHTML = ''; }
   // 버튼 배선
@@ -1996,6 +2052,43 @@ function greet() {
   const g = custom ? custom.replace(/\{name\}/g, agentName()).replace(/\{title\}/g, title) : `${timeHello()}, ${title}. ${agentName()}입니다. 무엇을 도와드릴까요?`;
   addLog(agentTag(), g, false, true);
 }
+// 🚀 첫 실행 온보딩 — 다운로드한 사람이 60초 안에 "우와"를 보게. 3단계: AI 켜기 → 회사 → 운영 시작
+let welTimer: any = null;
+function updateWelcome() {
+  if ($('welcomePanel').classList.contains('hidden')) return;
+  const aiOn = !!(_localStatus?.running || cfg.llmModel);
+  const coOn = !!(cfg.company && cfg.company !== '1인 기업');
+  $('welStep1').className = 'wel-step' + (aiOn ? ' done' : ' on');
+  $('welStep2').className = 'wel-step' + (coOn ? ' done' : aiOn ? ' on' : '');
+  $('welStep3').className = 'wel-step' + (aiOn && coOn ? ' on' : '');
+  const b1 = $('welAiBtn'); b1.textContent = _localStatus?.loading ? '⏳ 켜는 중…' : aiOn ? '✓ 켜짐' : '모델 받기';
+}
+function maybeShowWelcome() {
+  if (cfg.onboarded || OFFICE_MODE) return;
+  openOverlay('welcomePanel');
+  ($('welCompany') as HTMLInputElement).value = (cfg.company && cfg.company !== '1인 기업') ? cfg.company : '';
+  updateWelcome();
+  welTimer = window.setInterval(updateWelcome, 2000);   // AI 켜짐·회사 저장을 실시간 반영
+}
+function closeWelcome(done: boolean) {
+  if (welTimer) { clearInterval(welTimer); welTimer = null; }
+  closeOverlay('welcomePanel');
+  cfg.onboarded = true; connect.setConfig?.({ onboarded: true });
+  if (done) hint('🎉 준비 완료 — AI 팀이 일을 시작합니다!');
+}
+$('welAiBtn')?.addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
+$('welCompany')?.addEventListener('change', async () => {
+  const v = ($('welCompany') as HTMLInputElement).value.trim();
+  if (v) { cfg = await connect.setConfig({ company: v }); applyCfgLabels(); updateWelcome(); }
+});
+$('welGoBtn')?.addEventListener('click', async () => {
+  const v = ($('welCompany') as HTMLInputElement).value.trim();
+  if (v && v !== cfg.company) { cfg = await connect.setConfig({ company: v }); applyCfgLabels(); }
+  closeWelcome(true);
+  startOps();   // 모델이 안 켜져 있으면 startOps가 알아서 AI 패널로 안내
+});
+$('welSkip')?.addEventListener('click', () => closeWelcome(false));
+
 // 🕐 JARVIS 헤더 시계
 function startClock() {
   const el = $('hdrClock');
@@ -2025,7 +2118,8 @@ $('cfgBrainViz').addEventListener('change', (e: any) => {
 runBoot();
 loadCfg().then(async () => {
   await loadModels(); greet();
-  // 첫 실행 안내 — 두뇌 없으면 🤖 패널을 열어 추천 두뇌부터 받게 (빈 화면에서 막히지 않게)
+  // 🚀 첫 실행 = 온보딩(3단계 → 운영 시작까지). 온보딩 마친 사용자는 두뇌 없을 때만 AI 패널 안내.
+  if (!cfg.onboarded && !OFFICE_MODE) { setTimeout(() => maybeShowWelcome(), 900); return; }
   const ls = await connect.localStatus?.().catch(() => null);
   if (!ls?.running && !cfg.llmModel) setTimeout(() => { openOverlay('aiPanel'); loadAiPanel(); hint('AI 두뇌부터 받으면 팀이 일을 시작해요 — 추천 두뇌 하나 받아보세요 👇'); }, 700);
 });

@@ -131,7 +131,9 @@ contextBridge.exposeInMainWorld('connect', {
   opsExecuteSelected: (titles: string[], humanTitles?: string[]) => ipcRenderer.invoke('ops:executeSelected', titles, humanTitles || []),
   opsStop: () => ipcRenderer.invoke('ops:stop'),
   opsOpenReview: () => ipcRenderer.invoke('ops:openReview'),       // 🔗 대시보드 → 메인 창 작전 검토
+  remoteInfo: () => ipcRenderer.invoke('remote:info'),             // 📱 폰 웹 리모컨 주소
   opsClearShipped: () => ipcRenderer.invoke('ops:clearShipped'),   // 🧹 지난 기록 비우기
+  opsOpenArtifact: (rel: string) => ipcRenderer.invoke('ops:openArtifact', rel),   // 📄 산출물 파일 열기
   onOpsOpenPanel: (cb: () => void) => { const h = () => cb(); ipcRenderer.on('ops:openPanel', h); return () => ipcRenderer.removeListener('ops:openPanel', h); },
   officeBanter: () => ipcRenderer.invoke('office:banter'),   // 💬 사무실 진짜 AI 대화
   onOpsUpdate: (cb: (s: any) => void) => {

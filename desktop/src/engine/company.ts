@@ -23,7 +23,7 @@ export type EngineEvent =
   | { kind: 'final'; text: string }
   | { kind: 'error'; text: string };
 
-export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; agentModels?: Record<string, string>; getYoutube?: () => Promise<string>; sendTelegram?: (msg: string) => Promise<string>; getGithub?: () => Promise<string>; checkEmail?: () => Promise<string>; }
+export interface RunOpts { company: string; agentName?: string; userTitle?: string; workspace?: string; servicesInfo?: string; target?: Partial<LlmTarget>; signal?: AbortSignal; realtimeFor?: (agentId: string) => Promise<string>; getRevenue?: () => Promise<string>; captureScreen?: () => Promise<string | null>; readClipboard?: () => Promise<string>; openPath?: (p: string) => Promise<string>; openApp?: (name: string, url?: string) => Promise<string>; startServer?: (cmd: string) => Promise<string>; attachImages?: string[]; agentModels?: Record<string, string>; getYoutube?: () => Promise<string>; sendTelegram?: (msg: string) => Promise<string>; getGithub?: () => Promise<string>; checkEmail?: () => Promise<string>; maxIters?: number; onTerminal?: (kind: 'cmd' | 'out' | 'exit', text: string) => void; }
 const aborted = (opts: { signal?: AbortSignal }) => !!opts.signal?.aborted;
 
 // ── 네이티브 tool calling ───────────────────────────────────────────────
@@ -38,9 +38,16 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
   reg.push({ name: 'list_dir', description: '폴더의 파일·하위폴더 목록', event: 'list_dir', parameters: obj({ path: { type: 'string', description: '폴더 경로(절대 또는 작업폴더 기준)' } }, ['path']), run: async a => tl('list_dir', a.path || '.') });
   reg.push({ name: 'read_file', description: '텍스트/코드 파일 읽기(영상·이미지 등 바이너리는 불가, open_path 사용)', event: 'read_file', parameters: obj({ path: { type: 'string' } }, ['path']), run: async a => tl('read_file', a.path) });
   reg.push({ name: 'write_file', description: '파일 생성/덮어쓰기 — 코드·문서를 실제 파일로 만든다', event: 'write_file', parameters: obj({ path: { type: 'string' }, content: { type: 'string' } }, ['path', 'content']), run: async a => tl('write_file', a.path, a.content ?? '') });
-  reg.push({ name: 'run_command', description: '금방 끝나는 셸 명령 실행(설치·테스트·git 등). 계속 떠있는 개발 서버는 start_server 사용', event: 'run_command', parameters: obj({ command: { type: 'string' } }, ['command']), run: async a => tl('run_command', a.command) });
+  reg.push({ name: 'run_command', description: '금방 끝나는 셸 명령 실행(설치·테스트·git 등). 계속 떠있는 개발 서버는 start_server 사용', event: 'run_command', parameters: obj({ command: { type: 'string' } }, ['command']), run: async a => {
+    // ⌨️ 에이전트가 치는 명령이 앱 터미널에 그대로 보인다 — 일하는 게 투명하게
+    opts.onTerminal?.('cmd', `$ ${a.command}`);
+    const r = tl('run_command', a.command);
+    opts.onTerminal?.(r.ok ? 'out' : 'exit', (r.text || '').slice(0, 2000));
+    return r;
+  } });
   reg.push({ name: 'find_files', description: '이름으로 내 컴퓨터에서 파일 검색(바탕화면·문서·다운로드·동영상·음악·사진)', event: 'find', parameters: obj({ query: { type: 'string' } }, ['query']), run: async a => tl('find', a.query) });
-  if (opts.openPath) reg.push({ name: 'open_path', description: '파일·앱·URL을 기본 프로그램으로 열기/실행/재생(영상·이미지·음악·문서·웹)', event: 'open', parameters: obj({ target: { type: 'string', description: '경로 또는 URL' } }, ['target']), run: async a => { const r = await opts.openPath!(a.target); return { text: r, ok: !/실패/.test(r), path: a.target }; } });
+  if (opts.openPath) reg.push({ name: 'open_path', description: '파일·URL을 기본 프로그램으로 열기/실행/재생(영상·이미지·음악·문서·웹)', event: 'open', parameters: obj({ target: { type: 'string', description: '경로 또는 URL' } }, ['target']), run: async a => { const r = await opts.openPath!(a.target); return { text: r, ok: !/실패/.test(r), path: a.target }; } });
+  if (opts.openApp) reg.push({ name: 'open_app', description: '컴퓨터의 앱을 이름으로 실행한다 — 크롬·사파리·파인더(탐색기)·메모장·카카오톡 등. url을 주면 그 앱으로 그 주소를 연다. "크롬 열어서 구글 들어가" = open_app(name:"크롬", url:"https://google.com")', event: 'open_app', parameters: obj({ name: { type: 'string', description: '앱 이름(한국어 OK — 크롬, 파인더, 메모장…)' }, url: { type: 'string', description: '같이 열 주소(선택)' } }, ['name']), run: async a => { const r = await opts.openApp!(a.name, a.url); return { text: r, ok: !/실패/.test(r), path: `${a.name}${a.url ? ' → ' + String(a.url).slice(0, 30) : ''}` }; } });
   if (opts.startServer) reg.push({ name: 'start_server', description: '개발 서버·로컬호스트 실행(npm run dev·vite·flask·python -m http.server 등) — 백그라운드로 띄우고 브라우저를 자동으로 연다. ⚠️ 정적 웹사이트는 반드시 write_file로 index.html을 먼저 만든 뒤에 호출할 것(빈 폴더를 serve하면 "Directory listing"만 뜬다).', event: 'serve', parameters: obj({ command: { type: 'string' } }, ['command']), run: async a => { const r = await opts.startServer!(a.command); return { text: r, ok: !/실패/.test(r), path: a.command }; } });
   reg.push({ name: 'web_search', description: '웹 검색(최신 정보·리서치)', event: 'web_search', parameters: obj({ query: { type: 'string' } }, ['query']), run: async a => { const r = await webSearch(a.query); return { text: r, ok: true, path: a.query }; } });
   reg.push({ name: 'fetch_url', description: '웹페이지 내용 읽기', event: 'fetch_url', parameters: obj({ url: { type: 'string' } }, ['url']), run: async a => { const r = await fetchUrl(a.url); return { text: r, ok: !r.startsWith('('), path: a.url }; } });
@@ -69,13 +76,14 @@ async function buildRegistry(opts: RunOpts, workspace: string, target: LlmTarget
 }
 
 function nativeGuide(workspace: string): string {
-  return `\n\n## 도구 사용 (매우 중요)\n너는 함수(도구)를 직접 호출할 수 있다. 파일 읽기/쓰기, 명령 실행, 개발 서버 실행(start_server), 파일 검색, 웹 검색, 화면 보기, 매출 확인 등은 반드시 해당 도구를 호출해서 실제로 수행해라.\n- "지금 만들겠습니다 / 잠시만 기다려 주세요" 같은 예고만 하고 끝내지 마라. 만들라고 하면 그 턴에서 바로 write_file 등을 호출해라.\n- 웹사이트/앱을 만들면 순서를 반드시 지켜라: ① write_file 로 index.html(+css/js)을 실제로 만든다 → ② start_server 로 띄운다. 파일 없이 start_server만 하면 빈 폴더라 아무것도 안 보인다. "만들었다"고만 말하고 실제로 write_file을 안 하는 것은 거짓 보고다.\n- 작업 폴더 = ${workspace} (상대경로는 이 기준). 도구를 다 쓴 뒤 사용자에게 한국어로 자연스럽게 보고해라.
+  return `\n\n## 도구 사용 (매우 중요)\n너는 함수(도구)를 직접 호출할 수 있다. 파일 읽기/쓰기, 명령 실행, 개발 서버 실행(start_server), 파일 검색, 웹 검색, 화면 보기, 매출 확인 등은 반드시 해당 도구를 호출해서 실제로 수행해라.\n- ⚠️ 절대 규칙: 도구를 호출하지 않았으면 "열었습니다/했습니다/완료했습니다"라고 말하지 마라. 그건 거짓 보고다. 행동 요청 = 그 턴에 즉시 도구 호출. 못 하면 "못 한다"고 말해라.\n- 앱·브라우저·폴더 열기는 진짜로 된다: "크롬 열어서 구글 들어가" → open_app(name:"크롬", url:"https://google.com"). "탐색기/파인더 열어" → open_app(name:"파인더"). 파일·URL은 open_path.\n- 더 깊은 컴퓨터 제어(창 조작·키 입력·시스템 설정)는 run_command로 가능하다 — macOS는 osascript(AppleScript), 예: run_command("osascript -e 'tell app \\"System Events\\" to keystroke \\"hello\\"'").\n- "지금 만들겠습니다 / 잠시만 기다려 주세요" 같은 예고만 하고 끝내지 마라. 만들라고 하면 그 턴에서 바로 write_file 등을 호출해라.\n- 중간에 "이대로 진행할까요?"라고 묻고 멈추지 마라 — 요청받은 일은 끝까지 완수하고 결과를 보고해라. (단, 돈·발송·배포는 request_approval)\n- 한글 이름 폴더에서 npm init이 실패하면 write_file로 package.json을 직접 만들어라(name은 영문 "app"). npm install·node 실행은 한글 폴더에서도 잘 된다.\n- 웹사이트/앱을 만들면 순서를 반드시 지켜라: ① write_file 로 index.html(+css/js)을 실제로 만든다 → ② start_server 로 띄운다. 파일 없이 start_server만 하면 빈 폴더라 아무것도 안 보인다. "만들었다"고만 말하고 실제로 write_file을 안 하는 것은 거짓 보고다.\n- 작업 폴더 = ${workspace} (상대경로는 이 기준). 도구를 다 쓴 뒤 사용자에게 한국어로 자연스럽게 보고해라.
 
 ## 함수 호출이 안 되는 모델이면 (대체 문법 — 중요)
 네가 함수(tool_calls)를 못 부르는 모델이면, 답변 안에 아래 태그를 그대로 출력해라(설명 말고 태그 자체를 적으면 실제로 실행된다):
 - 파일 생성: <write_file path="index.html">파일 내용 전체</write_file>
 - 명령 실행: <run>npm install</run>
 - 개발 서버: <serve>npm run dev</serve>  (서버는 <run> 말고 반드시 <serve>)
+- 앱 실행: <open_app>크롬|https://google.com</open_app>  (이름|주소, 주소는 선택)
 - 웹 검색: <web_search>검색어</web_search> · 페이지 읽기: <fetch_url>주소</fetch_url>
 - 매출 확인: <revenue/> · 화면 보기: <screenshot/>
 - 메일(승인 후 발송): <approve do="email">설명 | 받는사람@메일 | 제목 | 본문</approve>
@@ -94,6 +102,7 @@ function parseTextTools(text: string): { name: string; args: any }[] {
   for (const [tag, name, key] of simple) { const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'g'); while ((m = re.exec(text))) out.push({ name, args: { [key]: m[1].trim() } }); }
   const reRun = /<run>([\s\S]*?)<\/run>/g; while ((m = reRun.exec(text))) out.push({ name: 'run_command', args: { command: m[1].trim() } });
   const reSrv = /<serve(?:_server)?>([\s\S]*?)<\/serve(?:_server)?>/g; while ((m = reSrv.exec(text))) out.push({ name: 'start_server', args: { command: m[1].trim() } });
+  const reApp = /<open_app>([\s\S]*?)<\/open_app>/g; while ((m = reApp.exec(text))) { const [nm, url] = m[1].split('|').map(s => s.trim()); out.push({ name: 'open_app', args: { name: nm, url: url || undefined } }); }
   if (/<revenue[\s>/]/.test(text)) out.push({ name: 'get_revenue', args: {} });
   if (/<screenshot[\s>/]/.test(text)) out.push({ name: 'capture_screen', args: {} });
   if (/<clipboard[\s>/]/.test(text)) out.push({ name: 'read_clipboard', args: {} });
@@ -126,7 +135,9 @@ export async function agentWithTools(history: ChatTurn[], userText: string, opts
     : { role: 'user', content: userText };
   const messages: ChatMessage[] = [{ role: 'system', content: sys }, ...history.map(h => ({ role: h.role, content: h.content } as ChatMessage)), lastUser];
   let finalText = '';
-  for (let iter = 0; iter < 8; iter++) {
+  const MAX_ITERS = Math.max(4, Math.min(24, opts.maxIters || 12));   // 진짜 코딩 = 쓰기→실행→고치기 반복이 필요
+  let totalToolCalls = 0, lieNudged = false;   // 🚫 거짓 보고 게이트 — 도구 0회인데 "했습니다" 보고를 코드로 잡는다
+  for (let iter = 0; iter < MAX_ITERS; iter++) {
     if (aborted(opts)) { onEvent({ kind: 'final', text: '⏹️ 중단했어요.' }); return ''; }
     onEvent({ kind: 'status', text: iter === 0 ? `${name} 생각 중…` : `${name}가 이어서 작업 중…` });
     let res: { content: string; reasoning: string; toolCalls: ToolUse[]; message: any };
@@ -138,7 +149,20 @@ export async function agentWithTools(history: ChatTurn[], userText: string, opts
     const native = res.toolCalls.length > 0;
     // 태그 폴백은 content + reasoning 둘 다 훑음 (도구호출이 reasoning 안에 묻히는 모델 대비)
     const invocations = native ? res.toolCalls : parseTextTools(`${res.content || ''}\n${res.reasoning || ''}`).map((c, i) => ({ id: `t${iter}_${i}`, name: c.name, args: c.args }));
-    if (!invocations.length) { finalText = stripTools(res.content || '').trim() || '(완료)'; onEvent({ kind: 'final', text: finalText }); return finalText; }
+    if (!invocations.length) {
+      finalText = stripTools(res.content || '').trim() || '(완료)';
+      // 🚫 거짓 보고 게이트(코드 레벨) — 이번 실행에서 도구를 한 번도 안 썼는데 "열었/만들었/했습니다"라고 보고하면
+      //    프롬프트에 안 맡기고 시스템이 잡아서 강제로 다시 시킨다 (1회).
+      if (totalToolCalls === 0 && !lieNudged && iter < MAX_ITERS - 1
+        && /(열었|만들었|실행했|완료했|띄웠|보냈|저장했|생성했|켰)(어요|습니다|음)/.test(finalText)) {
+        lieNudged = true;
+        messages.push({ role: 'assistant', content: res.content || '' });
+        messages.push({ role: 'user', content: '⚠️ 방금 "했다"고 보고했지만 실제 도구 호출이 0회였다 — 거짓 보고다. 지금 즉시 해당 도구(open_app·open_path·write_file·run_command 등)를 호출해서 실제로 수행해라. 못 하는 일이면 솔직하게 못 한다고 말해라.' });
+        continue;
+      }
+      onEvent({ kind: 'final', text: finalText }); return finalText;
+    }
+    totalToolCalls += invocations.length;
 
     messages.push(native ? res.message : { role: 'assistant', content: res.content || '' });
     const results: string[] = [];
@@ -202,7 +226,7 @@ async function execWebTools(text: string, onEvent: (e: EngineEvent) => void): Pr
 
 // 🧑‍🔧 specialist 도구 루프 — 동료(디자이너 등)가 직접 MCP·파일·실행 도구를 쓰며 일한다
 // 에이전트 → 분야 두뇌 매핑. 각 전문가는 자기 분야 지식을 우선해서 본다(point 2: 에이전트별 두뇌).
-const AGENT_CATEGORY: Record<string, Category> = { youtube: 'marketing', instagram: 'marketing', writer: 'marketing', researcher: 'marketing', designer: 'design', developer: 'coding', business: 'business', secretary: 'general', editor: 'general' };
+export const AGENT_CATEGORY: Record<string, Category> = { youtube: 'marketing', instagram: 'marketing', writer: 'marketing', researcher: 'marketing', designer: 'design', developer: 'coding', business: 'business', secretary: 'general', editor: 'general' };
 
 async function runSpecialist(target: LlmTarget, id: string, company: string, brief: string, rt: string, workspace: string, mcpBlock: string, onEvent: (e: EngineEvent) => void, signal?: AbortSignal, title = '사장님'): Promise<string> {
   let rag = '';

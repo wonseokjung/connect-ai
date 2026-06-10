@@ -5,7 +5,8 @@ import axios from 'axios';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { talkToMyAgent, agentWithTools, ChatTurn } from './engine/company';
+import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY } from './engine/company';
+import { search as brainSearch } from './engine/brain';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
@@ -32,6 +33,8 @@ import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
 import { AGENTS, AGENT_ORDER } from './agents';
 import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, PlazaSession, PlazaMessage } from './plaza';
+import { startRemote, remoteInfo } from './engine/remote';
+import { startRelay, relayPush, RelayDeps } from './engine/relay';
 
 interface Service { id: string; name: string; url: string; desc: string }
 interface Config {
@@ -48,6 +51,9 @@ interface Config {
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
   voiceQuality: string;   // 🔊 'browser'(기본·빠름) | 'qwen'(Qwen3-TTS 고품질·클라우드)
   officeVoice?: boolean;  // 🎭 사무실 에이전트 음성 대화 (자비스처럼 서로 말함)
+  monitorOn?: boolean;    // 🛰️ 상시 자산 감시 (구독·매출·커밋·메일 변화 → 폰 보고)
+  onboarded?: boolean;    // 🚀 첫 실행 온보딩 완료 여부
+  remotePair?: string;    // 🌍 외부 리모컨 페어링 코드 (RTDB 릴레이 경로)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
   ttsLocalUrl: string;    // 🖥️ 로컬 Qwen3-TTS 서버 주소 (완전 로컬·무료)
   localModelPath: string; // 🧠 내장 추론 모델(GGUF) 경로 — 있으면 LM Studio 없이 앱이 직접 실행
@@ -262,6 +268,11 @@ async function runBriefing(manual = false) {
     win?.webContents.send('briefing:show', text);
     const firstLine = text.replace(/[#*`]/g, '').split('\n').filter(Boolean)[0] || '오늘의 브리핑이 도착했어요.';
     notify('📋 아침 브리핑', firstLine.slice(0, 120));
+    // 📱 폰으로도 — 브리핑 보내고 곧장 오늘의 작전 제안까지 (아침에 번호만 답하면 회사가 돈다)
+    const cc = loadConfig();
+    if (cc.telegramToken && cc.telegramChatId) {
+      tgSend(`📋 아침 브리핑\n\n${text.replace(/[#*`]/g, '').slice(0, 1500)}`).then(() => tgRunOps()).catch(() => undefined);
+    }
   } finally { briefingBusy = false; }
 }
 function notify(title: string, body: string) { try { if (Notification.isSupported()) new Notification({ title, body, silent: false }).show(); } catch { /* */ } }
@@ -293,7 +304,10 @@ app.whenReady().then(() => {
   if (opsState.executing || opsState.phase === 'executing') { opsState.executing = false; opsState.phase = opsState.actions.length ? 'review' : 'idle'; }
   setInterval(tgTick, 3000);   // 📲 텔레그램 결재 브리지 폴링(승인 푸시 + 답장 처리)
   setInterval(() => { mailTick().catch(() => {}); }, 60000);   // 📥 이메일 자동 답장 폴링(60초)
+  setInterval(() => { monitorTick().catch(() => { /* */ }); }, 60 * 60 * 1000);   // 🛰️ 자산 감시(1시간) — 변화를 폰으로
+  setTimeout(() => { monitorTick().catch(() => { /* */ }); }, 90 * 1000);          // 시작 90초 후 첫 스냅샷
   startConnectBridge();   // 🔌 EZERAI ↔ Connect AI 두뇌 브릿지 (:4825)
+  startPhoneRemote();     // 📱 폰 웹 리모컨 (:4830) — 같은 와이파이에서 브라우저로 지휘
   // 🧠 내장 추론 엔진 — 설정에 모델이 있으면 부팅 시 자동 시작(LM Studio 없이 동작)
   setTimeout(() => { const c = loadConfig(); if (c.localAuto && c.localModelPath && fs.existsSync(c.localModelPath)) bootLocalEngine(c.localModelPath); }, 1500);
   setTimeout(setupAutoUpdate, 4000);   // ⬆️ 자동 업데이트 체크(부팅 4초 후)
@@ -477,6 +491,7 @@ const opsBroadcast = () => {
   try { win?.webContents.send('ops:update', s); } catch { /* */ }
   try { if (revenueWin && !revenueWin.isDestroyed()) revenueWin.webContents.send('ops:update', s); } catch { /* */ }
   try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('ops:update', s); } catch { /* */ }   // 🏢 사무실 창에도 — 캐릭터 옆에서 작업 로그가 흐른다
+  try { relayPush(remoteDeps); } catch { /* */ }   // 🌍 외부 폰 리모컨(RTDB)에도 즉시 반영
 };
 const opsEmit = () => { opsBroadcast(); if (revenueWin && !revenueWin.isDestroyed()) loadRevenue(); };
 // 가벼운 즉시 전송 — 도구 사용 한 번마다 호출해도 부담 없게(데이터 재수집 없이 상태만)
@@ -623,7 +638,7 @@ function buildAgentInstr(agent: string, title: string, context: { notes?: string
     youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → ${dir}/youtube_기획안.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
     instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → ${dir}/인스타_콘텐츠.md.`,
     designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → ${dir}/디자인_가이드.md.`,
-    developer: `${base}너는 시니어 풀스택 개발자(코다리)야.\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 완전히 작동하는 자동화 스크립트·코드를 write_file로 작성한 뒤 → ${dir}/script.py 또는 .js\n③ 가능하면 run_command로 실제 실행·테스트까지 해서 결과를 확인해라. 에러가 나면 고쳐서 다시 실행해라.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
+    developer: `${base}너는 시니어 풀스택 개발자(코다리)야. 데모가 아니라 실제로 돌아가는 걸 만든다.\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 프로젝트는 폴더로 구성해라 → ${dir}/프로젝트명/ 안에 여러 파일(코드+README.md). 단일 스크립트면 ${dir}/script.py 또는 .js\n③ 반드시 run_command로 실행·테스트해라. 에러가 나면 read_file로 코드를 다시 보고 고쳐서 재실행 — 통과할 때까지 반복(이게 네 일의 핵심).\n④ 웹앱이면 write_file로 index.html을 만들고 start_server로 띄워 브라우저로 확인까지.\n⑤ 외부 패키지가 필요하면 run_command("pip install …" 또는 "npm init -y && npm install …")를 먼저.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
     business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → ${dir}/사업전략.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
     secretary: `${base}너는 비서(영숙)야.\n① get_tasks로 태스크 보드를 먼저 확인하고, 끝난 건 complete_task로 정리해라.\n② check_email로 안 읽은 메일을 확인하고(미연결이면 생략), 중요한 건 요약해라.\n③ 오늘의 현황·우선순위를 write_file로 정리하고 → ${dir}/오늘브리핑.md, 핵심만 send_telegram으로 사장님께 보고해라.\n④ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
     editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → ${dir}/사운드_가이드.md.`,
@@ -638,14 +653,25 @@ let opsExecAbort: AbortController | null = null;
 async function executeOne(c: Config, a: OpsAction, prior: OpsShip[] = []): Promise<OpsShip> {
   opsExecAbort = new AbortController();
   opsState.executingTitle = a.title; opsState.activity = a.title; opsEmit();
-  const opts = buildRunOpts(c, opsExecAbort.signal);
-  const notes = allNotes().slice(-5).map(n => n.text.slice(0, 80)).join(' / ');
+  const opts = { ...buildRunOpts(c, opsExecAbort.signal), maxIters: 16 };   // 진짜 코딩·리서치는 루프가 길어야 한다
+  // 🧠 분야별 RAG — 이 작전과 관련된 내 지식을 골라서 (전체 최근 5개가 아니라, 작전 내용으로 검색)
+  let notes = '';
+  try {
+    const found = brainSearch(a.title, 4, undefined, AGENT_CATEGORY[a.agent]);
+    notes = found.map(n => n.text.replace(/\s+/g, ' ').slice(0, 110)).join(' / ');
+  } catch { /* */ }
+  if (!notes) notes = allNotes().slice(-3).map(n => n.text.slice(0, 80)).join(' / ');
   const services = c.services.map(s => s.name).join(', ');
   // 🔗 파이프라인 — 같은 사이클에서 동료가 방금 만든 산출물을 받아 이어서 작업한다
   const pipe = prior.filter(p => p.ok && (p.files || []).length)
     .map(p => `- ${AGENTS[p.agent]?.name || p.agent}가 "${p.title.slice(0, 50)}" 완료 → 파일: ${(p.files || []).join(', ')}`).join('\n');
+  // 🛡️ 민감 작전 결재 게이트 — 라벨만이 아니라 실제 지시로
+  const riskGate = a.risk && a.risk !== 'safe'
+    ? `\n\n[⚠️ 민감 작전] 이 작전에는 ${a.risk === 'money' ? '돈(결제·환불·가격변경)' : a.risk === 'post' ? '외부 발송(메일·게시·업로드)' : '배포(deploy·push·릴리즈)'}이 포함될 수 있다. 그 단계는 절대 직접 실행하지 말고 request_approval로 결재를 올려라(분석·초안·파일 작성까지는 자유).`
+    : '';
   const instr = buildAgentInstr(a.agent, a.title, { notes, services })
-    + (pipe ? `\n\n[같은 사이클에서 동료가 방금 만든 산출물 — 관련 있으면 read_file로 읽고 이어받아 작업해라]\n${pipe}` : '');
+    + (pipe ? `\n\n[같은 사이클에서 동료가 방금 만든 산출물 — 관련 있으면 read_file로 읽고 이어받아 작업해라]\n${pipe}` : '')
+    + riskGate;
   const artifacts: string[] = []; const files: string[] = []; const seen = new Set<string>();
   const base = (p: string) => (p || '').split('/').pop() || (p || '');
   // 🔴 라이브 피드 — 도구 한 번 쓸 때마다 화면에 실시간으로 (일하는 게 보인다)
@@ -655,7 +681,7 @@ async function executeOne(c: Config, a: OpsAction, prior: OpsShip[] = []): Promi
   };
   const FEED_LABEL: Record<string, [string, string]> = {
     write_file: ['📄', '파일 생성'], read_file: ['📖', '파일 읽기'], list_dir: ['📂', '폴더 확인'], find: ['🔎', '파일 검색'],
-    run_command: ['⚡', '명령 실행'], serve: ['🖥️', '서버 실행'], open: ['🖥️', '열기'],
+    run_command: ['⚡', '명령 실행'], serve: ['🖥️', '서버 실행'], open: ['🖥️', '열기'], open_app: ['🖥️', '앱 실행'],
     web_search: ['🔍', '웹 검색'], fetch_url: ['🔗', '페이지 읽기'],
     revenue: ['💰', '매출 데이터 조회'], youtube: ['📺', '채널 데이터 조회'], github: ['💻', '깃허브 커밋 조회'], email_in: ['📥', '메일함 확인'],
     tasks: ['📋', '할 일 목록 확인'], task_done: ['☑️', '할 일 완료 처리'],
@@ -704,7 +730,8 @@ ipcMain.handle('ops:nextCycle', async () => {
   return await runOperation();
 });
 // ②→③ 사람이 고른 작전 수행 — 🙋 사장님 몫은 태스크 보드 등록, 🤖 에이전트 몫은 파이프라인으로 하나씩
-ipcMain.handle('ops:executeSelected', async (_e, titles: string[], humanTitles: string[] = []) => {
+// (앱 UI와 📱 텔레그램 원격 운영이 같은 함수를 쓴다)
+async function doExecuteSelected(titles: string[], humanTitles: string[] = []): Promise<OpsState> {
   if (opsState.executing) return opsPublic();
   const set = new Set(titles || []);
   const humanSet = new Set(humanTitles || []);
@@ -739,12 +766,24 @@ ipcMain.handle('ops:executeSelected', async (_e, titles: string[], humanTitles: 
     }
   } finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsExecAbort = null; opsState.phase = 'done'; saveOpsState(); opsEmit(); }
   return opsPublic();
-});
+}
+ipcMain.handle('ops:executeSelected', (_e, titles: string[], humanTitles: string[] = []) => doExecuteSelected(titles, humanTitles));
 ipcMain.handle('ops:status', () => opsPublic());
 // 🔗 대시보드 → 메인 창 작전 검토 열기 (창 사이 단절 제거)
 ipcMain.handle('ops:openReview', () => { try { win?.show(); win?.focus(); win?.webContents.send('ops:openPanel'); } catch { /* */ } return true; });
 // 🧹 지난 산출물 기록 비우기 — 옛 실패 기록이 화면을 어지럽히지 않게
 ipcMain.handle('ops:clearShipped', () => { opsState.shipped = []; saveOpsState(); opsEmit(); return opsPublic(); });
+// 📄 산출물 열기 — 사이클 화면의 파일 칩 클릭 → 실제 파일이 기본 프로그램으로 열린다
+ipcMain.handle('ops:openArtifact', (_e, rel: string) => {
+  try {
+    const c = loadConfig(); const ws = c.workspace || defaultWorkspace();
+    let p = String(rel || '').replace(/^~(?=\/|$)/, os.homedir());
+    if (!path.isAbsolute(p)) p = path.join(ws, p);
+    if (!fs.existsSync(p)) return { ok: false, reason: '파일을 찾을 수 없어요 (이동·삭제됐을 수 있음)' };
+    shell.openPath(p);
+    return { ok: true };
+  } catch (e: any) { return { ok: false, reason: e?.message || String(e) }; }
+});
 ipcMain.handle('ops:stop', () => { opsState.running = false; opsState.executing = false; opsState.phase = 'idle'; opsState.activity = ''; opsState.executingTitle = ''; opsExecAbort?.abort(); saveOpsState(); opsEmit(); return opsPublic(); });
 // 💬 사무실 진짜 대화 — 현황(매출·작전·방금 한 일)을 반영해 캐릭터별 짧은 대사를 AI가 생성
 // 개선: 각 에이전트의 성격·역할·최근 업무를 깊게 반영해 더 생생한 대화로
@@ -841,9 +880,14 @@ ipcMain.handle('open:external', (_e, url: string) => { try { if (/^https?:\/\//.
 ipcMain.handle('tts:speak', async (_e, text: string) => {
   const c = loadConfig();
   // 🔊 무료 고품질 — MS Edge 신경망 (키·GPU 불필요)
-  // 🦾 자비스 톤 — 영화처럼 낮고 진중한 집사 AI. (배우 음성 자체는 불가 — 가장 근접한 무료 조합)
-  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis') return await edgeTTS('en-US-AndrewMultilingualNeural', text, { pitch: '-16Hz', rate: '-8%' });        // 딥·차분 (한국어 OK)
-  if (c.voiceQuality === 'edge' && c.qwenVoice === 'jarvis-uk') return await edgeTTS('en-GB-RyanNeural', text, { pitch: '-6Hz', rate: '-5%' });                    // 영국 정통 억양 (영어 최적)
+  // 🦾 자비스 스마트 라우팅 — 한국어 문장은 한국어 잘하는 딥 보이스(Andrew), 영어 문장은 영화급 영국 집사(Kokoro 로컬 → 없으면 Ryan UK)
+  if (c.voiceQuality === 'edge' && /^jarvis/.test(c.qwenVoice || '')) {
+    const hangul = (text.match(/[가-힣]/g) || []).length;
+    const alpha = (text.match(/[A-Za-z가-힣]/g) || []).length || 1;
+    if (hangul / alpha > 0.25) return await edgeTTS('ko-KR-InJoonNeural', text, { pitch: '-14Hz', rate: '+6%' });   // 한국어 — 네이티브 딥 톤, 빠릿하게
+    if (c.ttsLocalUrl) { const r = await localTTS(c.ttsLocalUrl, text, 'jarvis-local'); if (r.ok) return r; }                    // 영어 — 로컬 Kokoro 집사(최고)
+    return await edgeTTS('en-GB-RyanNeural', text, { pitch: '-6Hz', rate: '-5%' });                                              // 영어 — 영국 정통(서버 없을 때)
+  }
   if (c.voiceQuality === 'edge') return await edgeTTS(c.qwenVoice || 'ko-KR-SunHiNeural', text);
   if (c.voiceQuality !== 'qwen') return { ok: false, skip: true };
   // Qwen — 로컬 서버 있으면 로컬(무료), 없으면 Replicate(클라우드)
@@ -910,7 +954,15 @@ function portFromCmd(cmd: string): number | null {
 // 개발 서버 — 터미널에서 실행(자동 표시) + URL 감지해서 브라우저 자동 오픈. ⏹/Ctrl+C로 중지.
 function startServer(rawCmd: string, ws: string): Promise<string> {
   return new Promise((resolve) => {
-    const cmd = normalizeCmd(rawCmd);
+    let cmd = normalizeCmd(rawCmd);
+    // 🛡️ 모델이 명령 대신 파일명("index.html")을 넘기는 실수 자동 교정 → 정적 서버 띄우고 그 파일을 연다
+    let serveFile = '';
+    const fm = cmd.trim().match(/^(?:serve\s+|open\s+)?["']?([\w가-힣 ./-]*\.(?:html?|htm))["']?$/i);
+    if (fm) {
+      serveFile = fm[1].replace(/^\.\//, '').trim();
+      const py = process.platform === 'win32' ? 'python' : 'python3';
+      cmd = `${py} -m http.server 8080`;
+    }
     // 🛡️ npm/yarn 명령인데 package.json이 없으면 → 실행 전에 차단 (터미널 에러 도배 방지 + 에이전트 자가수정 유도)
     if (/^(npm|yarn|pnpm|npx)\s/i.test(cmd.trim())) {
       try {
@@ -928,7 +980,7 @@ function startServer(rawCmd: string, ws: string): Promise<string> {
     const child = spawnInTerminal(cmd, ws);
     if (!child) return resolve('서버 실행 실패');
     let out = '', done = false;
-    const open = (port: string | number, note: string) => { if (done) return; done = true; const url = `http://localhost:${port}`; shell.openExternal(url); resolve(`✅ ${note}: ${url}\n(터미널에서 실행 중 — ⏹ 또는 Ctrl+C로 중지)${warn}`); };
+    const open = (port: string | number, note: string) => { if (done) return; done = true; const url = `http://localhost:${port}${serveFile ? '/' + encodeURI(serveFile) : ''}`; shell.openExternal(url); resolve(`✅ ${note}: ${url}\n(터미널에서 실행 중 — ⏹ 또는 Ctrl+C로 중지)${warn}`); };
     const scan = (buf: Buffer) => {
       out += buf.toString('utf8');
       const m = out.match(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d+)/i) || out.match(/port\s+(\d{2,5})/i);
@@ -936,7 +988,15 @@ function startServer(rawCmd: string, ws: string): Promise<string> {
     };
     child.stdout?.on('data', scan);
     child.stderr?.on('data', scan);
-    child.on('exit', (code) => { if (!done) { done = true; resolve(`서버가 종료됐어요(코드 ${code}). 명령이 잘못됐을 수 있어요.\n로그: ${out.slice(-400) || '(출력 없음)'}\n💡 정적 사이트면 python3 -m http.server ${wantPort || 8000} 를 시도해 보세요.`); } });
+    child.on('exit', (code) => {
+      if (done) return; done = true;
+      // 정적 파일이 목적이었으면 서버가 죽어도 파일을 직접 열어준다 (사용자는 결과를 본다)
+      if (serveFile) {
+        const abs = path.isAbsolute(serveFile) ? serveFile : path.join(ws, serveFile);
+        if (fs.existsSync(abs)) { shell.openPath(abs); return resolve(`서버 대신 파일을 직접 열었어요: ${abs} (브라우저에 표시됨)`); }
+      }
+      resolve(`서버가 종료됐어요(코드 ${code}). 명령이 잘못됐을 수 있어요.\n로그: ${out.slice(-400) || '(출력 없음)'}\n💡 정적 사이트면 python3 -m http.server ${wantPort || 8000} 를 시도해 보세요.`);
+    });
     setTimeout(() => { if (!done) open(wantPort || 3000, '서버 실행 중 — 브라우저를 열었어요'); }, 4500);
   });
 }
@@ -990,6 +1050,29 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
       return err ? `열기 실패: ${err}` : `✅ 열었어요: ${t}`;
     } catch (e: any) { return `열기 실패: ${e?.message || e}`; }
   };
+  // 🖥️ 앱 실행 — "크롬 열어서 구글 들어가"가 진짜로 된다 (한국어 이름 매핑 + 맥/윈도우 분기)
+  const openApp = async (name: string, url?: string): Promise<string> => {
+    const mac = process.platform === 'darwin';
+    const n = (name || '').trim().toLowerCase().replace(/\s+/g, '');
+    const ALIAS: Record<string, string> = mac
+      ? { 크롬: 'Google Chrome', chrome: 'Google Chrome', 구글크롬: 'Google Chrome', 사파리: 'Safari', safari: 'Safari', 파인더: 'Finder', 탐색기: 'Finder', 익스플로러: 'Finder', finder: 'Finder', 메모장: 'TextEdit', 메모: 'Notes', 노트: 'Notes', 캘린더: 'Calendar', 달력: 'Calendar', 카카오톡: 'KakaoTalk', 카톡: 'KakaoTalk', 터미널: 'Terminal', 계산기: 'Calculator', 음악: 'Music', 사진: 'Photos', 메일: 'Mail', 유튜브: '', 슬랙: 'Slack', 노션: 'Notion', 줌: 'zoom.us', vscode: 'Visual Studio Code', 브이에스코드: 'Visual Studio Code' }
+      : { 크롬: 'chrome', chrome: 'chrome', 엣지: 'msedge', edge: 'msedge', 탐색기: 'explorer', 익스플로러: 'explorer', 파인더: 'explorer', 메모장: 'notepad', 계산기: 'calc', 터미널: 'cmd', 카카오톡: 'KakaoTalk', 카톡: 'KakaoTalk' };
+    const app = ALIAS[n] !== undefined ? ALIAS[n] : (name || '').trim();
+    const u = (url || '').trim();
+    const link = u && !/^https?:\/\//i.test(u) ? `https://${u}` : u;
+    try {
+      if (!app && link) { shell.openExternal(link); return `✅ 기본 브라우저로 열었어요: ${link}`; }   // 앱 이름이 사이트면(유튜브 등) 브라우저로
+      if (mac) {
+        const args = link ? ['-a', app, link] : ['-a', app];
+        const r = spawnSync('open', args, { encoding: 'utf8', timeout: 8000 });
+        if (r.status !== 0) { if (link) { shell.openExternal(link); return `"${app}" 앱을 못 찾아서 기본 브라우저로 열었어요: ${link}`; } return `실패: "${app}" 앱을 찾을 수 없어요 (${(r.stderr || '').trim().slice(0, 80)})`; }
+        return `✅ ${app}${link ? `로 ${link}` : ''} 열었어요`;
+      }
+      const r = spawnSync('cmd', ['/c', 'start', '', app, ...(link ? [link] : [])], { encoding: 'utf8', timeout: 8000, shell: false });
+      if (r.status !== 0 && link) { shell.openExternal(link); return `기본 브라우저로 열었어요: ${link}`; }
+      return r.status === 0 ? `✅ ${app}${link ? `로 ${link}` : ''} 열었어요` : `실패: "${app}" 실행이 안 됐어요`;
+    } catch (e: any) { return `실패: ${e?.message || e}`; }
+  };
   const getYoutube = () => realtimeFor('youtube');
   // 💻 깃허브 실데이터 — 개발자 에이전트가 커밋 현황을 직접 본다
   const getGithub = async (): Promise<string> => {
@@ -1015,7 +1098,9 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     try { await tgPost(tok, chat, msg); return '✅ 텔레그램으로 보냈어요.'; }
     catch (e: any) { return `텔레그램 전송 실패: ${e?.response?.data?.description || e?.message}`; }
   };
-  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, getGithub, checkEmail, captureScreen, readClipboard, openPath, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {} };
+  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, getGithub, checkEmail, captureScreen, readClipboard, openPath, openApp, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {},
+    // ⌨️ 에이전트 명령 → 앱 터미널에 실시간 표시 (처음 쓸 때 터미널 자동 펼침)
+    onTerminal: (kind: 'cmd' | 'out' | 'exit', text: string) => { termSend(kind === 'out' ? 'data' : kind, text + '\n'); if (kind === 'cmd') { try { win?.webContents.send('term:show'); } catch { /* */ } } } };
 }
 
 ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
@@ -1191,7 +1276,7 @@ ipcMain.handle('telegram:test', async () => {
   const c = loadConfig();
   if (!c.telegramToken || !c.telegramChatId) return { ok: false, reason: '봇 토큰과 챗 ID를 먼저 입력하세요' };
   try {
-    await tgPost(c.telegramToken, c.telegramChatId, `✅ Connect AI 연결 완료 — ${c.agentName}가 인사드립니다, ${c.userTitle || '사장님'}!`);
+    await tgPost(c.telegramToken, c.telegramChatId, `✅ Connect AI 연결 완료 — ${c.agentName}가 인사드립니다, ${c.userTitle || '사장님'}!\n\n📱 여기서 "운영" 이라고 보내면 어디서든 회사를 돌릴 수 있어요:\n분석 → 작전 제안 → 번호로 승인 → 실행 → 결과 보고`);
     return { ok: true };
   } catch (e: any) { return { ok: false, reason: e?.response?.data?.description || e?.message || '전송 실패' }; }
 });
@@ -1243,6 +1328,31 @@ ipcMain.handle('tasks:cancel', (_e, id: string) => { setTaskStatus(id, 'cancelle
 // ⚡ 단기 기억 = GitHub 동기화 / 🧬 장기 기억 = HuggingFace 업로드
 const connOf = (svc: string) => (loadConfig().apiConn || {})[svc] || {};
 const geminiKey = () => { const c = loadConfig(); return (c.apiConn?.gemini?.GEMINI_API_KEY) || (c.apiKeys?.gemini) || ''; };
+
+// 📱 폰 웹 리모컨(LAN) + 🌍 외부 릴레이(RTDB) — 같은 지휘 함수 공유
+const remoteDeps: RelayDeps = {
+  db: () => loadConfig().plazaDbUrl || '',
+  pair: () => loadConfig().remotePair || '',
+  company: () => loadConfig().company || '내 회사',
+  status: () => opsPublic(),
+  startCycle: async () => {
+    opsState.running = true; if (!opsState.startedAt) opsState.startedAt = Date.now();
+    opsState.cycle = (opsState.cycle || 0) + 1;
+    return await runOperation();
+  },
+  execute: (titles, humanTitles) => doExecuteSelected(titles, humanTitles),
+  stop: () => { opsState.running = false; opsState.executing = false; opsState.phase = 'idle'; opsState.activity = ''; opsState.executingTitle = ''; opsExecAbort?.abort(); saveOpsState(); opsEmit(); return opsPublic(); },
+};
+function startPhoneRemote() {
+  const c = loadConfig();
+  if (!c.remotePair) saveConfig({ remotePair: Math.random().toString(36).slice(2, 10) });   // 페어링 코드 1회 생성
+  startRemote(remoteDeps);                       // 📱 LAN (:4830)
+  startRelay(remoteDeps);                        // 🌍 RTDB 릴레이 (plazaDbUrl 설정돼 있으면 자동)
+}
+ipcMain.handle('remote:info', () => {
+  const c = loadConfig();
+  return { ...remoteInfo(), relay: { db: c.plazaDbUrl || '', pair: c.remotePair || '', ready: !!(c.plazaDbUrl && c.remotePair) } };
+});
 
 // 🔌 EZERAI 브릿지 시작 — 웹 브레인팩 마켓이 :4825로 지식·스킬·템플릿·디자인을 주입
 function startConnectBridge() {
@@ -1694,8 +1804,49 @@ async function tgRegenerate(a: any, how: string): Promise<string> {
   const user = `아래 초안을 이 지시대로 고쳐줘: "${how}"\n- 초안이 "받는사람 | 제목 | 본문" 형식이면 그 형식(| 구분)을 반드시 유지해.\n- 고친 결과만 출력(설명·따옴표 없이).\n\n[현재 초안]\n${cur}`;
   try { return (await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 })).trim() || cur; } catch { return cur; }
 }
+// 📱 폰으로 회사 돌리기 — 텔레그램에서 "운영" 한 마디면: 분석 → 작전 제안 → 번호로 선택 → 실행 → 결과 보고
+let tgOpsAwait = false;
+async function tgRunOps() {
+  if (opsState.busy || opsState.executing) { await tgSend('지금 이미 작전을 짜거나 수행 중이에요 — 끝나면 보고드릴게요.'); return; }
+  await tgSend('🔍 분석 시작 — 매출·유튜브·코드·할 일을 읽고 작전을 짭니다 (약 30초~1분)…');
+  opsState.running = true; if (!opsState.startedAt) opsState.startedAt = Date.now();
+  opsState.cycle = (opsState.cycle || 0) + 1;
+  const s = await runOperation();
+  if (!s.actions?.length) { await tgSend('⚠️ 작전을 못 짰어요 — 앱에서 🤖 AI 모델이 켜져 있는지 확인해주세요.'); return; }
+  tgOpsAwait = true;
+  await tgSend(`🎯 오늘의 작전 — 사이클 #${s.cycle}\n${s.summary ? `“${s.summary}”\n\n` : ''}` +
+    s.actions.map((a, i) => `${i + 1}. ${a.assignee === 'human' ? '🙋' : '🤖'} ${a.title}`).join('\n') +
+    `\n\n답장 → 번호 "1,3" / "전부" / "취소"\n(🙋 = 사장님 몫 — 선택하면 할 일로 등록만)`);
+}
+async function tgRunSelected(chosen: OpsAction[]) {
+  const titles = chosen.map(a => a.title);
+  const humans = chosen.filter(a => a.assignee === 'human').map(a => a.title);
+  await tgSend(`▶ ${titles.length}개 작전 실행 — 에이전트들이 일하는 동안 기다리세요. 끝나면 보고드립니다.`);
+  const s = await doExecuteSelected(titles, humans);
+  const ships = (s.shipped || []).filter(x => titles.includes(x.title)).slice(0, titles.length);
+  const okN = ships.filter(x => x.ok).length;
+  await tgSend(`🏁 사이클 #${s.cycle} 완료 — ${okN}/${titles.length} 완수\n` +
+    ships.map(x => `${x.ok ? '✅' : '⚠️'} ${x.title.slice(0, 48)}${(x.artifacts || []).length ? `\n   └ ${(x.artifacts || []).join(' · ')}` : ''}`).join('\n') +
+    `\n\n📂 산출물은 작업폴더의 "오늘업무_…" 안에 있어요.\n다음 사이클 → "운영" 이라고 답장`);
+}
 async function tgHandleReply(text: string) {
   const t = (text || '').trim(); if (!t) return;
+  // 📱 원격 운영 명령 — "운영"/"작전"/"/ops"
+  if (/^\/?(운영|작전|오늘|ops|operate)$/i.test(t)) { tgRunOps().catch(() => undefined); return; }
+  if (tgOpsAwait) {
+    if (/^(취소|그만|cancel|no)/i.test(t)) { tgOpsAwait = false; await tgSend('🚫 작전 선택을 취소했어요.'); return; }
+    const all = /^(전부|전체|다|all)/i.test(t);
+    const nums = (t.match(/\d+/g) || []).map(Number);
+    if (all || nums.length) {
+      tgOpsAwait = false;
+      const chosen = all ? opsState.actions : nums.map(n => opsState.actions[n - 1]).filter(Boolean);
+      if (!chosen.length) { tgOpsAwait = true; await tgSend('번호를 못 읽었어요 — 예: "1,3" 또는 "전부"'); return; }
+      tgRunSelected(chosen).catch(() => undefined);
+      return;
+    }
+    await tgSend('작전 선택 대기 중이에요 — 번호("1,3") / "전부" / "취소" 로 답해주세요.');
+    return;
+  }
   const a = getApproval(tgAwaitId);
   if (!a || a.status !== 'pending' || !a.action) { if (/^(보내|수정|취소)/.test(t)) await tgSend('지금 결재 대기 중인 게 없어요.'); return; }
   if (/^(취소|cancel|no|하지\s*마|싫)/i.test(t)) { setApprovalStatus(a.id, 'rejected'); tgAwaitId = ''; await tgSend('🚫 취소했어요.'); tgRefresh('취소', false); return; }
@@ -1772,6 +1923,67 @@ async function mailTick() {
       // → tgPushApprovals 가 폰으로 "보낼까요?" 자동 푸시 → 보내기/수정/취소
     }
   } catch { /* 다음 틱 재시도 */ } finally { mailBusy = false; }
+}
+
+// 🛰️ 상시 자산 감시 — 1시간마다 구독자·매출·커밋·메일 변화를 감지해 폰(텔레그램)으로 보고.
+// 회사가 "살아서 지켜보고 있다"는 감각 — 앱을 안 봐도 변화가 먼저 찾아온다.
+interface MonSnap { ytSubs?: number; ytViews?: number; payCount?: number; payNet?: number; ghSha?: string; mails?: number; t?: number; }
+const monFile = () => path.join(app.getPath('userData'), 'monitor.json');
+let monBusy = false;
+async function monitorTick() {
+  const c = loadConfig();
+  if (c.monitorOn === false) return;
+  if (!c.telegramToken || !c.telegramChatId) return;   // 보고 채널이 있어야 의미
+  if (monBusy) return; monBusy = true;
+  try {
+    let prev: MonSnap = {}; try { prev = JSON.parse(fs.readFileSync(monFile(), 'utf8')); } catch { /* 첫 실행 */ }
+    const next: MonSnap = { t: Date.now() };
+    const alerts: string[] = [];
+    const fmt = (n: number) => Math.round(n).toLocaleString();
+    // 📺 유튜브 — 구독·조회 변화
+    const y = connOf('youtube');
+    if (y.YOUTUBE_API_KEY && y.YOUTUBE_CHANNEL_ID) {
+      const yt: any = await fetchChannel(y.YOUTUBE_API_KEY, y.YOUTUBE_CHANNEL_ID).catch(() => null);
+      if (yt?.ok && yt.channel) {
+        next.ytSubs = yt.channel.subs; next.ytViews = yt.channel.views;
+        if (prev.ytSubs != null && next.ytSubs !== prev.ytSubs) { const d = next.ytSubs! - prev.ytSubs; alerts.push(`📺 구독자 ${d > 0 ? '+' : ''}${fmt(d)} → ${fmt(next.ytSubs!)}명`); }
+        if (prev.ytViews != null && (next.ytViews! - prev.ytViews) >= 1000) alerts.push(`👁 조회수 +${fmt(next.ytViews! - prev.ytViews)} → ${fmt(next.ytViews!)}`);
+      }
+    }
+    // 💰 페이팔 — 새 결제
+    if (c.paypalClientId && c.paypalSecret) {
+      const r: any = await fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 7 }).catch(() => null);
+      const t = r?.data?.totals; const cur = t?.primary_currency || Object.keys(t?.by_currency || {})[0];
+      const cc2 = cur ? t.by_currency[cur] : null;
+      if (cc2) {
+        next.payCount = cc2.count; next.payNet = (cc2.gross || 0) + (cc2.refunds || 0) + (cc2.fees || 0);
+        if (prev.payCount != null && next.payCount! > prev.payCount) alerts.push(`💰 새 결제 ${next.payCount! - prev.payCount}건! 7일 순매출 ${fmt(next.payNet!)} ${cur}`);
+      }
+    }
+    // 💻 깃허브 — 새 커밋
+    const g = connOf('github');
+    if (g.GITHUB_TOKEN && g.GITHUB_DEFAULT_REPO) {
+      const gh: any = await listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, 1).catch(() => null);
+      const top = gh?.commits?.[0];
+      if (top) { next.ghSha = top.sha; if (prev.ghSha && prev.ghSha !== top.sha) alerts.push(`💻 새 커밋: ${top.msg.split('\n')[0].slice(0, 60)}`); }
+    }
+    // 📧 메일 — 안 읽은 메일 증가 (이메일 자동답장 꺼져 있을 때만 — 켜져 있으면 그쪽이 처리)
+    if (!c.emailAutoReply) {
+      const e = (c.apiConn || {}).email || {};
+      if (e.SMTP_USER && e.SMTP_PASS) {
+        const host = e.IMAP_HOST || (e.SMTP_HOST || '').replace(/^smtp\./, 'imap.') || 'imap.gmail.com';
+        const m: any = await fetchUnseen({ host, port: e.IMAP_PORT || '993', user: e.SMTP_USER, pass: e.SMTP_PASS }, 5).catch(() => null);
+        if (m?.ok) { next.mails = (m.mails || []).length; if (prev.mails != null && next.mails! > prev.mails) alerts.push(`📧 새 메일 ${next.mails! - prev.mails}통 — "${(m.mails[0]?.subject || '').slice(0, 40)}"`); }
+      }
+    }
+    try { fs.writeFileSync(monFile(), JSON.stringify(next)); } catch { /* */ }
+    if (alerts.length && prev.t) {   // 첫 스냅샷은 조용히(기준점만)
+      await tgSend(`🛰️ ${c.company || '회사'} 자산 변화 감지\n${alerts.join('\n')}\n\n"운영" 이라고 답하면 바로 대응 작전을 짭니다.`);
+      for (const al of alerts) { opsState.feed.unshift({ icon: '🛰️', text: al.slice(0, 64), agent: 'secretary', ok: true, ts: Date.now() }); }
+      opsState.feed = opsState.feed.slice(0, 40); opsEmitLight();
+      notify('🛰️ 자산 변화 감지', alerts[0]);
+    }
+  } finally { monBusy = false; }
 }
 
 // ─────────────────────────── 모델 목록 (LM Studio / Ollama 에서)

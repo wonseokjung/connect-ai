@@ -1,0 +1,11 @@
+{
+  "database": { "rules": "database.rules.json" },
+  "hosting": {
+    "site": "connectai-desktop",
+    "public": "public",
+    "ignore": ["firebase.json", "**/.*"],
+    "headers": [
+      { "source": "**", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  }
+}

@@ -48,6 +48,33 @@
     </div>
   </div>
 
+  <!-- 🚀 첫 실행 온보딩 — 60초 안에 "우와"까지 -->
+  <div class="overlay hidden" id="welcomePanel">
+    <div class="overlay-card welcome-card">
+      <div class="wel-logo">✦</div>
+      <div class="wel-title">당신의 <b>AI 1인 기업</b>에<br/>오신 걸 환영합니다</div>
+      <div class="wel-sub">3단계만 하면 AI 직원들이 일을 시작해요 — 1분이면 됩니다</div>
+      <div class="wel-steps">
+        <div class="wel-step" id="welStep1">
+          <div class="ws-dot">1</div>
+          <div class="ws-body"><div class="ws-t">🤖 AI 두뇌 켜기</div><div class="ws-d">추천 모델을 받아서 켜요 (무료·내 컴퓨터에서 실행)</div></div>
+          <button class="ws-btn" id="welAiBtn">모델 받기</button>
+        </div>
+        <div class="wel-step" id="welStep2">
+          <div class="ws-dot">2</div>
+          <div class="ws-body"><div class="ws-t">🏢 회사 만들기</div><div class="ws-d">회사 이름만 지으면 에이전트 팀이 생겨요</div></div>
+          <input class="ws-input" id="welCompany" placeholder="회사 이름 (예: 제이 스튜디오)" maxlength="20"/>
+        </div>
+        <div class="wel-step" id="welStep3">
+          <div class="ws-dot">3</div>
+          <div class="ws-body"><div class="ws-t">🚀 첫 운영 시작</div><div class="ws-d">AI 팀이 분석하고 오늘의 작전을 제안합니다</div></div>
+          <button class="ws-btn primary" id="welGoBtn">운영 시작 ▶</button>
+        </div>
+      </div>
+      <button class="wel-skip" id="welSkip">나중에 할게요 — 둘러보기</button>
+    </div>
+  </div>
+
   <!-- 👤 회원 (Firebase Auth) -->
   <div class="overlay hidden" id="authPanel">
     <div class="overlay-card auth-card">
@@ -184,8 +211,7 @@
       <div class="oc-row" style="margin:2px 0 10px"><button id="openAiTeamBtn" type="button" class="oc-primary">🤖 AI 모델·두뇌 관리 — 내 AI 팀 열기</button></div>
       <label class="row"><input type="checkbox" id="cfgVoice" /> 🔊 음성 응답(TTS) 켜기</label>
       <label>목소리<select id="cfgVoicePick">
-        <option value="edge:jarvis">🦾 자비스 — 딥·진중한 AI 집사 톤 (한국어 OK·무료)</option>
-        <option value="edge:jarvis-uk">🇬🇧 자비스 UK — 영국 정통 억양 (영어 답변에 최적)</option>
+        <option value="edge:jarvis">🦾 자비스 — 한국어는 딥 톤, 영어는 영국 집사로 자동 전환 (무료)</option>
         <option value="edge:ko-KR-SunHiNeural">✨ 선희 — 한국어 여성 (자연스러움·무료)</option>
         <option value="edge:ko-KR-InJoonNeural">인준 — 한국어 남성 (무료)</option>
         <option value="edge:ko-KR-HyunsuMultilingualNeural">현수 — 한국어 남성 (무료)</option>
@@ -197,7 +223,7 @@
       </select></label>
       <label class="row"><input type="checkbox" id="cfgTools" /> 🛠️ 파일 도구 — 내 파일 읽기·쓰기 (진짜 에이전트)</label>
       <label class="row"><input type="checkbox" id="cfgBriefing" checked /> 📋 아침 브리핑 <span class="muted small">매일</span> <input type="time" id="cfgBriefingTime" value="09:00" /></label>
-      <div class="oc-row" style="margin:2px 0 8px"><button id="briefNowBtn" type="button" class="oc-primary">📋 지금 브리핑 받기</button></div>
+      <div class="oc-row" style="margin:2px 0 8px"><button id="briefNowBtn" type="button" class="oc-primary">📋 지금 브리핑 받기</button><button id="remoteBtn" type="button" class="oc-primary">📱 폰 리모컨 주소</button></div>
 
       <details class="settings-adv"><summary class="muted small">고급 설정</summary>
         <label>에이전트 인사말 <span class="muted small">(비우면 기본 · {name}=이름 · {title}=내 호칭)</span><input id="cfgGreeting" placeholder="{title}, {name}입니다. 무엇을 도와드릴까요?" /></label>
@@ -205,6 +231,7 @@
         <label class="row"><input type="checkbox" id="cfgBrainViz" checked /> 🧠 두뇌 비주얼 — 배경 애니메이션</label>
         <label class="row"><input type="checkbox" id="cfgAutoSync" checked /> 🔄 지식 자동 동기화 (GitHub)</label>
         <label class="row"><input type="checkbox" id="cfgEmailAuto" /> 📥 이메일 자동 답장 <span class="muted small">(이메일·텔레그램 연동 필요)</span></label>
+        <label class="row"><input type="checkbox" id="cfgMonitor" checked /> 🛰️ 자산 감시 — 구독·매출·커밋·메일 변화를 폰으로 보고 <span class="muted small">(1시간마다·텔레그램 필요)</span></label>
         <label class="row"><input type="checkbox" id="cfgSafeMode" /> 🛡️ 안전 모드 — GPU 가속 끄기 <span class="muted small">(흰 화면·바로 종료될 때)</span></label>
         <div class="oc-row" style="margin:2px 0 8px"><button id="relaunchBtn" type="button" class="oc-primary">↻ 앱 재시작</button><button id="diagBtn" type="button" class="oc-primary">📄 진단 로그</button></div>
         <label>🎙️ 기본 음성 종류 <span class="muted small">(기본 목소리일 때 OS 음성)</span><select id="cfgVoiceName"></select></label>

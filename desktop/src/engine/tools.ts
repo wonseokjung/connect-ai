@@ -96,10 +96,21 @@ export function runTool(call: ToolCall, workspace: string): ToolResult {
     }
     if (call.tool === 'run_command') {
       const cwd = resolvePath('.', workspace);
-      const r = spawnSync(call.path, { cwd, shell: true, encoding: 'utf8', timeout: 120000, maxBuffer: 8 * 1024 * 1024 });
+      // 🛡️ 한글 폴더에서 npm init 실패 방지 — npm은 폴더명으로 패키지 이름을 짓는데 한글이면 invalid name.
+      //    package.json을 안전한 이름으로 직접 만들어준다 (에이전트는 성공으로 받고 다음 단계 진행).
+      if (/^npm\s+init\b/.test(call.path.trim()) && !/^[a-z0-9._-]+$/i.test(path.basename(cwd))) {
+        const pj = path.join(cwd, 'package.json');
+        if (!fs.existsSync(pj)) {
+          fs.writeFileSync(pj, JSON.stringify({ name: 'app', version: '1.0.0', private: true, scripts: { start: 'node index.js' } }, null, 2), 'utf8');
+          return wrap(`package.json 생성 완료 (폴더명이 한글이라 npm init 대신 직접 생성 — name: "app"). 이제 npm install 하면 됩니다.`);
+        }
+        return wrap('package.json이 이미 있어요 — npm install로 진행하세요.');
+      }
+      // ⏱️ 240초 — npm install·빌드·테스트 같은 진짜 개발 명령이 끊기지 않게
+      const r = spawnSync(call.path, { cwd, shell: true, encoding: 'utf8', timeout: 240000, maxBuffer: 8 * 1024 * 1024 });
       const out = [(r.stdout || '').trim(), (r.stderr || '').trim()].filter(Boolean).join('\n').slice(0, 8000);
       const ok = r.status === 0;
-      return wrap(`${out || '(출력 없음)'}\n[종료 코드 ${r.status ?? '?'}]`, ok);
+      return wrap(`${out || '(출력 없음)'}\n[종료 코드 ${r.status ?? '?'}]${ok ? '' : '\n💡 에러면 원인을 고치고 다시 실행해라.'}`, ok);
     }
     return wrap('알 수 없는 도구', false);
   } catch (e: any) { return wrap(`오류: ${e?.message || e}`, false); }

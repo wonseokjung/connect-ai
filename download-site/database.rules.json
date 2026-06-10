@@ -1,0 +1,37 @@
+{
+  "rules": {
+    "plaza": {
+      "rooms": {
+        "$room": {
+          "messages": { ".read": true, ".write": true, ".indexOn": ["ts"] },
+          "presence": { ".read": true, ".write": true, ".indexOn": ["ts"] }
+        }
+      }
+    },
+    "messages": { ".read": true, ".write": true },
+
+    "cai-remote": {
+      "$pair": { ".read": true, ".write": true }
+    },
+
+    "cai-dl": {
+      ".read": "auth != null && auth.token.email === 'opctverse@gmail.com'",
+      ".write": true
+    },
+    "downloads_all": {
+      ".read": "auth != null && auth.token.email === 'opctverse@gmail.com'",
+      ".write": true
+    },
+    "downloads": {
+      "$uid": { ".read": true, ".write": true }
+    },
+
+    "users": {
+      ".read": "auth != null && auth.token.email === 'opctverse@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'opctverse@gmail.com')",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    }
+  }
+}
