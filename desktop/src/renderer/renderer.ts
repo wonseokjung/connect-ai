@@ -453,7 +453,24 @@ let _ops: any = null;
 function openCyclePanel() { openOverlay('opsCyclePanel'); connect.opsStatus?.().then((s: any) => { _ops = s; renderCycle(s); }).catch(() => { /* */ }); }
 const PHASE_LABEL: Record<string, string> = { planning: '분석 중…', review: '할 작전을 골라주세요', executing: '실행 중…', done: '사이클 완료', idle: '대기' };
 function shipFor(s: any, title: string) { return (s.shipped || []).find((x: any) => x.title === title); }
-function artsHtml(arr: string[]) { return arr && arr.length ? `<div class="cyc-arts">${arr.map(x => `<span class="cyc-art">${escapeHtml(x)}</span>`).join('')}</div>` : ''; }
+const fileIcon = (name: string): string => {
+  if (/\.(md|markdown)$/i.test(name)) return '📄';
+  if (/\.(jpg|jpeg|png|gif|svg|webp)$/i.test(name)) return '🖼️';
+  if (/\.(mp4|mov|avi|mkv|webm)$/i.test(name)) return '🎬';
+  if (/\.(mp3|wav|m4a|aac)$/i.test(name)) return '🎵';
+  if (/\.(json|jsonl|csv|xlsx?)$/i.test(name)) return '📊';
+  if (/\.(py|js|ts|tsx|jsx|go|rs)$/i.test(name)) return '💻';
+  if (/\.(html|css)$/i.test(name)) return '🌐';
+  if (/\.(zip|tar|gz|7z)$/i.test(name)) return '📦';
+  return '📎';
+};
+function artsHtml(arr: string[]) {
+  if (!arr || !arr.length) return '';
+  return `<div class="cyc-arts">${arr.map(x => {
+    const icon = fileIcon(x);
+    return `<span class="cyc-art" data-icon="${icon}" title="${escapeHtml(x)}">${escapeHtml(x.split('/').pop() || x)}</span>`;
+  }).join('')}</div>`;
+}
 function renderCycle(s: any) {
   if (!s || $('opsCyclePanel')?.classList.contains('hidden')) return;
   $('cycleNum').textContent = '#' + (s.cycle || 1);
