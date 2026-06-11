@@ -16,6 +16,11 @@ export const LOCAL_BASE = `http://127.0.0.1:${LOCAL_PORT}`;
 
 let _proc: ChildProcess | null = null;       // 실행 중인 llama-server
 let _modelPath = '', _modelName = '', _gpu = '';
+let _mode: 'gpu' | 'cpu' | '' = '';   // 현재 실행 모드 (사용자 표시용)
+let _loadMsg = '';                    // 로딩 중 진행 메시지 (GPU 시도/CPU 전환)
+let _statusCb: ((s: LocalStatus) => void) | null = null;
+export function onEngineStatus(cb: (s: LocalStatus) => void) { _statusCb = cb; }
+function emitStatus() { try { _statusCb?.(localStatus()); } catch { /* */ } }
 let _maxCtx = 0, _loadedCtx = 0;              // 모델 최대 컨텍스트 / 실제 로드된 컨텍스트
 let _ready = false, _loading = false, _error = '';
 let _startSeq = 0;                            // 모델 전환 경쟁 방지용 토큰
@@ -30,9 +35,9 @@ let _opts: LocalOptions = { flashAttn: true, ctxSize: 8192, maxTokens: 1024, tem
 export function setLocalOptions(o: Partial<LocalOptions>) { _opts = { ..._opts, ...o }; }
 export function getLocalOptions(): LocalOptions { return { ..._opts }; }
 
-export interface LocalStatus { running: boolean; loading: boolean; modelName: string; modelPath: string; port: number; base: string; gpu: string; error: string; maxCtx: number; ctxSize: number; }
+export interface LocalStatus { running: boolean; loading: boolean; modelName: string; modelPath: string; port: number; base: string; gpu: string; error: string; maxCtx: number; ctxSize: number; mode: 'gpu' | 'cpu' | ''; loadMsg: string; }
 export function localStatus(): LocalStatus {
-  return { running: _ready && !!_proc, loading: _loading, modelName: _modelName, modelPath: _modelPath, port: LOCAL_PORT, base: LOCAL_BASE, gpu: _gpu, error: _error, maxCtx: _maxCtx, ctxSize: _loadedCtx };
+  return { running: _ready && !!_proc, loading: _loading, modelName: _modelName, modelPath: _modelPath, port: LOCAL_PORT, base: LOCAL_BASE, gpu: _gpu, error: _error, maxCtx: _maxCtx, ctxSize: _loadedCtx, mode: _mode, loadMsg: _loadMsg };
 }
 
 // 플랫폼별 llama-server 바이너리 폴더. packaged: resources/llamacpp/<plat>, dev: desktop/vendor/llamacpp/<plat>.
@@ -73,11 +78,14 @@ async function waitReady(timeoutMs: number): Promise<boolean> {
 }
 
 // 모델 로드 = llama-server 를 해당 모델로 (재)기동. 같은 모델이고 이미 떠 있으면 그대로.
-export async function startLocalEngine(modelPath: string, force = false): Promise<LocalStatus> {
+export async function startLocalEngine(modelPath: string, force = false, ngl?: number): Promise<LocalStatus> {
   if (_loading) return localStatus();
   if (!force && _ready && _proc && _modelPath === modelPath) return localStatus();
   const seq = ++_startSeq;
+  const useNgl = ngl ?? 999;                         // 999=가능한 GPU 전부 / 0=CPU 전용(폴백)
   _loading = true; _ready = false; _error = '';
+  _loadMsg = useNgl > 0 ? '⚡ GPU 가속으로 모델 켜는 중…' : '🖥️ CPU 모드로 모델 켜는 중… (조금 느릴 수 있어요)';
+  emitStatus();
   try {
     await killProc();                               // 기존 서버 종료
     if (seq !== _startSeq) return localStatus();    // 더 최신 요청이 들어왔으면 양보
@@ -91,8 +99,8 @@ export async function startLocalEngine(modelPath: string, force = false): Promis
       '-m', modelPath,
       '--host', '127.0.0.1', '--port', String(LOCAL_PORT),
       '-c', String(_opts.ctxSize),
-      '-ngl', '999',                                // 가능한 모든 레이어 GPU 오프로드(Metal/CUDA) — 속도
-      '-fa', _opts.flashAttn ? 'on' : 'off',        // ⚡ flash-attention
+      '-ngl', String(useNgl),                       // GPU 레이어 오프로드 (0=CPU 폴백)
+      '-fa', (useNgl > 0 && _opts.flashAttn) ? 'on' : 'off',   // ⚡ flash-attention (CPU 모드선 끔)
       '--jinja',                                    // 모델 정식 chat template → 도구호출 정확도
       '--no-webui',
       // 샘플링 기본값(AI 패널 슬라이더) — 서버 디폴트로 적용. temp 는 요청마다 덮어씀(라이브).
@@ -121,11 +129,23 @@ export async function startLocalEngine(modelPath: string, force = false): Promis
 
     const ok = await waitReady(120000);             // 큰 모델 로드까지 넉넉히
     if (seq !== _startSeq) return localStatus();    // 그 사이 다른 모델 요청 → 결과 무시
-    if (!ok || !_proc) throw new Error(_error || `모델 로드 실패. ${tailErr(log)}`);
+    if (!ok || !_proc) {
+      // 🔁 GPU(Vulkan/Metal) 오프로드 실패 → CPU 전용으로 1회 자동 재시도
+      //    (Vulkan 드라이버 없는 윈도우 PC·VM에서 엔진이 code 1로 죽던 문제 구제)
+      if (useNgl > 0) {
+        await killProc(); _loading = false; _error = '';
+        _loadMsg = '🖥️ 이 PC는 GPU 가속이 안 돼서 CPU 모드로 다시 켜는 중…'; emitStatus();
+        return startLocalEngine(modelPath, true, 0);
+      }
+      throw new Error(_error || `모델 로드 실패. ${tailErr(log)}`);
+    }
 
     _modelPath = modelPath;
     _modelName = path.basename(modelPath).replace(/\.gguf$/i, '');
     _ready = true;
+    _mode = useNgl > 0 ? 'gpu' : 'cpu';
+    _loadMsg = useNgl > 0 ? '' : '🖥️ CPU 모드로 작동 중 (이 PC는 GPU 가속 미지원 — 응답이 조금 느릴 수 있어요)';
+    emitStatus();
     // 부가정보: 컨텍스트·GPU. 실패해도 무시.
     try {
       const props = await getJson('/props', 3000);

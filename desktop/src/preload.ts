@@ -89,6 +89,7 @@ contextBridge.exposeInMainWorld('connect', {
   // 🗂️ 관리 — 서비스·연동·대시보드
   servicesList: () => ipcRenderer.invoke('services:list'),
   servicesAdd: (s: any) => ipcRenderer.invoke('services:add', s),
+  servicesUpdate: (id: string, patch: any) => ipcRenderer.invoke('services:update', id, patch),
   servicesDelete: (id: string) => ipcRenderer.invoke('services:delete', id),
   servicesIntel: () => ipcRenderer.invoke('services:intel'),
   integrationsGet: () => ipcRenderer.invoke('integrations:get'),
@@ -107,6 +108,7 @@ contextBridge.exposeInMainWorld('connect', {
   mcpTest: () => ipcRenderer.invoke('mcp:test'),
   mcpTools: () => ipcRenderer.invoke('mcp:tools'),
   dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),
+  cycleIdea: () => ipcRenderer.invoke('cycle:idea'),   // 🎯 성장 사이클 1단계 — 아이디어 제안
   // 📋 태스크 보드
   tasksList: () => ipcRenderer.invoke('tasks:list'),
   tasksAdd: (title: string) => ipcRenderer.invoke('tasks:add', title),

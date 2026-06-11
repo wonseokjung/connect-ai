@@ -607,8 +607,12 @@ async function renderAiCurrent() {
   const ls = _localStatus || (await connect.localStatus?.());
   const el = $('aiCurrent'); if (!el) return;
   let icon = '🧠', name = '', tag = '', on = false, busy = false;
-  if (ls?.loading) { icon = '⏳'; name = ls.modelName ? ls.modelName : '불러오는 중'; tag = '불러오는 중…'; busy = true; }
-  else if (ls?.running && (cfg.llmBase || '').includes(':1235')) { name = ls.modelName; tag = '내장 · ' + (ls.gpu === 'metal' ? 'GPU' : ls.gpu || 'CPU'); on = true; }
+  if (ls?.loading) { icon = '⏳'; name = ls.modelName ? ls.modelName : '불러오는 중'; tag = ls.loadMsg || '불러오는 중…'; busy = true; }   // 🔁 GPU→CPU 폴백 진행 표시
+  else if (ls?.running && (cfg.llmBase || '').includes(':1235')) {
+    name = ls.modelName;
+    tag = ls.mode === 'cpu' ? '🖥️ 내장 · CPU 모드 (GPU 미지원)' : '⚡ 내장 · GPU 가속';
+    on = true;
+  }
   else if (ls?.error) { icon = '⚠️'; name = '모델을 못 켰어요'; tag = String(ls.error).slice(0, 44); }
   else if (cfg.llmModel) { const g = /gemini/i.test(cfg.llmModel); icon = g ? '☁️' : '🧠'; name = cfg.llmModel; tag = g ? 'Gemini' : (cfg.llmBase || '').includes('11434') ? 'Ollama' : 'LM Studio'; }
   else { icon = '🧠'; name = 'AI를 골라주세요'; tag = '아래에서 받아 사용'; }
@@ -767,7 +771,13 @@ connect.onHfProgress?.((p: any) => {
   ($('hfDlFill') as HTMLElement).style.width = (p.percent || 0) + '%';
   $('hfDlText').textContent = `${p.percent || 0}% · ${fmtGB(p.received)}${p.total ? ' / ' + fmtGB(p.total) : ''}`;
 });
-connect.onLocalStatus?.((s: any) => { _localStatus = s; renderLocalStatus(); renderAiCurrent(); if (!$('aiPanel').classList.contains('hidden')) loadParams(); });
+let _cpuNotified = false;
+connect.onLocalStatus?.((s: any) => {
+  _localStatus = s; renderLocalStatus(); renderAiCurrent(); if (!$('aiPanel').classList.contains('hidden')) loadParams();
+  // 🖥️ CPU 모드로 처음 전환되면 사용자에게 한 번 안내 (왜 느린지 알 수 있게)
+  if (s?.mode === 'cpu' && s?.running && !_cpuNotified) { _cpuNotified = true; hint('🖥️ 이 PC는 GPU 가속이 안 돼서 CPU 모드로 작동해요. 잘 켜졌지만 응답이 조금 느릴 수 있어요.'); }
+  if (s?.mode === 'gpu') _cpuNotified = false;
+});
 // 🧩 MCP
 async function loadMcp() {
   const cfg = await connect.mcpGet();

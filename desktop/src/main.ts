@@ -12,7 +12,7 @@ import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
-import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions } from './engine/localengine';
+import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions, onEngineStatus } from './engine/localengine';
 import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED } from './engine/hfmodels';
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits } from './engine/github';
@@ -37,7 +37,7 @@ import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessa
 import { startRemote, remoteInfo } from './engine/remote';
 import { startRelay, relayPush, RelayDeps } from './engine/relay';
 
-interface Service { id: string; name: string; url: string; desc: string }
+interface Service { id: string; name: string; url: string; desc: string; repo?: string; market?: string; price?: string }   // repo=깃허브 페어, market=타겟국가, price=가격
 interface Config {
   company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean; agentModels?: Record<string, string>; agentNames?: Record<string, string>; agentImages?: Record<string, string>;
   voiceName: string; jarvis: boolean; plazaDbUrl: string; llmBase?: string; llmModel?: string; voice: boolean;
@@ -105,6 +105,13 @@ let demoAuto: (() => void) | null = null;
 const safeFlagPath = () => path.join(app.getPath('userData'), 'gpu-safe.flag');
 const diagPath = () => path.join(app.getPath('userData'), 'diagnostics.log');
 function logDiag(msg: string) { try { fs.appendFileSync(diagPath(), `[${new Date().toISOString()}] ${msg}\n`); } catch { /* */ } }
+// 🛡️ 전역 예외 — 메인 프로세스가 조용히 죽지 않게: 로그 남기고 사용자에게 원인을 보여준다 (윈도우 "아무 동작 없이 종료" 방지)
+logDiag(`=== 앱 시작 v${app.getVersion?.() || '?'} · ${process.platform} ${process.arch} · electron ${process.versions.electron} ===`);
+process.on('uncaughtException', (e: any) => {
+  logDiag(`FATAL uncaughtException: ${e?.stack || e?.message || e}`);
+  try { dialog.showErrorBox('Connect AI 오류', `${e?.message || e}\n\n진단 로그: ${diagPath()}\n(이 경로를 캡처해 보내주시면 빠르게 고칠게요)`); } catch { /* */ }
+});
+process.on('unhandledRejection', (r: any) => { logDiag(`unhandledRejection: ${r?.stack || r?.message || r}`); });
 function isSafeMode(): boolean {
   const argv = process.argv.map(a => a.toLowerCase());
   if (argv.includes('--disable-gpu') || argv.includes('--safe') || argv.includes('--safe-mode')) return true;
@@ -155,7 +162,7 @@ const cleanLine = (s: string) => {
 //   · 남이 마지막으로 말했으면 응답 후보 → 랜덤 1.5~7.5s 끼어들기 지연
 //   · 기다리는 사이 다른 에이전트가 먼저 말하면 60% 확률로 양보 (도배 방지)
 //   · 내 개인 쿨다운 15s (한 명 독점 방지). 한 주제(📢)당 maxTurns 턴.
-function startAutoChat(opts: { uid: string; target: any; sys: string; makePrompt: (convo: string, topic: string) => string; post: (t: string) => Promise<any>; maxTurns?: number }): () => void {
+function startAutoChat(opts: { uid: string; target: any; sys: string; makePrompt: (convo: string, topic: string) => string; post: (t: string) => Promise<any>; maxTurns?: number; recall?: boolean }): () => void {
   let replying = false, turns = 0, seenTopic = '', lastSpokeAt = 0;
   const max = opts.maxTurns ?? 12;
   const iv = setInterval(async () => {
@@ -180,9 +187,18 @@ function startAutoChat(opts: { uid: string; target: any; sys: string; makePrompt
       const curTopic = [...cur].reverse().find((m: any) => /^📢/.test(m.text || ''));
       const topicText = curTopic ? (curTopic.text || '').replace(/^📢\s*오늘의 주제:\s*/, '').replace(/\s*—.*$/, '').trim() : '';
       const convo = cur.slice(-8).map((m: any) => `${m.company}(${m.role || '학생'}): ${m.text}`).join('\n');
+      // 🧠 Memory Stream (Generative Agents) — 내 에이전트는 발언 전에 두뇌에서 관련 과거 기억을 검색(RAG)해 떠올린다
+      let recalled = '';
+      if (opts.recall) {
+        try {
+          const q = topicText || (curLast?.text || '').slice(0, 60);
+          const hits = q ? brainSearch(q, 3) : [];
+          if (hits.length) recalled = `\n\n[💭 내가 예전에 배운 것 — 떠올려서 자연스럽게 녹여라(인용X)]\n${hits.map((h: any) => '· ' + (h.text || '').replace(/^[🏛️💡]\s*/, '').slice(0, 90)).join('\n')}`;
+        } catch { /* 기억 없으면 그냥 진행 */ }
+      }
       // 턴마다 다른 관점 강제 → 같은 말 반복(degeneration) 방지
       const angles = ['구체적인 실제 사례를 들어', '앞 사람 주장에 반론을 제기하며', '실생활·비즈니스 적용 관점에서', '다른 분야(과학·역사·예술)와 연결해', '핵심을 찌르는 질문을 던지며', '정반대 입장에서'];
-      const prompt = `${opts.makePrompt(convo, topicText)}\n\n[이번 발언 지시] ${angles[turns % angles.length]} 말하라. 앞에 이미 나온 문장을 절대 그대로 반복하지 말 것.`;
+      const prompt = `${opts.makePrompt(convo, topicText)}${recalled}\n\n[이번 발언 지시] ${angles[turns % angles.length]} 말하라. 앞에 이미 나온 문장을 절대 그대로 반복하지 말 것.`;
       const t = cleanLine(await chat(opts.target, opts.sys, prompt, { temperature: 0.9, frequencyPenalty: 0.6, presencePenalty: 0.5 }));
       if (t) { await opts.post(t); lastSpokeAt = Date.now(); turns++; }
     } catch { /* */ } finally { replying = false; }
@@ -351,6 +367,7 @@ ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 // ─────────────────────────── 🧠 내장 추론 엔진 + 🤗 HuggingFace 모델 (LM Studio 불필요)
 const modelsDir = () => path.join(app.getPath('userData'), 'models');
 const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } };
+onEngineStatus((s) => sendLocal(s));   // 🔁 GPU→CPU 폴백 등 엔진 진행 상황을 실시간으로 화면에 표시
 async function bootLocalEngine(modelPath: string) {
   const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN });
   try { sendLocal({ ...localStatus(), loading: true }); await startLocalEngine(modelPath); saveConfig({ localModelPath: modelPath }); sendLocal(localStatus()); }
@@ -741,6 +758,37 @@ ipcMain.handle('ops:start', async () => {
   opsState.running = true; if (!opsState.startedAt) opsState.startedAt = Date.now();
   opsState.cycle = (opsState.cycle || 0) + 1;
   return await runOperation();   // → phase 'review' (사람이 고를 차례)
+});
+
+// ════════ 🎯 성장 사이클 — 1인 기업 3단계 (아이디어·진단·마케팅) ════════
+// 1️⃣ 아이디어 제안 [🙋 사람이 결정] — 연결된 모든 데이터를 종합해 '지금 만들 새 서비스' 1개 구체 제안
+ipcMain.handle('cycle:idea', async () => {
+  const c = loadConfig();
+  const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() });
+  if (!target) return { ok: false, error: 'AI 두뇌를 먼저 켜주세요 — 🤖 내 AI에서 모델을 실행하면 분석할 수 있어요.' };
+  const ctrl = new AbortController();
+  const opts: any = buildRunOpts(c, ctrl.signal);
+  // 📊 연결된 데이터 전부 수집 (느린 API는 타임아웃·실패해도 진행)
+  const within = <T>(p: Promise<T>, ms: number, fb: T): Promise<T> => Promise.race([p.catch(() => fb), new Promise<T>(r => setTimeout(() => r(fb), ms))]);
+  const [rev, yt, gh, mail] = await Promise.all([
+    within(Promise.resolve(opts.getRevenue?.() ?? ''), 9000, '(매출 미연결)'),
+    within(Promise.resolve(opts.getYoutube?.() ?? ''), 9000, '(유튜브 미연결)'),
+    within(Promise.resolve(opts.getGithub?.() ?? ''), 9000, '(깃허브 미연결)'),
+    within(Promise.resolve(opts.checkEmail?.() ?? ''), 9000, '(이메일 미연결)'),
+  ]);
+  const services = c.services.length
+    ? c.services.map(s => `· ${s.name}${s.url ? ` (${s.url})` : ''}${s.repo ? ` [repo:${s.repo}]` : ''}${s.market ? ` · 타겟:${s.market}` : ''}${s.price ? ` · ${s.price}` : ''}: ${s.desc || ''}`).join('\n')
+    : '(아직 등록된 서비스 없음 — 첫 서비스를 만들 기회)';
+  const notes = allNotes().slice(-15).map(n => '· ' + (n.text || '').slice(0, 80)).join('\n') || '(지식 없음)';
+  const sys = `너는 1인 기업 전략가다. 연결된 '실제 데이터'만 근거로, 사장님이 바로 만들 수 있는 구체적인 새 서비스/제품 1개를 제안한다. 막연한 일반론 금지 — 반드시 데이터에서 본 사실(매출·채널·기존서비스·지식)을 근거로 든다.`;
+  const user = `[내 비즈니스 현황 — ${c.company}]\n■ 기존 서비스:\n${services}\n■ 매출: ${rev}\n■ 유튜브: ${yt}\n■ 깃허브: ${gh}\n■ 이메일: ${mail}\n■ 내 지식·노하우:\n${notes}\n\n위 실제 데이터를 근거로 '지금 만들면 좋은 새 1인 기업 서비스' 딱 1개를 제안하라.\n반드시 이 JSON만 출력:\n{"title":"서비스 이름","what":"무엇을 만드는지 1~2문장","why":"왜 지금 이게 기회인지 — 위 데이터의 구체적 근거를 인용","market":"타겟 국가/고객층","price":"추천 가격(통화 포함)","firstStep":"오늘 당장 할 첫 행동 1개"}`;
+  try {
+    const raw = await chat(target, sys, user, { temperature: 0.7 });
+    const m = raw.match(/\{[\s\S]*\}/);
+    const idea = m ? JSON.parse(m[0]) : null;
+    if (!idea?.title) return { ok: false, error: '제안 생성 실패 — 다시 시도하거나 데이터를 더 연결해보세요.' };
+    return { ok: true, idea, dataUsed: { services: c.services.length, revenue: !rev.includes('미연결'), youtube: !yt.includes('미연결'), github: !gh.includes('미연결') } };
+  } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
 });
 // ▶ 다음 사이클 — 다시 스케줄을 짠다
 ipcMain.handle('ops:nextCycle', async () => {
@@ -1237,10 +1285,15 @@ ipcMain.handle('term:kill', () => { killTerm(); return true; });
 
 // 🗂️ 내 서비스 (웹사이트·서비스 등록 — 에이전트가 인지)
 ipcMain.handle('services:list', () => loadConfig().services);
-ipcMain.handle('services:add', (_e, s: { name: string; url: string; desc: string }) => {
+ipcMain.handle('services:add', (_e, s: { name: string; url: string; desc: string; repo?: string; market?: string; price?: string }) => {
   const c = loadConfig();
-  const svc: Service = { id: 's' + Date.now(), name: (s.name || '').trim(), url: (s.url || '').trim(), desc: (s.desc || '').trim() };
+  const svc: Service = { id: 's' + Date.now(), name: (s.name || '').trim(), url: (s.url || '').trim(), desc: (s.desc || '').trim(), repo: (s.repo || '').trim(), market: (s.market || '').trim(), price: (s.price || '').trim() };
   saveConfig({ services: [...c.services, svc] });
+  return loadConfig().services;
+});
+ipcMain.handle('services:update', (_e, id: string, patch: Partial<Service>) => {
+  const c = loadConfig();
+  saveConfig({ services: c.services.map(x => x.id === id ? { ...x, ...patch } : x) });
   return loadConfig().services;
 });
 ipcMain.handle('services:delete', (_e, id: string) => { saveConfig({ services: loadConfig().services.filter(x => x.id !== id) }); return loadConfig().services; });
@@ -2106,7 +2159,7 @@ ipcMain.handle('plaza:enter', async () => {
   // 자율 대화 루프 — 남이 마지막으로 말하면 그 흐름에 이어서 계속 응답
   if (target) {
     plazaAuto = startAutoChat({
-      uid, target, sys: studentSys,
+      uid, target, sys: studentSys, recall: true,   // 🧠 Memory Stream — 내 에이전트는 두뇌에서 과거 기억을 떠올려 토론
       makePrompt: (convo, topic) => `[오늘의 주제] ${topic || '자유 토론'}\n\n[최근 대화]\n${convo}\n\n너는 '${speaker}'. 위 '오늘의 주제'에서 절대 벗어나지 말고 토론을 이어가라. 앞 사람 문장을 그대로 따라하지 말고 [새 관점·구체 예시·반론·질문] 중 하나를 더해 주제를 깊게 파고들어라. 자기소개·비서멘트 금지. 짧고 또렷하게 한국어 1~2문장, 대사만.`,
       post: (t) => postPlazaMessage({ uid, company: c.company, emoji, role: speaker, text: t }),
     });
