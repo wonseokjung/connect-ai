@@ -40,7 +40,7 @@ export const stripTools = (text: string) =>
   text.replace(/<list_dir>[\s\S]*?<\/list_dir>/g, '').replace(/<read_file>[\s\S]*?<\/read_file>/g, '')
       .replace(/<write_file[\s\S]*?<\/write_file>/g, '').replace(/<run>[\s\S]*?<\/run>/g, '').replace(/<find>[\s\S]*?<\/find>/g, '')
       .replace(/<team>[\s\S]*?<\/team>/g, '').replace(/<task>[\s\S]*?<\/task>/g, '').replace(/<approve[^>]*>[\s\S]*?<\/approve>/g, '')
-      .replace(/<web_search>[\s\S]*?<\/web_search>/g, '').replace(/<fetch_url>[\s\S]*?<\/fetch_url>/g, '').replace(/<\/?revenue\s*\/?>/g, '').replace(/<\/?screenshot\s*\/?>/g, '').replace(/<\/?clipboard\s*\/?>/g, '').replace(/<open>[\s\S]*?<\/open>/g, '').replace(/<serve(?:_server)?>[\s\S]*?<\/serve(?:_server)?>/g, '').replace(/\[END_TOOL_REQUEST\]/g, '').trim();
+      .replace(/<web_search>[\s\S]*?<\/web_search>/g, '').replace(/<fetch_url>[\s\S]*?<\/fetch_url>/g, '').replace(/<\/?revenue\s*\/?>/g, '').replace(/<\/?screenshot\s*\/?>/g, '').replace(/<\/?clipboard\s*\/?>/g, '').replace(/<open>[\s\S]*?<\/open>/g, '').replace(/<open_app[^>]*>[\s\S]*?<\/open_app>/g, '').replace(/<serve(?:_server)?>[\s\S]*?<\/serve(?:_server)?>/g, '').replace(/<mcp\s[^>]*>[\s\S]*?<\/mcp>/g, '').replace(/\[END_TOOL_REQUEST\]/g, '').trim();
 
 // 🔎 이름으로 파일 검색 — 바탕화면·문서·다운로드·동영상·음악·사진(+작업폴더) 재귀(깊이4).
 function findFiles(query: string, workspace: string): ToolResult {

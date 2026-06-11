@@ -1051,3 +1051,117 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 /* 📄 열 수 있는 산출물 — 살짝 더 밝게 + 호버 시 ↗ */
 .cyc-art.openable { border-color: rgba(57,255,20,.5); }
 .cyc-art.openable::after { content: '↗'; font-size: 10px; opacity: .55; }
+
+/* 💡 추천 명령 칩 — 첫 화면 활성화 */
+.sugg-chips { display: flex; gap: 8px; padding: 0 14px 8px; flex-wrap: wrap; justify-content: center; }
+.sg-chip { cursor: pointer; font-family: inherit; font-size: 12px; font-weight: 700; color: #b6ffce;
+  background: rgba(0,30,15,.6); border: 1px solid rgba(57,255,20,.28); border-radius: 999px; padding: 8px 14px;
+  transition: all .18s; animation: chipIn .5s ease backwards; }
+.sg-chip:nth-child(2) { animation-delay: .08s; } .sg-chip:nth-child(3) { animation-delay: .16s; } .sg-chip:nth-child(4) { animation-delay: .24s; }
+@keyframes chipIn { from { opacity: 0; transform: translateY(8px); } }
+.sg-chip:hover { border-color: var(--accent); color: #fff; box-shadow: 0 0 14px rgba(57,255,20,.3); transform: translateY(-1px); }
+
+/* 🏷️ 부팅 브랜딩 — AI 1인 기업 OS */
+.boot-os { font-family: 'SF Mono', monospace; font-size: 12px; letter-spacing: 8px; color: #9fe6b4; margin-top: -8px; opacity: .85; text-shadow: 0 0 12px rgba(57,255,20,.3); }
+
+/* 🌱 생태계 카드 — 네온 글로우 (배우고·차리고·키우고 + 유튜브) */
+.eco-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 4px 0 12px; }
+.eco-card { --ec: #39ff14; position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 13px 14px; border-radius: 13px; cursor: pointer; text-align: left; font-family: inherit;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--ec) 10%, rgba(0,10,5,.65)), rgba(0,8,4,.75));
+  border: 1px solid color-mix(in srgb, var(--ec) 35%, transparent); transition: all .2s; overflow: hidden; }
+.eco-card::before { content: ''; position: absolute; inset: 0; background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--ec) 14%, transparent), transparent 55%); pointer-events: none; }
+.eco-card::after { content: '↗'; position: absolute; top: 10px; right: 12px; color: var(--ec); opacity: .65; font-size: 12px; }
+.eco-card:hover { transform: translateY(-2px); box-shadow: 0 8px 26px color-mix(in srgb, var(--ec) 32%, transparent); border-color: var(--ec); }
+.ec-e { font-size: 22px; filter: drop-shadow(0 0 8px color-mix(in srgb, var(--ec) 65%, transparent)); }
+.ec-t { font-size: 12.5px; font-weight: 900; color: #fff; letter-spacing: .3px; }
+.ec-d { font-size: 10.5px; color: var(--text-dim); line-height: 1.5; }
+/* 온보딩 하단 생태계 칩 */
+.wel-eco { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
+.eco-mini { cursor: pointer; font-family: inherit; font-size: 11.5px; font-weight: 700; color: #b6ffce; background: rgba(57,255,20,.06); border: 1px solid rgba(57,255,20,.25); border-radius: 999px; padding: 8px 14px; transition: all .15s; }
+.eco-mini:hover { border-color: var(--accent); color: #fff; box-shadow: 0 0 12px rgba(57,255,20,.35); transform: translateY(-1px); }
+.eco-mini.yt { color: #ffb3bb; background: rgba(255,60,80,.07); border-color: rgba(255,80,100,.3); }
+.eco-mini.yt:hover { border-color: #ff4d5e; color: #fff; box-shadow: 0 0 12px rgba(255,60,90,.4); }
+
+/* 👤 회원가입 — EZERAI 수준 폼 (이름·전화·약관) */
+.auth-phone { display: flex; gap: 8px; }
+.auth-phone select.auth-in { padding: 11px 6px; }
+.auth-agree { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 4px; padding: 12px; border-radius: 11px; background: rgba(57,255,20,.04); border: 1px solid var(--border2); }
+.auth-chk { display: flex; align-items: flex-start; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; line-height: 1.5; }
+.auth-chk input { margin-top: 2px; flex-shrink: 0; accent-color: var(--accent); }
+.auth-chk a { color: #74ffb4; text-decoration: underline; cursor: pointer; }
+
+/* 🌐🎮 포켓몬st 에이전트 광장 — 진짜 픽셀 마을 배경 이미지 + 캐릭터 */
+.plaza-world { position: relative; width: 100%; height: 360px; border-radius: 14px; overflow: hidden; margin: 8px 0;
+  image-rendering: pixelated;
+  background: #6cb84f url('../../assets/plaza-bg.png') center/cover no-repeat;
+  border: 3px solid #2e5a24; box-shadow: inset 0 0 0 2px rgba(108,184,79,.5), inset 0 0 40px rgba(0,0,0,.25); }
+.plaza-world::after { content: '◈ AGENT PLAZA'; position: absolute; bottom: 8px; right: 12px; z-index: 60; font: 700 9px/1 ui-monospace, monospace; letter-spacing: 3px; color: rgba(255,255,255,.7); text-shadow: 0 1px 2px rgba(0,0,0,.7); }
+.pw-topic { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); z-index: 50;
+  max-width: 82%; background: rgba(20,30,12,.85); border: 2px solid #6cb84f; border-radius: 8px;
+  padding: 5px 16px; font-size: 12px; font-weight: 700; color: #eaffd0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 0 #2e5a24; }
+.classroom .blackboard { display: none; }
+.pw-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 20px; z-index: 40;
+  color: #eaffd0; font-size: 13px; line-height: 1.7; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
+/* 캐릭터 — 48×96 스프라이트 (사무실과 동일 시트) */
+/* 캐릭터 — 48×96 셀(JS 프레임 좌표 유지) + 전체 scale로 아담하게 축소. 라벨/말풍선 역보정 scale 제거 */
+.pw-actor { position: absolute; width: 48px; height: 96px; transform: translate(-50%,-100%) scale(.5); transform-origin: 50% 100%;
+  display: flex; flex-direction: column; align-items: center; cursor: pointer; will-change: left, top; z-index: 100; }
+.pw-char { width: 48px; height: 96px; image-rendering: pixelated; background-repeat: no-repeat; background-position: 0 -96px; background-size: auto;
+  filter: drop-shadow(0 4px 3px rgba(0,0,0,.4)); }
+.pw-actor.mine .pw-char { filter: drop-shadow(0 0 7px #ffe14d) drop-shadow(0 4px 3px rgba(0,0,0,.5)); }
+.pw-name { margin-top: -4px; font-size: 14px; font-weight: 800; color: #fff; background: rgba(20,30,12,.82); border: 1.5px solid #6cb84f; border-radius: 6px; padding: 1px 8px; white-space: nowrap; box-shadow: 0 2px 0 rgba(0,0,0,.4); }
+.pw-actor.mine .pw-name { color: #1a2e0c; background: #ffe14d; border-color: #c9a800; }
+.pw-bubble { position: absolute; bottom: 96px; left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 240px; background: #fff; color: #1a2412; font-size: 14px; font-weight: 700; line-height: 1.4; padding: 7px 12px; border-radius: 12px; border: 2px solid #2e5a24;
+  opacity: 0; pointer-events: none; white-space: normal; word-break: keep-all; overflow-wrap: break-word; text-align: center; transition: opacity .15s; box-shadow: 0 3px 0 rgba(0,0,0,.25); z-index: 200; }
+.pw-bubble.show { opacity: 1; }
+.pw-bubble::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 6px solid transparent; border-top-color: #fff; }
+
+/* 🌳 맵 데코 (나무·연못·꽃) + 캐릭터 그림자 + 이펙트 */
+.pw-deco { position: absolute; transform: translate(-50%,-100%); pointer-events: none; z-index: 1; image-rendering: pixelated;
+  font-size: 34px; filter: drop-shadow(0 3px 2px rgba(0,0,0,.35)); animation: pwSway 3.5s ease-in-out infinite; }
+@keyframes pwSway { 0%,100% { transform: translate(-50%,-100%) rotate(-2deg); } 50% { transform: translate(-50%,-100%) rotate(2deg); } }
+.pw-pond { position: absolute; transform: translate(-50%,-50%); width: 90px; height: 54px; border-radius: 50%; z-index: 1;
+  background: radial-gradient(ellipse at 40% 35%, #7fd4ff 0%, #3b9fd8 55%, #2a7fb5 100%);
+  box-shadow: inset 0 4px 8px rgba(255,255,255,.4), inset 0 -4px 8px rgba(0,0,0,.25), 0 0 0 3px #6cb84f; }
+.pw-pond::after { content: '✨'; position: absolute; top: 8px; left: 18px; font-size: 12px; animation: pwShine 2.5s ease-in-out infinite; }
+@keyframes pwShine { 0%,100% { opacity: .3; } 50% { opacity: 1; } }
+.pw-char { position: relative; }
+.pw-actor::after { content: ''; position: absolute; bottom: -2px; left: 50%; transform: translateX(-50%); width: 30px; height: 9px; border-radius: 50%; background: rgba(0,0,0,.28); z-index: -1; }
+/* ❗ 만남 이펙트 (포켓몬 느낌표) */
+.pw-meet { position: absolute; transform: translate(-50%,-100%); z-index: 250; font-size: 22px; pointer-events: none;
+  animation: pwMeet .9s cubic-bezier(.2,1.6,.4,1); }
+@keyframes pwMeet { 0% { transform: translate(-50%,-60%) scale(0); } 40% { transform: translate(-50%,-130%) scale(1.3); } 100% { transform: translate(-50%,-115%) scale(1); opacity: 0; } }
+/* ✨ 등장 토스트 */
+.pw-toast { position: absolute; top: 36px; left: 50%; transform: translateX(-50%); z-index: 70;
+  background: rgba(20,30,12,.9); border: 2px solid #ffe14d; border-radius: 8px; padding: 6px 16px; font-size: 12px; font-weight: 800; color: #ffe14d;
+  box-shadow: 0 2px 0 #2e5a24; animation: pwToast 2.6s ease forwards; pointer-events: none; white-space: nowrap; }
+@keyframes pwToast { 0% { opacity: 0; transform: translate(-50%,-8px); } 12%,80% { opacity: 1; transform: translateX(-50%); } 100% { opacity: 0; transform: translate(-50%,-8px); } }
+/* 등장 시 캐릭터 통 */
+.pw-actor.pw-spawn { animation: pwSpawn .6s cubic-bezier(.2,1.6,.4,1); }
+@keyframes pwSpawn { 0% { transform: translate(-50%,-100%) scale(0); } 60% { transform: translate(-50%,-100%) scale(.58); } 100% { transform: translate(-50%,-100%) scale(.5); } }
+
+/* 🏠 건물 존 (도서관·카페) */
+.pw-zone { position: absolute; transform: translate(-50%,-100%); z-index: 2; text-align: center; pointer-events: none; }
+.pw-zone-b { font-size: 40px; filter: drop-shadow(0 4px 3px rgba(0,0,0,.4)); }
+.pw-zone-n { font-size: 10px; font-weight: 800; color: #fff; background: rgba(120,80,40,.85); border: 1.5px solid #8a5a2a; border-radius: 5px; padding: 1px 7px; margin-top: -6px; display: inline-block; box-shadow: 0 2px 0 rgba(0,0,0,.3); }
+/* 👑 우승 왕관 + 🎉 폭죽 */
+.pw-crown { position: absolute; top: -6px; left: 50%; transform: translateX(-50%); font-size: 18px; z-index: 300; animation: pwCrownBob 1s ease-in-out infinite; }
+@keyframes pwCrownBob { 0%,100% { transform: translateX(-50%) translateY(0) rotate(-5deg); } 50% { transform: translateX(-50%) translateY(-3px) rotate(5deg); } }
+.pw-confetti { position: absolute; top: 20%; font-size: 16px; z-index: 280; pointer-events: none; animation: pwConfetti 2s ease-out forwards; }
+@keyframes pwConfetti { 0% { opacity: 1; transform: translate(0,0) rotate(0); } 100% { opacity: 0; transform: translate(var(--fx,0), 180px) rotate(360deg); } }
+/* 📕 에이전트 도감 */
+.pw-dex { background: rgba(0,12,5,.6); border: 1px solid rgba(57,255,20,.2); border-radius: 12px; padding: 10px; margin-bottom: 8px; max-height: 160px; overflow-y: auto; }
+.pw-dex-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; }
+.dex-card { background: rgba(57,255,20,.06); border: 1px solid rgba(57,255,20,.22); border-radius: 9px; padding: 8px 4px; text-align: center; }
+.dex-e { font-size: 24px; } .dex-n { font-size: 9.5px; font-weight: 700; color: #cfeedd; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#pwDexBtn, #pwBgmBtn { min-width: auto; padding: 0 8px; }
+
+/* 🎮 광장 마지막 폴리시 — 빈안내는 뒤로, 캐릭터 위에 부드러운 발그림자 */
+.pw-empty { z-index: 5 !important; background: rgba(10,20,8,.45); backdrop-filter: blur(1px); }
+.plaza-world:has(.pw-actor) .pw-empty { background: transparent; backdrop-filter: none; }
+.pw-actor::after { background: radial-gradient(closest-side, rgba(0,0,0,.32), transparent); }
+/* 이름표가 캐릭터 발 아래 살짝 — 깔끔하게 */
+.pw-name { opacity: .96; }
+.pw-actor:hover { z-index: 500 !important; }
+.pw-actor:hover .pw-name { background: #ffe14d; color: #1a2e0c; border-color: #c9a800; }

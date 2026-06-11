@@ -2,8 +2,5 @@
   "functions": {
     "source": "functions",
     "runtime": "nodejs20"
-  },
-  "database": {
-    "rules": "database.rules.json"
   }
 }

@@ -94,7 +94,8 @@ function nativeGuide(workspace: string): string {
 }
 
 // 텍스트 태그(<write_file> 등)를 레지스트리 도구 호출 {name,args}로 변환 — tool_calls 안 쓰는 모델 대비. 실행기는 동일.
-function parseTextTools(text: string): { name: string; args: any }[] {
+// (export = scripts/simulate.ts 가 모델 변형 태그들을 자동 검증)
+export function parseTextTools(text: string): { name: string; args: any }[] {
   const out: { name: string; args: any }[] = [];
   let m: RegExpExecArray | null;
   const reW1 = /<write_file\s+path="([^"]+)">([\s\S]*?)<\/write_file>/g;
@@ -105,7 +106,16 @@ function parseTextTools(text: string): { name: string; args: any }[] {
   for (const [tag, name, key] of simple) { const re = new RegExp(`<${tag}>([\\s\\S]*?)<\\/${tag}>`, 'g'); while ((m = re.exec(text))) out.push({ name, args: { [key]: m[1].trim() } }); }
   const reRun = /<run>([\s\S]*?)<\/run>/g; while ((m = reRun.exec(text))) out.push({ name: 'run_command', args: { command: m[1].trim() } });
   const reSrv = /<serve(?:_server)?>([\s\S]*?)<\/serve(?:_server)?>/g; while ((m = reSrv.exec(text))) out.push({ name: 'start_server', args: { command: m[1].trim() } });
-  const reApp = /<open_app>([\s\S]*?)<\/open_app>/g; while ((m = reApp.exec(text))) { const [nm, url] = m[1].split('|').map(s => s.trim()); out.push({ name: 'open_app', args: { name: nm, url: url || undefined } }); }
+  // open_app — 정석 <open_app>이름|url</open_app> 외에 모델 변형(<open_app name:"Finder">…)도 관용적으로 파싱
+  const reApp = /<open_app([^>]*)>([\s\S]*?)<\/open_app>/g;
+  while ((m = reApp.exec(text))) {
+    const attrs = m[1] || ''; const body = (m[2] || '').trim();
+    const nameAttr = (attrs.match(/(?:name|app)\s*[:=]\s*["']([^"']+)["']/i) || [])[1] || '';
+    const urlAttr = (attrs.match(/url\s*[:=]\s*["']([^"']+)["']/i) || [])[1] || '';
+    const [bName, bUrl] = body.split('|').map(s => s.trim());
+    const nm = nameAttr || bName || body;
+    if (nm) out.push({ name: 'open_app', args: { name: nm, url: urlAttr || bUrl || undefined } });
+  }
   if (/<revenue[\s>/]/.test(text)) out.push({ name: 'get_revenue', args: {} });
   if (/<screenshot[\s>/]/.test(text)) out.push({ name: 'capture_screen', args: {} });
   if (/<clipboard[\s>/]/.test(text)) out.push({ name: 'read_clipboard', args: {} });
@@ -127,7 +137,7 @@ export async function agentWithTools(history: ChatTurn[], userText: string, opts
   try {
     const qEmb = await embed(target.base, userText);
     const notes = brainSearch(userText, 4, qEmb || undefined);
-    if (notes.length) ragBlock = `\n\n## 내 두뇌 (기억한 지식 — 답변에 적극 활용)\n` + notes.map(n => `- ${n.text}`).join('\n');
+    if (notes.length) ragBlock = `\n\n## 내 두뇌 (기억한 지식 — 지금 요청과 관련 있을 때만 참고. 무관하면 무시)\n` + notes.map(n => `- ${n.text}`).join('\n');
   } catch { /* */ }
   const reg = await buildRegistry(opts, workspace, target, onEvent);
   const schemas: ToolSchema[] = reg.map(e => ({ type: 'function', function: { name: e.name, description: e.description, parameters: e.parameters } }));

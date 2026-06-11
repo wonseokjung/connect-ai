@@ -70,10 +70,10 @@ contextBridge.exposeInMainWorld('connect', {
   // 🧬 장기기억 만들기: ① 변환 ② 업로드 ③ 모델이름
   brainBuildDataset: (augment?: boolean) => ipcRenderer.invoke('brain:buildDataset', augment),
   hfUploadBrain: () => ipcRenderer.invoke('hf:uploadBrain'),
-  trainCloud: () => ipcRenderer.invoke('train:cloud'),                    // ☁️ 내 AI 키우기(HF Jobs)
+  trainCloud: (code?: string) => ipcRenderer.invoke('train:cloud', code || ''),                    // ☁️ 내 AI 키우기(HF Jobs)
   trainCloudStatus: () => ipcRenderer.invoke('train:cloudStatus'),
   trainCloudInstall: () => ipcRenderer.invoke('train:cloudInstall'),
-  authSignup: (email: string, pw: string) => ipcRenderer.invoke('auth:signup', email, pw),   // 👤 회원
+  authSignup: (email: string, pw: string, profile?: any) => ipcRenderer.invoke('auth:signup', email, pw, profile),   // 👤 회원(이름·전화·약관)
   authLogin: (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authCurrent: () => ipcRenderer.invoke('auth:current'),
@@ -164,5 +164,10 @@ contextBridge.exposeInMainWorld('connect', {
     const h = (_e: any, m: any) => cb(m);
     ipcRenderer.on('plaza:peer', h);
     return () => ipcRenderer.removeListener('plaza:peer', h);
+  },
+  onPlazaPresence: (cb: (list: any[]) => void) => {
+    const h = (_e: any, list: any[]) => cb(list);
+    ipcRenderer.on('plaza:presence', h);
+    return () => ipcRenderer.removeListener('plaza:presence', h);
   },
 });

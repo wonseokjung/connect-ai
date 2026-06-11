@@ -291,6 +291,7 @@ $('fileInput')?.addEventListener('change', (e: any) => { if (e.target.files?.len
 async function ask(text: string) {
   text = text.trim();
   if ((!text && !attachments.length) || busy) return;
+  $('suggChips')?.remove();   // 💡 첫 메시지를 보내면 추천 칩은 퇴장
   const att = attachments; attachments = []; renderChips();
   const chipLine = att.length ? `\n\n📎 ${att.map(a => a.name).join(', ')}` : '';
   busy = true; addLog('사장님', (text || '(첨부 파일 참고)') + chipLine, true);
@@ -1434,7 +1435,7 @@ connect.onTermShow?.(() => showTerm(true));   // 에이전트가 서버/명령 �
 // 🔌 EZERAI 브레인팩 주입 → 매트릭스 FX + 작업실 파일트리 새로고침
 connect.onBridgeInject?.((d: any) => {
   const emoji: any = { knowledge: '🧠', skill: '🐍', template: '📦', design: '🎨' };
-  playInjection(`${emoji[d.kind] || '🔌'} EZERAI → ${d.kind === 'knowledge' ? '두뇌' : '작업실'}`, [d.label || '브레인팩 주입'], (CAT_META[d.category] || CAT_META.general).color);
+  playInjection(`${emoji[d.kind] || '🔌'} EZER AI 지식 스토어 → ${d.kind === 'knowledge' ? '두뇌' : '작업실'}`, [d.label || '브레인팩 주입'], (CAT_META[d.category] || CAT_META.general).color);
   if (d.kind !== 'knowledge') { showFiles(true); setTimeout(() => loadTree(true), 400); }   // 스킬/템플릿/디자인 = 파일 생김
   if (!$('brainPanel').classList.contains('hidden')) setTimeout(() => renderBrain(), 300);    // 두뇌 패널 열려있으면 실시간 갱신
 });
@@ -1531,7 +1532,9 @@ async function openAgentDetail(id: string) {
 $('voffice').addEventListener('click', (e) => { const el = (e.target as HTMLElement).closest('.vo-agent'); if (el) openAgentDetail(el.id.replace('vo-', '')); });
 
 // ── 🧠 지식 네트워크 (두뇌) ───────────────────────────
-$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBridge(); await renderBrain(); renderMethods(); });
+$('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); await refreshMem(); await renderBridge(); await renderBrain(); renderMethods();
+  try { const saved = localStorage.getItem('cloudCode'); const cc = $('cloudCode') as HTMLInputElement | null; if (saved && cc && !cc.value) cc.value = saved; } catch { /* */ }   // 🎟️ 저장된 멤버십 코드 자동 채움
+});
 // 🗂️ 지식 목록은 평소 숨김(그래프로 충분) — 정리(삭제)할 때만 펼침
 $('notesToggle').addEventListener('click', () => { const n = $('brainNotes'); n.classList.toggle('hidden'); ($('notesToggle') as HTMLElement).classList.toggle('on', !n.classList.contains('hidden')); });
 // 🧠 제이 브레인 링크 — 멘토 두뇌 연동(구독자) / 게시(대장)
@@ -1600,6 +1603,11 @@ $('dsConvertBtn').addEventListener('click', async () => {
   playInjection(isDpo ? '⚖️ AI 자동 피드백 생성' : '📦 학습 데이터로 변환', [`${r.pairs}개`], LONG_FX);
   $('lfStep1').classList.add('lf-done');
   $('lfStep2').classList.remove('lf-locked'); ($('hfUploadBtn') as HTMLButtonElement).disabled = false;
+  // 🚀 서버 학습은 HF 토큰 불필요 — 변환만 끝나면 ②(개인 HF 업로드) 없이 바로 학습 가능하게 ③을 풀어준다
+  $('lfStep3').classList.remove('lf-locked');
+  const cb = $('cloudTrainBtn') as HTMLButtonElement | null; if (cb) cb.disabled = false;
+  const mnEl = $('modelNameInput') as HTMLInputElement | null;
+  if (mnEl && mnEl.disabled) { mnEl.disabled = false; connect.brainModelName().then((nm: any) => { if (!mnEl.value) mnEl.value = nm.suggested; }); }
 });
 // ② 업로드 — HF에 데이터셋(방식별)
 $('hfUploadBtn').addEventListener('click', async () => {
@@ -1654,11 +1662,10 @@ $('hfExportBtn').addEventListener('click', async () => { $('hfStatus').textConte
 // 👤 회원 (Firebase Auth) — 이메일/비밀번호 로그인·회원가입
 let _authMode: 'login' | 'signup' = 'login';
 async function refreshAuthBtn() {
-  const me = await connect.authCurrent?.(); const b = $('authBtn');
-  if (!b) return;
-  // 회원 시스템(Firebase)이 설정 안 됐으면 버튼 자체를 숨김 — 일반 사용자에게 운영자 안내가 안 보이게
-  if (!me?.configured) { b.style.display = 'none'; return; }
-  b.style.display = ''; b.textContent = me?.email ? '👤✓' : '👤'; b.title = me?.email ? `${me.email} — 회원 메뉴` : '회원 — 로그인/회원가입';
+  const me = await connect.authCurrent?.();
+  const b = $('authBtn'); const hb = $('hdrAuthBtn');   // 설정 안 버튼 + 헤더 버튼 둘 다 동기화
+  if (b) { b.style.display = me?.configured ? '' : 'none'; b.textContent = me?.email ? `👤 ${me.email}` : '👤 회원 로그인'; b.title = me?.email ? `${me.email} — 회원 메뉴` : '회원 — 로그인/회원가입'; }
+  if (hb) { hb.classList.toggle('on', !!me?.email); hb.textContent = me?.email ? '👤✓' : '👤'; hb.title = me?.email ? `${me.email} — 내 계정` : '로그인 / 회원가입'; }
 }
 async function openAuth() {
   openOverlay('authPanel');
@@ -1672,27 +1679,59 @@ async function openAuth() {
     return;
   }
   $('authTitle').textContent = _authMode === 'login' ? '로그인' : '회원가입';
+  const signup = _authMode === 'signup';
   body.innerHTML = `
+    ${signup ? `<input id="authName" class="auth-in" type="text" placeholder="이름" autocomplete="name" />
+    <div class="auth-phone"><select id="authCc" class="auth-in" style="flex:0 0 96px">
+      <option value="+82">🇰🇷 +82</option><option value="+1">🇺🇸 +1</option><option value="+81">🇯🇵 +81</option><option value="+86">🇨🇳 +86</option><option value="+44">🇬🇧 +44</option></select>
+    <input id="authPhone" class="auth-in" type="tel" placeholder="전화번호 (숫자만)" autocomplete="tel" style="flex:1" /></div>` : ''}
     <input id="authEmail" class="auth-in" type="email" placeholder="이메일" autocomplete="username" />
-    <input id="authPw" class="auth-in" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="current-password" />
+    <input id="authPw" class="auth-in" type="password" placeholder="비밀번호 (6자 이상)" autocomplete="${signup ? 'new-password' : 'current-password'}" />
+    ${signup ? `<input id="authPw2" class="auth-in" type="password" placeholder="비밀번호 확인" autocomplete="new-password" />
+    <div class="auth-agree">
+      <label class="auth-chk"><input type="checkbox" id="agTerms" /> <span>[필수] <a id="lnkTerms">이용약관</a>에 동의합니다</span></label>
+      <label class="auth-chk"><input type="checkbox" id="agPriv" /> <span>[필수] <a id="lnkPriv">개인정보 처리방침</a>에 동의합니다</span></label>
+      <label class="auth-chk"><input type="checkbox" id="agMkt" /> <span>[선택] 마케팅·소식 수신에 동의합니다</span></label>
+    </div>` : ''}
     <div class="auth-msg" id="authMsg"></div>
-    <button class="cyc-btn primary" id="authGo" style="width:100%">${_authMode === 'login' ? '로그인' : '회원가입'}</button>
-    <div class="auth-switch">${_authMode === 'login' ? '계정이 없나요? <a id="authToSignup">회원가입</a>' : '이미 회원? <a id="authToLogin">로그인</a>'}</div>`;
+    <button class="cyc-btn primary" id="authGo" style="width:100%">${signup ? '회원가입' : '로그인'}</button>
+    <div class="auth-switch">${signup ? '이미 회원? <a id="authToLogin">로그인</a>' : '계정이 없나요? <a id="authToSignup">회원가입</a>'}</div>`;
   $('authToSignup')?.addEventListener('click', () => { _authMode = 'signup'; openAuth(); });
   $('authToLogin')?.addEventListener('click', () => { _authMode = 'login'; openAuth(); });
+  $('lnkTerms')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com/terms'));
+  $('lnkPriv')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com/privacy'));
   const go = async () => {
     const email = ($('authEmail') as HTMLInputElement).value.trim(); const pw = ($('authPw') as HTMLInputElement).value;
-    if (!email || !pw) { $('authMsg').textContent = '이메일과 비밀번호를 입력하세요.'; return; }
+    const msg = (t: string) => { $('authMsg').textContent = t; };
+    if (signup) {
+      const name = ($('authName') as HTMLInputElement).value.trim();
+      const phone = ($('authPhone') as HTMLInputElement).value.replace(/[^0-9]/g, '');
+      const cc = ($('authCc') as HTMLSelectElement).value;
+      const pw2 = ($('authPw2') as HTMLInputElement).value;
+      if (name.length < 2) return msg('이름을 입력하세요 (2자 이상).');
+      if (!/\S+@\S+\.\S+/.test(email)) return msg('올바른 이메일을 입력하세요.');
+      if (phone.length < 8) return msg('올바른 전화번호를 입력하세요.');
+      if (pw.length < 6) return msg('비밀번호는 6자 이상이어야 해요.');
+      if (pw !== pw2) return msg('비밀번호가 일치하지 않아요.');
+      if (!($('agTerms') as HTMLInputElement).checked) return msg('이용약관 동의가 필요해요.');
+      if (!($('agPriv') as HTMLInputElement).checked) return msg('개인정보 처리방침 동의가 필요해요.');
+      const btn = $('authGo') as HTMLButtonElement; btn.disabled = true; btn.textContent = '처리 중…';
+      const r = await connect.authSignup?.(email, pw, { name, phone: cc + phone, marketing: ($('agMkt') as HTMLInputElement).checked });
+      btn.disabled = false; btn.textContent = '회원가입';
+      if (r?.ok) { refreshAuthBtn(); hint('🎉 가입 완료! 환영합니다'); openAuth(); } else msg('⚠️ ' + (r?.error || '실패'));
+      return;
+    }
+    if (!email || !pw) return msg('이메일과 비밀번호를 입력하세요.');
     const btn = $('authGo') as HTMLButtonElement; btn.disabled = true; btn.textContent = '처리 중…';
-    const r = _authMode === 'signup' ? await connect.authSignup?.(email, pw) : await connect.authLogin?.(email, pw);
-    btn.disabled = false; btn.textContent = _authMode === 'login' ? '로그인' : '회원가입';
-    if (r?.ok) { refreshAuthBtn(); hint(_authMode === 'signup' ? '🎉 가입 완료!' : '✅ 로그인됨'); openAuth(); }
-    else $('authMsg').textContent = '⚠️ ' + (r?.error || '실패');
+    const r = await connect.authLogin?.(email, pw);
+    btn.disabled = false; btn.textContent = '로그인';
+    if (r?.ok) { refreshAuthBtn(); hint('✅ 로그인됨'); openAuth(); } else msg('⚠️ ' + (r?.error || '실패'));
   };
   $('authGo')?.addEventListener('click', go);
-  $('authPw')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') go(); });
+  $('authPw')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter' && !signup) go(); });
 }
 $('authBtn')?.addEventListener('click', openAuth);
+$('hdrAuthBtn')?.addEventListener('click', openAuth);   // 🔝 헤더 로그인/회원 진입점
 refreshAuthBtn();
 
 // ☁️ 내 AI 키우기 — 코랩 없이 HF Jobs로 학습 (무료 월 1회)
@@ -1702,9 +1741,14 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   const btn = $('cloudTrainBtn') as HTMLButtonElement; btn.disabled = true;
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
   let r: any = null;
-  try { r = await connect.trainCloud?.(); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  const code = (($('cloudCode') as HTMLInputElement)?.value || '').trim();
+  if (!code) { btn.disabled = false; cloudStat('🎟️ 멤버십 코드를 입력하세요. <a href="#" id="acbLink">AI CITY BUILDERS</a> 멤버에게 공유된 코드예요.'); $('acbLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal?.('https://aicitybuilders.com'); }); return; }
+  try { r = await connect.trainCloud?.(code); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
   btn.disabled = false;
   if (!r) { cloudStat('⚠️ 응답이 없어요.'); return; }
+  if (r.badCode) { cloudStat(`🎟️ ${escapeHtml(r.error || '멤버십 코드가 틀렸어요')}`); return; }
+  if (!localStorage) { /* noop */ }
+  else if (r.ok || r.gated || r.needLogin) { try { localStorage.setItem('cloudCode', code); } catch { /* */ } }   // 통과한 코드 기억(재입력 방지)
   if (r.ok && r.jobId) {
     cloudStat(`🚀 학습 시작! <a href="${escAttr(r.url || r.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 "내 모델로 받기"가 떠요. (보통 15~40분)</span>`);
     if (cloudPoll) clearInterval(cloudPoll);
@@ -1715,7 +1759,7 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
       else cloudStat(`⏳ 학습 중… (${escapeHtml(s.stage)}) · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>`);
     }, 20000);
   } else if (r.needLogin) {
-    cloudStat(`🔑 ${escapeHtml(r.error || '로그인이 필요해요')}`); openAuth();
+    cloudStat(`🔑 ${escapeHtml(r.error || '로그인이 필요해요')} — 가입은 무료예요.`); openAuth();
   } else if (r.gated) {
     cloudStat(`🗓️ ${escapeHtml(r.error)}`);
   } else {
@@ -1841,7 +1885,7 @@ async function renderBrain() {
   renderGrowth(stats);
   $('brainNotes').innerHTML = list.length
     ? list.map((n: any) => { const c = CAT_META[n.category] || CAT_META.general; return `<div class="bn" style="border-left:3px solid ${c.color}" title="${escapeHtml(n.text.slice(0, 500))}"><span class="bn-t">${escapeHtml(noteTitle(n.text))}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`; }).join('')
-    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. ⬇ GitHub 불러오기, 에제르 주입, 또는 대화 중 에이전트가 자동으로 쌓아요.</div>';
+    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. ⬇ GitHub 불러오기, 🧠 EZER AI 지식 스토어에서 주입, 또는 대화 중 에이전트가 자동으로 쌓아요.</div>';
   $('brainNotes').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.brainDelete((b as HTMLElement).dataset.id); await renderBrain(); }));
 }
 
@@ -1866,9 +1910,9 @@ async function renderBridge() {
   const el = $('bridgeRow'); if (!el) return;
   let b: any; try { b = await connect.bridgeStatus(); } catch { el.classList.add('hidden'); return; }
   el.classList.remove('hidden');
-  if (b.state === 'listening') { el.className = 'bridge-row on'; el.innerHTML = `🔌 에제르 브릿지 <b>수신중</b> (:${b.port}) — 웹에서 [주입] 누르면 여기로 들어와요`; }
-  else if (b.state === 'yielded') { el.className = 'bridge-row warn'; el.innerHTML = `⚠️ 포트 ${b.port}를 <b>${escapeHtml(b.heldBy || '다른 앱')}</b>이 점유 중 — 에제르 주입이 그쪽으로 가요. 데스크탑으로 받으려면 그 앱(익스텐션)을 끄세요`; }
-  else { el.className = 'bridge-row'; el.innerHTML = `🔌 에제르 브릿지 대기 중 (:${b.port})`; }
+  if (b.state === 'listening') { el.className = 'bridge-row on'; el.innerHTML = `🧠 EZER AI 지식 스토어 <b>연결됨</b> (:${b.port}) — 스토어에서 [주입] 누르면 에이전트 두뇌로 들어와요`; }
+  else if (b.state === 'yielded') { el.className = 'bridge-row warn'; el.innerHTML = `⚠️ 포트 ${b.port}를 <b>${escapeHtml(b.heldBy || '다른 앱')}</b>이 점유 중 — 지식 스토어 주입이 그쪽으로 가요. 데스크탑으로 받으려면 그 앱(익스텐션)을 끄세요`; }
+  else { el.className = 'bridge-row'; el.innerHTML = `🧠 EZER AI 지식 스토어 대기 중 (:${b.port})`; }
 }
 // 🕸️ force-graph — 익스텐션과 동일한 force-directed 지식 네트워크
 let fg: any = null;
@@ -1906,7 +1950,8 @@ function drawGraph(g: any) {
   fg.width(el.clientWidth || 700).height(el.clientHeight || 300);
   fg.graphData({ nodes, links });
 }
-$('plazaBtn').addEventListener('click', () => { openOverlay('plazaPanel'); ensurePlazaStream(); });
+$('plazaBtn')?.addEventListener('click', () => { openOverlay('plazaPanel'); ensurePlazaStream(); });
+$('hdrPlazaBtn')?.addEventListener('click', () => { openOverlay('plazaPanel'); ensurePlazaStream(); });   // 🏫 헤더 광장 진입
 
 // ── 광장 ─────────────────────────────────────────────
 let plazaJoined = false, plazaES: EventSource | null = null, plazaMsgs: Record<string, any> = {};
@@ -1916,6 +1961,7 @@ $('plazaToggle').addEventListener('click', async () => {
   if (!plazaJoined) {
     const r = await connect.plazaEnter();
     if (!r?.ok) { hint('등교 실패: ' + (r?.reason || '설정에서 광장 DB URL 확인')); return; }
+    (window as any)._myPlazaUid = r.uid || '';   // 🌐 내 캐릭터 식별 (게임 월드에서 "나" 표시)
     plazaJoined = true; ($('plazaToggle') as HTMLElement).textContent = '🚪 하교하기'; $('plazaStatus').textContent = '🟢 등교 중'; ensurePlazaStream();
   } else { await connect.plazaLeave(); plazaJoined = false; friendOn = false; $('friendBtn').classList.remove('on'); ($('friendBtn') as HTMLElement).textContent = '👥 친구 에이전트 부르기'; ($('plazaToggle') as HTMLElement).textContent = '🏫 등교하기'; $('plazaStatus').textContent = '하교 중'; }
 });
@@ -1942,18 +1988,176 @@ async function ensurePlazaStream() {
 }
 const escAttr = (s: string) => String(s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
 
-// 책상(학생) 렌더 — 등교 순서로 정렬, 0=반장 1=부반장
-// 등교한 에이전트 — 반장/부반장 없이 동등한 학생. 가로 스트립.
+// 🌐🎮 포켓몬st 광장 — 진짜 픽셀 캐릭터가 잔디 타일맵을 또각또각 걸어다닌다.
+//   각 회사 = 48×96 스프라이트 캐릭터(걷기 4방향×6프레임). 자율로 배회하다 서로 만나면 멈춰 대화.
+const PLAZA_SPRITES = ['secretary', 'youtube', 'developer', 'business', 'designer', 'writer', 'researcher', 'editor', 'instagram', 'ceo'];
+interface PwActor { uid: string; company: string; emoji: string; sprite: string; x: number; y: number; tx: number; ty: number; dir: string; moving: boolean; mine: boolean; pauseT: number; el?: HTMLElement; charEl?: HTMLElement; }
+const pwActors: Record<string, PwActor> = {};
+let pwRaf = 0, pwFrame = 0;
+const myPlazaUid = () => (window as any)._myPlazaUid || '';
+const hashIdx = (s: string, n: number) => { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0; return h % n; };
+// 🚧 장애물 박스 [x1,y1,x2,y2] (%) — plaza-bg.png 기준 (연못·카페·도서관·가장자리 나무숲). 캐릭터 발이 못 들어감.
+const PW_OBSTACLES: [number, number, number, number][] = [
+  [11, 40, 35, 67],   // 💧 연못
+  [50, 4, 70, 42],    // ☕ 카페 건물
+  [72, 2, 94, 40],    // 📚 도서관 건물
+  [0, 0, 100, 16],    // 상단 나무 테두리
+  [0, 0, 9, 100],     // 좌측 나무
+  [91, 40, 100, 100], // 우하단 나무
+];
+const pwBlocked = (x: number, y: number) => PW_OBSTACLES.some(([x1, y1, x2, y2]) => x > x1 && x < x2 && y > y1 && y < y2);
+// 걸을 수 있는 목적지 뽑기 (장애물 밖, 화면 안)
+function pwWalkable(): [number, number] {
+  for (let k = 0; k < 20; k++) { const x = 12 + Math.random() * 76, y = 44 + Math.random() * 48; if (!pwBlocked(x, y)) return [x, y]; }
+  return [50, 80];   // 폴백: 하단 중앙 잔디
+}
+function pwEnsureLoop() {
+  if (pwRaf) return;
+  const PT = 48, PCH = 96;   // 스프라이트 셀 (사무실과 동일)
+  const tick = () => {
+    pwFrame++;
+    for (const a of Object.values(pwActors)) {
+      // 이동 (장애물 회피 — 막히면 그 축으로 슬라이드, 둘 다 막히면 새 목적지)
+      const dx = a.tx - a.x, dy = a.ty - a.y; const d = Math.hypot(dx, dy);
+      if (a.pauseT > 0) { a.pauseT--; a.moving = false; }
+      else if (d > 0.6) {
+        const sp = Math.min(0.42, 0.18 + d * 0.04);
+        const nx = a.x + dx / d * sp, ny = a.y + dy / d * sp;
+        let moved = false;
+        if (!pwBlocked(nx, ny)) { a.x = nx; a.y = ny; moved = true; }
+        else if (!pwBlocked(nx, a.y)) { a.x = nx; moved = true; }   // 가로만 (벽 옆으로 미끄러짐)
+        else if (!pwBlocked(a.x, ny)) { a.y = ny; moved = true; }   // 세로만
+        if (moved) { a.moving = true; a.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'); }
+        else { const [wx, wy] = pwWalkable(); a.tx = wx; a.ty = wy; a.moving = false; }   // 갇힘 → 새 목적지
+      } else { a.moving = false; }
+      if (a.el) { a.el.style.left = a.x + '%'; a.el.style.top = a.y + '%'; a.el.style.zIndex = String(100 + Math.floor(a.y)); }
+      // 스프라이트 프레임 (방향 col: down0 left6 right12 up18, row idle1/walk2, 6프레임)
+      if (a.charEl) {
+        const col = a.dir === 'left' ? 6 : a.dir === 'right' ? 12 : a.dir === 'up' ? 18 : 0;
+        const row = a.moving ? 2 : 1;
+        const fi = Math.floor(pwFrame / (a.moving ? 7 : 16)) % 6;
+        a.charEl.style.backgroundPosition = `-${(col + fi) * PT}px -${row * PCH}px`;
+      }
+    }
+    // ❗ 만남 감지 — 두 캐릭터가 가까워지면 느낌표 + 잠깐 멈춰 마주봄 (8프레임마다 체크)
+    if (pwFrame % 8 === 0) {
+      const arr = Object.values(pwActors);
+      for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i], b = arr[j]; const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist < 9 && !(a as any)._met) {
+          (a as any)._met = (b as any)._met = true;
+          pwMeetFx(a); pwMeetFx(b);
+          a.pauseT = 70; b.pauseT = 70; a.dir = a.x > b.x ? 'left' : 'right'; b.dir = b.x > a.x ? 'left' : 'right';
+          pwEncounter(a, b);   // 💬 미니 대화 + 📕 도감 수집
+        } else if (dist > 16) { (a as any)._met = (b as any)._met = false; }
+      }
+    }
+    pwRaf = requestAnimationFrame(tick);
+  };
+  pwRaf = requestAnimationFrame(tick);
+  // 🚶 자율 배회 — 2초마다 한 명이 새 목적지 (서로 가까운 곳으로 가서 만나기도)
+  if (!(window as any)._pwWander) (window as any)._pwWander = window.setInterval(() => {
+    const arr = Object.values(pwActors); if (arr.length < 1) return;
+    const a = pick(arr); if (!a || a.pauseT > 0) return;
+    if (arr.length > 1 && Math.random() < 0.45) {            // 45% 확률로 다른 캐릭터 옆으로 (만나서 대화)
+      const t = pick(arr.filter(x => x.uid !== a.uid));
+      let nx = t.x + (Math.random() < .5 ? 7 : -7), ny = t.y + 3;
+      if (pwBlocked(nx, ny)) { const [wx, wy] = pwWalkable(); nx = wx; ny = wy; }   // 옆자리가 막혀있으면 잔디로
+      a.tx = nx; a.ty = ny;
+    } else { const [wx, wy] = pwWalkable(); a.tx = wx; a.ty = wy; }   // 랜덤 산책 (장애물 밖)
+  }, 2000);
+}
+// 🌳 맵 데코 한 번 깔기 (나무·연못·꽃) — 고정 위치
+function pwBuildDeco(_world: HTMLElement) {
+  // 🖼️ 배경 이미지(plaza-bg.png)에 나무·연못·카페·도서관이 이미 그려져 있어 CSS 데코는 생략
+}
+function pwToast(world: HTMLElement, text: string) {
+  const t = document.createElement('div'); t.className = 'pw-toast'; t.textContent = text; world.appendChild(t);
+  setTimeout(() => { try { t.remove(); } catch { /* */ } }, 2700);
+}
+function pwMeetFx(a: PwActor) {
+  if (!a.el) return; const m = document.createElement('div'); m.className = 'pw-meet'; m.textContent = '❗'; m.style.left = '50%'; m.style.top = '0'; a.el.appendChild(m);
+  setTimeout(() => { try { m.remove(); } catch { /* */ } }, 900);
+}
 function renderDesks() {
   const now = Date.now();
   const list = Object.values(plazaPeople).filter((p: any) => p && now - p.ts < 60000).sort((a: any, b: any) => a.ts - b.ts);
-  $('plazaStatus').textContent = list.length ? `🟢 ${list.length}명 등교` : '하교 중';
-  if (!list.length) { $('desks').innerHTML = '<div class="cls-empty">아직 아무도 등교 안 했어요 🙋</div>'; return; }
-  $('desks').innerHTML = list.map((p: any) =>
-    `<div class="desk" data-company="${escAttr(p.company)}">
-      <div class="student"><span class="st-av">${p.emoji || '🧑'}</span></div>
-      <div class="st-tag">${escapeHtml(p.company || '')}</div>
-    </div>`).join('');
+  $('plazaStatus').textContent = list.length ? `🟢 ${list.length}개 회사 입장` : '하교 중';
+  const world = $('plazaWorld'); if (!world) return;
+  pwBuildDeco(world);
+  const empty = $('pwEmpty');
+  if (empty) {
+    if (!list.length) { empty.style.display = ''; empty.innerHTML = '🏫 <b>등교</b>하면 광장에 캐릭터로 입장해요 — 다른 회사 에이전트와 만나 토론·도감 수집!'; }
+    else if (list.length === 1 && list[0].uid === myPlazaUid()) { empty.style.display = ''; empty.innerHTML = '🟢 입장 완료! 다른 회사가 오길 기다리는 중… <br><span style="opacity:.7">친구를 부르거나 📢 주제를 던져보세요</span>'; }
+    else empty.style.display = 'none';
+  }
+  const seen = new Set<string>();
+  const mine = myPlazaUid();
+  list.forEach((p: any, i: number) => {
+    seen.add(p.uid);
+    let a = pwActors[p.uid];
+    if (!a) {
+      const isMine = p.uid === mine;
+      const sprite = isMine ? (cfg.agentSprite || 'secretary') : PLAZA_SPRITES[hashIdx(p.uid, PLAZA_SPRITES.length)];
+      const [wx, wy] = pwWalkable();
+      a = pwActors[p.uid] = { uid: p.uid, company: p.company, emoji: p.emoji || '🤖', sprite, x: 48 + (i % 3) * 2, y: 96, tx: wx, ty: wy, dir: 'up', moving: false, mine: isMine, pauseT: 0 };
+      const el = document.createElement('div');
+      el.className = 'pw-actor' + (isMine ? ' mine' : '');
+      el.id = 'pw-' + p.uid;
+      el.innerHTML = `<div class="pw-bubble" id="pwb-${escAttr(p.uid)}"></div>` +
+        `<div class="pw-char" style="background-image:url('${SPRITE(sprite)}')"></div>` +
+        `<div class="pw-name">${p.emoji || ''} ${escapeHtml(p.company || '익명')}${isMine ? ' <b>(나)</b>' : ''}</div>`;
+      world.appendChild(el); a.el = el; a.charEl = el.querySelector('.pw-char') as HTMLElement;
+      el.classList.add('pw-spawn'); setTimeout(() => el.classList.remove('pw-spawn'), 600);
+      if (!isMine) pwToast(world, `✨ ${p.company} 등장!`);   // 🎬 새 회사 입장 알림
+      el.addEventListener('click', () => { pwBubble(a!, `안녕! 우리는 ${p.company}예요 ${(p.agents || []).join('') || '🤖'}`); });
+    }
+    a.company = p.company; a.emoji = p.emoji || a.emoji;
+  });
+  for (const uid of Object.keys(pwActors)) { if (!seen.has(uid)) { pwActors[uid].el?.remove(); delete pwActors[uid]; } }
+  if (list.length) pwEnsureLoop();
+}
+function pwBubble(a: PwActor, text: string) {
+  const b = document.getElementById('pwb-' + a.uid);
+  if (b) { b.textContent = text.slice(0, 70); b.classList.add('show'); window.clearTimeout((b as any)._t); (b as any)._t = window.setTimeout(() => b.classList.remove('show'), 4500); }
+}
+// 💬 만남 미니 대화 — 두 캐릭터가 만나면 짧은 인사를 주고받는다 (도감도 수집)
+const PW_GREET = ['안녕하세요! 👋', '오, 반가워요!', '어떤 일 하세요?', '같이 공부해요!', '오늘 주제 봤어요?', '협업할래요?', '멋진 회사네요!', '저희도 1인 기업이에요', '좋은 아이디어 있어요?', '화이팅! 🔥'];
+const pwTalkCooldown: Record<string, number> = {};
+function pwEncounter(a: PwActor, b: PwActor) {
+  pwDexAdd(a); pwDexAdd(b);   // 📕 도감 수집 (다른 회사만 실제 기록됨)
+  const key = [a.uid, b.uid].sort().join('|');
+  if ((pwTalkCooldown[key] || 0) > Date.now()) return;
+  pwTalkCooldown[key] = Date.now() + 12000;   // 같은 쌍은 12초 쿨다운
+  // 인사 주고받기 (A → 1.2초 후 B 답)
+  setTimeout(() => pwBubble(a, pick(PW_GREET)), 200);
+  setTimeout(() => pwBubble(b, pick(PW_GREET)), 1500);
+}
+// 📕 에이전트 도감 — 만난 회사 수집
+const pwDex = new Set<string>(JSON.parse(localStorage.getItem('pwDex') || '[]'));
+const pwDexMeta: Record<string, { emoji: string; sprite: string }> = JSON.parse(localStorage.getItem('pwDexMeta') || '{}');
+function pwDexAdd(a: PwActor) {
+  if (a.mine || pwDex.has(a.company)) return;
+  pwDex.add(a.company); pwDexMeta[a.company] = { emoji: a.emoji, sprite: a.sprite };
+  try { localStorage.setItem('pwDex', JSON.stringify([...pwDex])); localStorage.setItem('pwDexMeta', JSON.stringify(pwDexMeta)); } catch { /* */ }
+  pwToastWorld(`📕 도감 등록! ${a.emoji} ${a.company} (${pwDex.size}개째)`);
+  renderDex();
+}
+function pwToastWorld(text: string) { const w = $('plazaWorld'); if (w) pwToast(w, text); }
+function renderDex() {
+  const el = $('pwDexCount'); if (el) el.textContent = `📕 ${pwDex.size}`;
+  const grid = $('pwDexGrid'); if (!grid) return;
+  grid.innerHTML = [...pwDex].map(co => { const m = pwDexMeta[co] || { emoji: '🤖' }; return `<div class="dex-card" title="${escAttr(co)}"><div class="dex-e">${m.emoji}</div><div class="dex-n">${escapeHtml(co)}</div></div>`; }).join('') || '<div class="muted small" style="padding:10px">아직 만난 회사가 없어요 — 광장에서 다른 에이전트와 마주치면 등록돼요!</div>';
+}
+// 누군가 말하면 그 캐릭터가 멈춰서 말풍선 + 가까운 상대에게 다가가 마주봄
+function pwTalk(uid: string, company: string, text: string) {
+  const a = Object.values(pwActors).find(x => x.uid === uid) || Object.values(pwActors).find(x => x.company === company);
+  if (!a) return;
+  pwBubble(a, text);
+  a.pauseT = 90;   // 말하는 동안 잠시 멈춤(자연스럽게)
+  const others = Object.values(pwActors).filter(x => x.uid !== a.uid);
+  if (others.length) { const t = pick(others); let nx = t.x + (a.x > t.x ? 8 : -8), ny = t.y + 3; if (pwBlocked(nx, ny)) { const [wx, wy] = pwWalkable(); nx = wx; ny = wy; } a.tx = nx; a.ty = ny; a.pauseT = 0;
+    a.dir = a.x > t.x ? 'left' : 'right'; t.pauseT = 60; t.dir = t.x > a.x ? 'left' : 'right'; }
 }
 
 // 새 메시지 → 보드는 '현재 문제'만 고정 / 대화는 피드 / 책상 폴짝
@@ -1970,11 +2174,10 @@ function onMessages() {
   const topic = [...list].reverse().find((x: any) => x.role === '선생님' || /^📢/.test(x.text || ''));
   if (topic) $('bbLine').innerHTML = `📢 <b>${escapeHtml((topic.text || '').replace(/^📢\s*오늘의 주제:\s*/, ''))}</b>`;
 }
-function talkAt(company: string, _text: string) {
-  const desk = (Array.from(document.querySelectorAll('.desk')) as HTMLElement[]).find(d => d.dataset.company === company);
-  if (!desk) return;
-  desk.classList.add('talking');
-  setTimeout(() => desk.classList.remove('talking'), 4000);
+function talkAt(company: string, text: string) {
+  // 🌐 게임 월드 — 그 회사 캐릭터 위에 말풍선 + 서로 다가가기
+  const m: any = (Object.values(plazaMsgs) as any[]).filter(x => x && x.company === company).sort((a, b) => b.ts - a.ts)[0];
+  pwTalk(m?.uid || '', company, text);
 }
 
 // 💬 SNS 피드 — 대화가 카드로 쌓인다 (새 것만 append, slide-in)
@@ -2000,6 +2203,12 @@ function renderFeed() {
   $('feed').scrollTop = $('feed').scrollHeight;
 }
 connect.onPlazaPeer((_m: any) => { /* 표시는 onMessages/renderDesks 가 처리 */ });
+// 🌐 main의 presence 폴링 → 게임 월드 동기화 (SSE 백업·보강)
+connect.onPlazaPresence?.((list: any[]) => {
+  if (!Array.isArray(list)) return;
+  for (const p of list) if (p?.uid) plazaPeople[p.uid] = p;
+  renderDesks();
+});
 
 // 📢 오늘의 주제 발표 — 모든 에이전트가 이 주제로 토론
 function sendTopic() {
@@ -2042,7 +2251,38 @@ $('gradeBtn').addEventListener('click', async () => {
   localStorage.setItem('academy_board', JSON.stringify(b));
   renderLeaderboard();
   hint(`🏆 오늘의 우등생: ${r.top}`);
+  pwCrown(r.top);   // 👑 우승 캐릭터에 왕관
 });
+// 👑 토론 우승자 머리에 왕관 + 폭죽
+function pwCrown(company: string) {
+  for (const a of Object.values(pwActors)) a.el?.querySelector('.pw-crown')?.remove();
+  const a = Object.values(pwActors).find(x => x.company === company); if (!a?.el) return;
+  const c = document.createElement('div'); c.className = 'pw-crown'; c.textContent = '👑'; a.el.appendChild(c);
+  pwToastWorld(`🏆 우승! ${a.emoji} ${company} 🎉`);
+  for (let k = 0; k < 12; k++) { const f = document.createElement('div'); f.className = 'pw-confetti'; f.textContent = pick(['🎉', '✨', '⭐', '🎊']); f.style.left = (40 + Math.random() * 20) + '%'; f.style.setProperty('--fx', ((Math.random() - 0.5) * 200).toFixed(0) + 'px'); f.style.animationDelay = (k * 50) + 'ms'; $('plazaWorld')?.appendChild(f); setTimeout(() => f.remove(), 2000); }
+}
+// 📕 도감 토글
+$('pwDexBtn')?.addEventListener('click', () => { renderDex(); $('pwDex')?.classList.toggle('hidden'); });
+// 🎵 8비트 BGM — 포켓몬st 루프 (WebAudio, 에셋 불필요)
+let pwBgm: { ctx: AudioContext; stop: () => void } | null = null;
+function pwToggleBgm() {
+  const btn = $('pwBgmBtn');
+  if (pwBgm) { pwBgm.stop(); pwBgm = null; if (btn) btn.textContent = '🔇'; return; }
+  const AC = window.AudioContext || (window as any).webkitAudioContext; const ctx = new AC();
+  const notes = [523, 587, 659, 784, 659, 587, 523, 440, 494, 523, 587, 523, 494, 440, 392, 440];   // 밝은 마을 멜로디
+  let i = 0; const master = ctx.createGain(); master.gain.value = 0.06; master.connect(ctx.destination);
+  const id = window.setInterval(() => {
+    const o = ctx.createOscillator(), g = ctx.createGain(); o.type = 'square'; o.frequency.value = notes[i % notes.length];
+    g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.5, ctx.currentTime + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.22);
+    o.connect(g); g.connect(master); o.start(); o.stop(ctx.currentTime + 0.24);
+    // 베이스
+    if (i % 2 === 0) { const bo = ctx.createOscillator(), bg = ctx.createGain(); bo.type = 'triangle'; bo.frequency.value = notes[i % notes.length] / 2; bg.gain.setValueAtTime(0.3, ctx.currentTime); bg.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.3); bo.connect(bg); bg.connect(master); bo.start(); bo.stop(ctx.currentTime + 0.3); }
+    i++;
+  }, 230);
+  pwBgm = { ctx, stop: () => { clearInterval(id); try { ctx.close(); } catch { /* */ } } };
+  if (btn) btn.textContent = '🔊';
+}
+$('pwBgmBtn')?.addEventListener('click', pwToggleBgm);
 
 // ── 부팅 + 시작 ───────────────────────────────────────
 function timeHello() { const h = new Date().getHours(); return h < 5 ? '늦은 시간이네요' : h < 12 ? '좋은 아침입니다' : h < 18 ? '좋은 오후입니다' : '좋은 저녁입니다'; }
@@ -2088,6 +2328,19 @@ $('welGoBtn')?.addEventListener('click', async () => {
   startOps();   // 모델이 안 켜져 있으면 startOps가 알아서 AI 패널로 안내
 });
 $('welSkip')?.addEventListener('click', () => closeWelcome(false));
+// 🌱 생태계 — 유튜브·강의·지식스토어·공유 (서로가 서로의 광고판)
+document.querySelectorAll('.eco-mini').forEach(b => b.addEventListener('click', () => { const u = (b as HTMLElement).dataset.url; if (u) connect.openExternal?.(u); }));
+$('ecoYt')?.addEventListener('click', () => connect.openExternal?.('https://www.youtube.com/channel/UCdLZ0MsYS4hmqFgOYCB6C9w'));
+$('acbBtn')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com'));
+$('ezerBtn')?.addEventListener('click', () => connect.openExternal?.('https://salmon-ground-06a59b710.3.azurestaticapps.net'));
+$('ecoSite')?.addEventListener('click', async () => { try { await navigator.clipboard.writeText('https://connectai-desktop.web.app'); } catch { /* */ } connect.openExternal?.('https://connectai-desktop.web.app'); hint('🔗 주소 복사됨 — 친구에게 보내주세요!'); });
+
+// 💡 추천 명령 칩 — 클릭 한 번으로 첫 경험
+document.querySelectorAll('.sg-chip').forEach(b => b.addEventListener('click', () => {
+  const el = b as HTMLElement;
+  if (el.dataset.act === 'ops') { $('suggChips')?.remove(); startOps(); return; }
+  if (el.dataset.q) ask(el.dataset.q);
+}));
 
 // 🕐 JARVIS 헤더 시계
 function startClock() {

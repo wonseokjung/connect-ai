@@ -26,13 +26,30 @@ h1 b{color:var(--g);text-shadow:0 0 24px rgba(57,255,20,.5)}
 .note{margin:26px auto 0;max-width:540px;background:rgba(0,20,10,.5);border:1px solid rgba(57,255,20,.15);border-radius:12px;padding:14px 18px;font-size:13px;color:#9fe6b4;line-height:1.8;text-align:left}
 .ver{margin-top:18px;font-size:12px;color:var(--dim)}
 .ver a{color:#9fe6b4}
+.proof{display:inline-block;margin-top:16px;font-size:13px;color:#cfeedd;text-decoration:none;background:rgba(255,0,60,.07);border:1px solid rgba(255,80,100,.25);border-radius:999px;padding:9px 18px;transition:all .2s}
+.proof:hover{border-color:rgba(255,80,100,.55);box-shadow:0 0 16px rgba(255,60,80,.25)}
+.proof b{color:#ff8a9b}
 .feat{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:54px 0 0;text-align:left}
 .f{background:rgba(0,25,12,.45);border:1px solid rgba(57,255,20,.14);border-radius:14px;padding:18px}
 .f .e{font-size:24px}
 .f .t{color:#eaffef;font-weight:800;font-size:14.5px;margin:8px 0 4px}
 .f .d{color:var(--dim);font-size:12.5px;line-height:1.6}
-.foot{margin-top:60px;font-size:12px;color:rgba(134,160,150,.6)}
+.foot{margin-top:40px;font-size:12px;color:rgba(134,160,150,.6)}
 .foot a{color:#9fe6b4;text-decoration:none}
+/* 🌱 미션 여정 */
+.journey{margin-top:64px;padding-top:40px;border-top:1px solid rgba(57,255,20,.12)}
+.j-mission{font-size:clamp(17px,3vw,22px);font-weight:800;color:#eaffef;line-height:1.6;margin-bottom:26px}
+.j-mission b{color:var(--g);text-shadow:0 0 16px rgba(57,255,20,.4)}
+.j-steps{display:flex;gap:10px;align-items:stretch;justify-content:center;flex-wrap:wrap}
+.j-card{flex:1;min-width:170px;max-width:220px;background:rgba(0,25,12,.5);border:1px solid rgba(57,255,20,.16);border-radius:14px;padding:18px 14px;text-decoration:none;color:inherit;transition:all .2s}
+.j-card:hover{border-color:var(--g);box-shadow:0 0 20px rgba(57,255,20,.25);transform:translateY(-3px)}
+.j-card.hot{border-color:rgba(57,255,20,.45);background:rgba(57,255,20,.06)}
+.j-n{font-size:10px;letter-spacing:2px;color:var(--dim)}
+.j-e{font-size:28px;margin:8px 0 4px}
+.j-t{font-size:16px;font-weight:900;color:#eaffef}
+.j-d{font-size:11.5px;color:var(--dim);line-height:1.6;margin-top:6px}
+.j-arrow{align-self:center;color:rgba(57,255,20,.5);font-size:18px;font-weight:900}
+@media(max-width:640px){.j-arrow{display:none}}
 </style></head><body>
 <canvas class="rain" id="rain"></canvas>
 <div class="wrap">
@@ -42,13 +59,13 @@ h1 b{color:var(--g);text-shadow:0 0 24px rgba(57,255,20,.5)}
   100% 내 컴퓨터에서 도는 무료 AI 비서. 자비스 보이스 탑재. 별도 프로그램 없이 모델 하나만 받으면 바로 작동.</p>
 
   <div class="btns">
-    <a class="dl" id="dl-mac-arm" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-mac-arm64.dmg" onclick="track('mac-arm64')">
+    <a class="dl" id="dl-mac-arm" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.1/Connect-AI-0.3.1-mac-arm64.dmg" onclick="track('mac-arm64')">
       <span class="ic"></span><span class="lb"><span class="s">macOS · 애플 실리콘</span><br/><span class="b">Mac (M1~M5)</span></span>
     </a>
-    <a class="dl" id="dl-mac-x64" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-mac-x64.dmg" onclick="track('mac-x64')">
+    <a class="dl" id="dl-mac-x64" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.1/Connect-AI-0.3.1-mac-x64.dmg" onclick="track('mac-x64')">
       <span class="ic"></span><span class="lb"><span class="s">macOS · 인텔</span><br/><span class="b">Mac (Intel)</span></span>
     </a>
-    <a class="dl" id="dl-win" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.0/Connect-AI-0.3.0-win-x64-Setup.exe" onclick="track('win-x64')">
+    <a class="dl" id="dl-win" href="https://github.com/wonseokjung/connect-ai/releases/download/desktop-v0.3.1/Connect-AI-0.3.1-win-x64-Setup.exe" onclick="track('win-x64')">
       <span class="ic">⊞</span><span class="lb"><span class="s">Download for</span><br/><span class="b">Windows (.exe)</span></span>
     </a>
   </div>
@@ -57,7 +74,10 @@ h1 b{color:var(--g);text-shadow:0 0 24px rgba(57,255,20,.5)}
     <b>맥</b> 🍎 애플 공증 완료 — 받아서 바로 실행돼요 (경고 없음)<br/>
     <b>윈도우</b> ⊞ 첫 실행 시 "Windows가 PC를 보호함" → <b>추가 정보 → 실행</b> 클릭
   </div>
-  <div class="ver">v0.3.0 · <a href="https://github.com/wonseokjung/connect-ai/releases" target="_blank" rel="noreferrer">릴리스 노트</a> · 무료</div>
+  <div class="ver">v0.3.1 · <a href="https://github.com/wonseokjung/connect-ai/releases" target="_blank" rel="noreferrer">릴리스 노트</a> · 무료</div>
+  <a class="proof" href="https://www.youtube.com/channel/UCdLZ0MsYS4hmqFgOYCB6C9w" target="_blank" rel="noreferrer">
+    📺 구독자 <b>117,000명</b>의 CONNECT AI LAB — 만드는 과정 전부를 유튜브에 공개합니다 →
+  </a>
 
   <div class="feat">
     <div class="f"><div class="e">🎯</div><div class="t">운영 사이클</div><div class="d">매출·유튜브·코드를 분석해 오늘의 작전을 제안 — 체크하면 에이전트들이 실제 파일·보고서를 만듭니다.</div></div>
@@ -66,7 +86,36 @@ h1 b{color:var(--g);text-shadow:0 0 24px rgba(57,255,20,.5)}
     <div class="f"><div class="e">🧠</div><div class="t">100% 로컬 + 학습</div><div class="d">내 컴퓨터에서 도는 AI. 쌓인 지식으로 월 1회 무료 클라우드 학습 — 나만의 모델로 성장.</div></div>
   </div>
 
-  <div class="foot">© EZER AI · <a href="/remote.html">📱 폰 리모컨</a></div>
+  <!-- 🌱 미션 여정 — 배운다 → 차린다 → 키운다 -->
+  <div class="journey">
+    <div class="j-mission">"AI 시대, 누구나 기회를 찾고 꿈을 꾸고<br/><b>1인 기업</b>이 될 수 있도록"</div>
+    <div class="j-steps">
+      <a class="j-card" href="https://aicitybuilders.com" target="_blank" rel="noreferrer">
+        <div class="j-n">STEP 1</div><div class="j-e">🎓</div><div class="j-t">배운다</div>
+        <div class="j-d">AI CITY BUILDERS<br/>강의·교육으로 기회를 보는 눈</div>
+      </a>
+      <div class="j-arrow">→</div>
+      <a class="j-card hot" href="#top">
+        <div class="j-n">STEP 2</div><div class="j-e">🦾</div><div class="j-t">차린다</div>
+        <div class="j-d">Connect AI<br/>AI 직원들과 내 회사 운영</div>
+      </a>
+      <div class="j-arrow">→</div>
+      <a class="j-card" href="https://salmon-ground-06a59b710.3.azurestaticapps.net" target="_blank" rel="noreferrer">
+        <div class="j-n">STEP 3</div><div class="j-e">🧠</div><div class="j-t">키운다</div>
+        <div class="j-d">EZER AI 지식 스토어<br/>에이전트 두뇌에 지식 주입</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="foot">
+    <b style="color:#9fe6b4">Connect AI — AI 1인 기업 OS</b><br/>
+    <span style="display:inline-block;margin-top:8px">
+      🧠 <a href="https://salmon-ground-06a59b710.3.azurestaticapps.net" target="_blank" rel="noreferrer">EZER AI 지식 스토어</a> — 에이전트 두뇌에 지식 주입 ·
+      🎓 <a href="https://aicitybuilders.com" target="_blank" rel="noreferrer">AI CITY BUILDERS</a> — 강의·교육 ·
+      📱 <a href="/remote.html">폰 리모컨</a>
+    </span><br/>
+    <span style="opacity:.6;display:inline-block;margin-top:6px">© EZER AI</span>
+  </div>
 </div>
 <script>
 // 글리프 레인

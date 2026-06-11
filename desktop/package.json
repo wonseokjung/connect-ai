@@ -1,7 +1,7 @@
 {
   "name": "connect-ai-desktop",
-  "version": "0.3.1",
-  "description": "Connect AI — 자비스 같은 1인 기업 AI 비서 (데스크톱 앱, 비개발자용)",
+  "version": "0.3.2",
+  "description": "Connect AI — AI 1인 기업 OS. 에이전트 팀이 분석·기획·코딩·결재까지, 100% 로컬·무료.",
   "main": "out/main.js",
   "author": "EZER AI",
   "license": "UNLICENSED",
@@ -13,7 +13,8 @@
     "build": "node esbuild.mjs",
     "typecheck": "tsc --noEmit -p .",
     "start": "npm run build && electron .",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "sim": "esbuild scripts/simulate.ts --bundle --platform=node --external:electron --outfile=out/sim.js --log-level=error && node out/sim.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",

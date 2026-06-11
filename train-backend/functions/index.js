@@ -86,12 +86,23 @@ async function jobStatus(token, namespace, jobId) {
   return r.data?.status || { stage: r.data?.stage || 'UNKNOWN' };
 }
 
-// POST /train  { userId, jsonl }   → { ok, jobId, namespace, outputRepo }
-exports.train = onRequest({ secrets: [HF_TOKEN], cors: true, timeoutSeconds: 120, memory: '512MiB' }, async (req, res) => {
+// 🌐 단일 진입점 api — /train, /trainStatus 를 path로 라우팅 (Gen2 함수당 URL 분리 문제 해결, 앱은 URL 하나만 알면 됨)
+const ACCESS_CODE = '0101';   // 🎟️ 멤버십 런칭 코드 — 멤버에게만 공유 (변경 시 여기 수정 후 재배포)
+exports.api = onRequest({ secrets: [HF_TOKEN], cors: true, timeoutSeconds: 120, memory: '512MiB' }, async (req, res) => {
+  const path = (req.path || '').replace(/^\/+/, '').toLowerCase();
+  if (path === 'trainstatus') return trainStatusHandler(req, res);
+  return trainHandler(req, res);   // 기본 = train
+});
+
+// POST /train  { userId, jsonl, idToken, accessCode }   → { ok, jobId, namespace, outputRepo }
+async function trainHandler(req, res) {
   try {
-    let { userId, jsonl, idToken } = req.body || {};
-    // 🔐 로그인 토큰이 오면 검증해서 진짜 uid 사용(재설치 우회 방지). 없으면 익명 userId(기기) 허용.
-    if (idToken) { try { const dec = await admin.auth().verifyIdToken(idToken); userId = dec.uid; } catch (e) { return res.json({ ok: false, needLogin: true, error: '로그인 세션이 만료됐어요. 다시 로그인해주세요.' }); } }
+    let { userId, jsonl, idToken, accessCode } = req.body || {};
+    // 🎟️ 게이트 ① 멤버십 코드
+    if (String(accessCode || '').trim() !== ACCESS_CODE) return res.json({ ok: false, badCode: true, error: '멤버십 코드가 틀렸어요. 멤버에게 공유된 코드를 입력하세요.' });
+    // 🎟️ 게이트 ② 회원 로그인 필수 (익명 불가 — 재설치 우회 방지)
+    if (!idToken) return res.json({ ok: false, needLogin: true, error: '무료 학습은 회원 전용이에요. 앱에서 로그인해주세요.' });
+    try { const dec = await admin.auth().verifyIdToken(idToken); userId = dec.uid; } catch (e) { return res.json({ ok: false, needLogin: true, error: '로그인 세션이 만료됐어요. 다시 로그인해주세요.' }); }
     if (!userId) return res.json({ ok: false, error: 'userId가 필요해요(로그인).' });
     if (!jsonl || jsonl.length < 20) return res.json({ ok: false, error: '학습할 두뇌 데이터가 비어 있어요.' });
 
@@ -132,10 +143,10 @@ exports.train = onRequest({ secrets: [HF_TOKEN], cors: true, timeoutSeconds: 120
     if (st === 403 || /pro|billing|subscription/i.test(String(msg))) return res.json({ ok: false, error: '제공자 계정에 HF Pro가 필요해요(서버 설정).' });
     return res.json({ ok: false, error: (st ? `HTTP ${st}: ` : '') + (msg || '학습 시작 실패') });
   }
-});
+}
 
 // GET /trainStatus?userId=...   → { ok, stage, outputRepo }
-exports.trainStatus = onRequest({ secrets: [HF_TOKEN], cors: true }, async (req, res) => {
+async function trainStatusHandler(req, res) {
   try {
     const userId = req.query.userId;
     if (!userId) return res.json({ ok: false, error: 'userId 필요' });
@@ -144,4 +155,4 @@ exports.trainStatus = onRequest({ secrets: [HF_TOKEN], cors: true }, async (req,
     const s = await jobStatus(HF_TOKEN.value(), g.namespace, g.jobId);
     return res.json({ ok: true, stage: s.stage || 'UNKNOWN', message: s.message || '', outputRepo: g.outputRepo, jobUrl: `https://huggingface.co/jobs/${g.namespace}/${g.jobId}` });
   } catch (e) { return res.json({ ok: false, error: e?.message || String(e) }); }
-});
+}

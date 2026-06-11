@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY } from './engine/company';
 import { search as brainSearch } from './engine/brain';
+import { quickIntent, planServe } from './engine/intent';
 import { fetchRevenue } from './engine/paypal';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
@@ -32,7 +33,7 @@ import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, ap
 import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
 import { AGENTS, AGENT_ORDER } from './agents';
-import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, PlazaSession, PlazaMessage } from './plaza';
+import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, fetchPresence, PlazaSession, PlazaMessage } from './plaza';
 import { startRemote, remoteInfo } from './engine/remote';
 import { startRelay, relayPush, RelayDeps } from './engine/relay';
 
@@ -89,6 +90,7 @@ function saveConfig(patch: Partial<Config>): Config {
 
 let win: BrowserWindow | null = null;
 let plaza: PlazaSession | null = null;
+let plazaPresenceTimer: ReturnType<typeof setInterval> | null = null;
 let demoBot: PlazaSession | null = null;
 let plazaAuto: (() => void) | null = null;
 let demoAuto: (() => void) | null = null;
@@ -445,6 +447,14 @@ ipcMain.handle('update:install', () => {
 const emitEngine = (ev: any) => { try { win?.webContents.send('engine:event', ev); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('engine:event', ev); } catch { /* */ } };
 // ✈️ 텔레그램 sendMessage — 한 곳에서(발송·테스트·승인실행·결재 브리지가 공유)
 const tgPost = (token: string, chat: string, text: string) => axios.post(`https://api.telegram.org/bot${token}/sendMessage`, { chat_id: chat, text: text || '(빈 메시지)' }, { timeout: 9000 });
+// 🌐 URL을 "확실히 눈앞에" 열기 — 맥은 open(브라우저를 전면 활성화), 그 외는 openExternal.
+//    결과물이 뒤 창에 숨어서 "안 열린 줄" 아는 일 방지.
+function openUrlFront(url: string) {
+  try {
+    if (process.platform === 'darwin') { spawn('open', [url], { detached: true, stdio: 'ignore' }).unref(); return; }
+  } catch { /* 폴백 */ }
+  shell.openExternal(url);
+}
 async function loadRevenue() {
   postRevenue({ type: 'state', loading: true, error: null, data: null });
   const c = loadConfig();
@@ -654,6 +664,9 @@ async function executeOne(c: Config, a: OpsAction, prior: OpsShip[] = []): Promi
   opsExecAbort = new AbortController();
   opsState.executingTitle = a.title; opsState.activity = a.title; opsEmit();
   const opts = { ...buildRunOpts(c, opsExecAbort.signal), maxIters: 16 };   // 진짜 코딩·리서치는 루프가 길어야 한다
+  // 🧠 하이브리드 두뇌 — 이 에이전트 전용 모델이 설정돼 있으면 그걸로 (예: 코다리=Gemini → 코딩만 클라우드, 나머지는 로컬 무료)
+  const am = (c.agentModels || {})[a.agent];
+  if (am) { (opts as any).target = { ...(opts as any).target, model: am }; opsState.feed.unshift({ icon: '🧠', text: `${AGENTS[a.agent]?.name || a.agent} 전용 두뇌: ${am.slice(0, 28)}`, agent: a.agent, ok: true, ts: Date.now() }); }
   // 🧠 분야별 RAG — 이 작전과 관련된 내 지식을 골라서 (전체 최근 5개가 아니라, 작전 내용으로 검색)
   let notes = '';
   try {
@@ -954,23 +967,22 @@ function portFromCmd(cmd: string): number | null {
 // 개발 서버 — 터미널에서 실행(자동 표시) + URL 감지해서 브라우저 자동 오픈. ⏹/Ctrl+C로 중지.
 function startServer(rawCmd: string, ws: string): Promise<string> {
   return new Promise((resolve) => {
-    let cmd = normalizeCmd(rawCmd);
-    // 🛡️ 모델이 명령 대신 파일명("index.html")을 넘기는 실수 자동 교정 → 정적 서버 띄우고 그 파일을 연다
-    let serveFile = '';
-    const fm = cmd.trim().match(/^(?:serve\s+|open\s+)?["']?([\w가-힣 ./-]*\.(?:html?|htm))["']?$/i);
-    if (fm) {
-      serveFile = fm[1].replace(/^\.\//, '').trim();
-      const py = process.platform === 'win32' ? 'python' : 'python3';
-      cmd = `${py} -m http.server 8080`;
+    // 🛡️ 실행 계획 교정 (engine/intent.ts planServe — simulate.ts가 검증)
+    //   파일명을 명령처럼 넘김 / package.json 없음 / npm run dev인데 dev 스크립트 없음 →
+    //   index.html이 있으면 정적 서버로 자동 전환해서 "어쨌든 브라우저에 뜨게" 한다.
+    let hasPkg = false, scripts: string[] = [];
+    try { const pj = JSON.parse(fs.readFileSync(path.join(ws, 'package.json'), 'utf8')); hasPkg = true; scripts = Object.keys(pj?.scripts || {}); } catch { /* 없음 */ }
+    let hasIndex = false; try { hasIndex = fs.existsSync(path.join(ws, 'index.html')); } catch { /* */ }
+    let nodeEntry = ''; for (const f of ['index.js', 'server.js', 'app.js', 'main.js']) { try { if (fs.existsSync(path.join(ws, f))) { nodeEntry = f; break; } } catch { /* */ } }
+    const plan = planServe(normalizeCmd(rawCmd), { hasPkg, scripts, hasIndex, win: process.platform === 'win32', nodeEntry: nodeEntry || undefined });
+    if (plan.block === 'no-pkg') {
+      return resolve(`실행 실패: 이 폴더(${ws})에 package.json이 없어서 npm 명령을 못 돌려요.\n💡 정적 웹사이트면: ① write_file로 index.html을 먼저 만들고 → ② start_server를 다시 호출하세요(자동으로 정적 서버를 띄웁니다).\n💡 Node 프로젝트가 필요하면: run_command로 "npm init -y" 먼저.`);
     }
-    // 🛡️ npm/yarn 명령인데 package.json이 없으면 → 실행 전에 차단 (터미널 에러 도배 방지 + 에이전트 자가수정 유도)
-    if (/^(npm|yarn|pnpm|npx)\s/i.test(cmd.trim())) {
-      try {
-        if (!fs.existsSync(path.join(ws, 'package.json'))) {
-          return resolve(`실행 실패: 이 폴더(${ws})에 package.json이 없어서 npm 명령을 못 돌려요.\n💡 정적 웹사이트면: ① write_file로 index.html을 먼저 만들고 → ② start_server로 "python3 -m http.server 8080" 을 띄우세요.\n💡 Node 프로젝트가 필요하면: run_command로 "npm init -y" 먼저.`);
-        }
-      } catch { /* */ }
+    if (plan.block === 'no-script') {
+      return resolve(`실행 실패: package.json에 "${plan.missing}" 스크립트가 없어요 (있는 것: ${scripts.join(', ') || '없음'}).\n💡 Node 서버면 start_server("node index.js"), 정적이면 index.html을 만들고 start_server를 다시 호출하세요.`);
     }
+    const cmd = plan.cmd; const serveFile = plan.serveFile || '';
+    if (plan.repaired) termSend('cmd', `# "${normalizeCmd(rawCmd)}" → ${plan.repaired}로 자동 수리`);
     const wantPort = portFromCmd(cmd) || (/http\.server|SimpleHTTPServer/i.test(cmd) ? 8000 : /flask|app\.run/i.test(cmd) ? 5000 : /vite/i.test(cmd) ? 5173 : /next/i.test(cmd) ? 3000 : 3000);
     // 정적 서버인데 index.html이 없으면 → 에이전트에게 "파일부터 만들라" 경고 (빈 폴더 serve 방지)
     let warn = '';
@@ -980,7 +992,7 @@ function startServer(rawCmd: string, ws: string): Promise<string> {
     const child = spawnInTerminal(cmd, ws);
     if (!child) return resolve('서버 실행 실패');
     let out = '', done = false;
-    const open = (port: string | number, note: string) => { if (done) return; done = true; const url = `http://localhost:${port}${serveFile ? '/' + encodeURI(serveFile) : ''}`; shell.openExternal(url); resolve(`✅ ${note}: ${url}\n(터미널에서 실행 중 — ⏹ 또는 Ctrl+C로 중지)${warn}`); };
+    const open = (port: string | number, note: string) => { if (done) return; done = true; const url = `http://localhost:${port}${serveFile ? '/' + encodeURI(serveFile) : ''}`; openUrlFront(url); resolve(`✅ ${note}: ${url}\n(터미널에서 실행 중 — ⏹ 또는 Ctrl+C로 중지)${warn}`); };
     const scan = (buf: Buffer) => {
       out += buf.toString('utf8');
       const m = out.match(/https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::\]):(\d+)/i) || out.match(/port\s+(\d{2,5})/i);
@@ -1006,13 +1018,14 @@ const servicesInfo = (c: Config) => {
     : '';
   const open = openTasks();
   const tk = open.length
-    ? `\n\n## 지금 열린 할 일 (태스크 보드 — 참고하고, 완료되면 보고)\n` + open.slice(0, 12).map(t => `- ${t.title}`).join('\n')
+    ? `\n\n## 지금 열린 할 일 (배경 정보 — 사용자가 물을 때만 언급)\n` + open.slice(0, 6).map(t => `- ${t.title}`).join('\n')
     : '';
   const pend = pendingApprovals();
   const ap = pend.length
-    ? `\n\n## 승인 대기 중 (사장님 결재 기다리는 중)\n` + pend.slice(0, 8).map(a => `- ${a.title}`).join('\n')
+    ? `\n\n## 승인 대기 중 (배경 정보)\n` + pend.slice(0, 5).map(a => `- ${a.title}`).join('\n')
     : '';
-  return svc + tk + ap;
+  const guard = (tk || ap) ? `\n\n⚠️ 위 할 일·승인 목록은 배경일 뿐이다. 사용자의 "지금 메시지"에만 답해라 — 묻지 않은 할 일 얘기를 먼저 꺼내지 마라.` : '';
+  return svc + tk + ap + guard;
 };
 let runAbort: AbortController | null = null;
 // 🛠️ 에이전트 실행 옵션 빌더 — 1:1 대화와 자율 운영이 같은 도구(파일·매출·유튜브·웹·텔레그램·승인)를 공유
@@ -1043,7 +1056,7 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
   const openPath = async (p: string): Promise<string> => {
     let t = (p || '').trim().replace(/^~(?=\/|$)/, os.homedir());
     try {
-      if (/^https?:\/\//i.test(t)) { shell.openExternal(t); return `✅ 열었어요: ${t}`; }
+      if (/^https?:\/\//i.test(t)) { openUrlFront(t); return `✅ 열었어요: ${t}`; }
       if (!path.isAbsolute(t)) t = path.join(c.workspace || defaultWorkspace(), t);
       if (!fs.existsSync(t)) return `열기 실패: 그 경로에 파일이 없어요 (${t})`;
       const err = await shell.openPath(t);
@@ -1061,15 +1074,15 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     const u = (url || '').trim();
     const link = u && !/^https?:\/\//i.test(u) ? `https://${u}` : u;
     try {
-      if (!app && link) { shell.openExternal(link); return `✅ 기본 브라우저로 열었어요: ${link}`; }   // 앱 이름이 사이트면(유튜브 등) 브라우저로
+      if (!app && link) { openUrlFront(link); return `✅ 기본 브라우저로 열었어요: ${link}`; }   // 앱 이름이 사이트면(유튜브 등) 브라우저로
       if (mac) {
         const args = link ? ['-a', app, link] : ['-a', app];
         const r = spawnSync('open', args, { encoding: 'utf8', timeout: 8000 });
-        if (r.status !== 0) { if (link) { shell.openExternal(link); return `"${app}" 앱을 못 찾아서 기본 브라우저로 열었어요: ${link}`; } return `실패: "${app}" 앱을 찾을 수 없어요 (${(r.stderr || '').trim().slice(0, 80)})`; }
+        if (r.status !== 0) { if (link) { openUrlFront(link); return `"${app}" 앱을 못 찾아서 기본 브라우저로 열었어요: ${link}`; } return `실패: "${app}" 앱을 찾을 수 없어요 (${(r.stderr || '').trim().slice(0, 80)})`; }
         return `✅ ${app}${link ? `로 ${link}` : ''} 열었어요`;
       }
       const r = spawnSync('cmd', ['/c', 'start', '', app, ...(link ? [link] : [])], { encoding: 'utf8', timeout: 8000, shell: false });
-      if (r.status !== 0 && link) { shell.openExternal(link); return `기본 브라우저로 열었어요: ${link}`; }
+      if (r.status !== 0 && link) { openUrlFront(link); return `기본 브라우저로 열었어요: ${link}`; }
       return r.status === 0 ? `✅ ${app}${link ? `로 ${link}` : ''} 열었어요` : `실패: "${app}" 실행이 안 됐어요`;
     } catch (e: any) { return `실패: ${e?.message || e}`; }
   };
@@ -1105,6 +1118,18 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
 
 ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
   const c = loadConfig();
+  // ⚡ 명확한 열기 명령 = 즉시 실행 (모델 경유 X — 컨텍스트에 휘둘리지 않음. 로직은 engine/intent.ts, scripts/simulate.ts가 자동 검증)
+  const qi = quickIntent(text, c.workspace || defaultWorkspace());
+  if (qi && c.tools !== false) {
+    history.push({ role: 'user', content: text });
+    emitEngine({ kind: 'status', text: `🖥️ ${qi.label} 여는 중…` });
+    const opts0 = buildRunOpts(c, new AbortController().signal);
+    const r = qi.dir ? await (opts0 as any).openPath(qi.dir) : await (opts0 as any).openApp(qi.app || '', qi.url);
+    emitEngine({ kind: 'tool', name: qi.dir ? 'open' : 'open_app', path: qi.label.slice(0, 40), ok: !/실패/.test(r) });
+    emitEngine({ kind: 'final', text: r });
+    history.push({ role: 'assistant', content: r });
+    return true;
+  }
   // 📎 첨부: 파일 경로는 메시지에 알려주고, 이미지는 비전으로 모델에 직접 보여준다
   const attachPaths = (attach?.paths || []).filter(Boolean);
   const attachImages = (attach?.images || []).filter(Boolean);
@@ -1283,19 +1308,22 @@ ipcMain.handle('telegram:test', async () => {
 
 // 👤 회원(Firebase Auth) — 이메일/비밀번호 회원가입·로그인. 토큰은 학습 서버 인증에 쓰임.
 //    Web API Key·DB URL은 공개값(앱에 넣어도 안전). 제공자가 채우거나 설정에서 입력.
-const DEFAULT_FIREBASE_API_KEY = '';
-const DEFAULT_FIREBASE_DB = '';
+const DEFAULT_FIREBASE_API_KEY = 'AIzaSyAKcmDV-_1OF8XRQHLdxQcvSb7vqbrlAnU';   // samoyed 웹 공개키 — 웹(EZERAI)과 같은 회원 풀
+const DEFAULT_FIREBASE_DB = 'https://samoyed-fit-2026-jay-default-rtdb.asia-southeast1.firebasedatabase.app';
 const fbApiKey = () => (loadConfig().firebaseApiKey || DEFAULT_FIREBASE_API_KEY || '').trim();
 const fbDbUrl = () => (loadConfig().firebaseDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
 const authPretty = (e: any) => { const m = e?.response?.data?.error?.message || ''; const map: any = { EMAIL_EXISTS: '이미 가입된 이메일이에요.', EMAIL_NOT_FOUND: '가입되지 않은 이메일이에요.', INVALID_PASSWORD: '비밀번호가 틀렸어요.', INVALID_LOGIN_CREDENTIALS: '이메일 또는 비밀번호가 틀렸어요.', WEAK_PASSWORD: '비밀번호는 6자 이상이어야 해요.', INVALID_EMAIL: '이메일 형식이 올바르지 않아요.' }; return map[m] || m || e?.message || '인증 실패'; };
-async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, password: string) {
+async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, password: string, profile?: { name?: string; phone?: string; marketing?: boolean }) {
   const key = fbApiKey(); if (!key) return { ok: false, error: '회원 시스템이 아직 설정 안 됐어요(관리자에 문의).' };
   try {
     const r = await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:${kind}?key=${key}`, { email, password, returnSecureToken: true }, { timeout: 15000 });
     const d = r.data; const auth = { uid: d.localId, email: d.email, refreshToken: d.refreshToken };
     saveConfig({ auth });
-    // 멤버 프로필 기록(최초 가입 시) — best-effort
-    if (kind === 'signUp' && fbDbUrl()) { try { await axios.put(`${fbDbUrl()}/users/${d.localId}.json?auth=${d.idToken}`, { email: d.email, createdAt: Date.now(), plan: 'free' }, { timeout: 10000 }); } catch { /* */ } }
+    // 멤버 프로필 — EZERAI 웹과 같은 users/<uid> 스키마(name·phone·marketingAgreed·plan·source)
+    if (kind === 'signUp') {
+      if (profile?.name) { try { await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:update?key=${key}`, { idToken: d.idToken, displayName: profile.name, returnSecureToken: false }, { timeout: 10000 }); } catch { /* */ } }
+      if (fbDbUrl()) { try { await axios.patch(`${fbDbUrl()}/users/${d.localId}.json?auth=${d.idToken}`, { email: d.email, name: profile?.name || '', phone: profile?.phone || '', marketingAgreed: !!profile?.marketing, plan: 'free', createdAt: Date.now(), source: 'connect-ai-desktop' }, { timeout: 10000 }); } catch { /* */ } }
+    }
     return { ok: true, uid: d.localId, email: d.email, idToken: d.idToken };
   } catch (e: any) { return { ok: false, error: authPretty(e) }; }
 }
@@ -1308,7 +1336,7 @@ async function fbIdToken(): Promise<{ uid: string; email: string; idToken: strin
     return { uid: d.user_id || c.auth.uid, email: c.auth.email, idToken: d.id_token };
   } catch { return null; }
 }
-ipcMain.handle('auth:signup', async (_e, email: string, password: string) => await fbAuth('signUp', (email || '').trim(), password || ''));
+ipcMain.handle('auth:signup', async (_e, email: string, password: string, profile?: any) => await fbAuth('signUp', (email || '').trim(), password || '', profile));
 ipcMain.handle('auth:login', async (_e, email: string, password: string) => await fbAuth('signInWithPassword', (email || '').trim(), password || ''));
 ipcMain.handle('auth:logout', () => { saveConfig({ auth: undefined } as any); return { ok: true }; });
 ipcMain.handle('auth:current', () => { const c = loadConfig(); return c.auth ? { uid: c.auth.uid, email: c.auth.email, configured: !!fbApiKey() } : { configured: !!fbApiKey() }; });
@@ -1515,12 +1543,12 @@ function uvScriptText(): string {
   return '';
 }
 // 제공자가 배포 후 채우는 기본 백엔드 (비우면 사용자 토큰 직접 모드). config.trainBackendUrl 로 덮어쓰기 가능.
-const DEFAULT_TRAIN_BACKEND = '';
+const DEFAULT_TRAIN_BACKEND = 'https://api-xozdhcl4ya-uc.a.run.app';   // ☁️ Connect AI 학습 서비스 (Firebase Functions Gen2 단일 api — /train·/trainStatus 라우팅)
 const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
 
-ipcMain.handle('train:cloud', async () => {
+ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   const c = loadConfig();
   const backend = trainBackendBase(c);
   // ── 서비스 모드 — 백엔드가 제공자 토큰 보관·실행·게이트 (유저는 토큰 불필요) ──
@@ -1531,7 +1559,7 @@ ipcMain.handle('train:cloud', async () => {
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '무료 학습은 로그인 후 가능해요.' };
     const userId = user?.uid || installId();
     try {
-      const r = await axios.post(`${backend}/train`, { userId, idToken: user?.idToken, jsonl }, { timeout: 60000 });
+      const r = await axios.post(`${backend}/train`, { userId, idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
       const d = r.data || {};
       if (d.ok) saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } });
       return { ...d, viaBackend: true };
@@ -2037,6 +2065,12 @@ ipcMain.handle('plaza:enter', async () => {
   // joinPlaza 는 프레즌스·표시 전용
   plaza = joinPlaza(me, (m: PlazaMessage) => { win?.webContents.send('plaza:peer', m); });
 
+  // 🌐 광장 인원(presence) 폴링 → 렌더러가 다른 회사 에이전트를 2D 맵에 캐릭터로 띄운다
+  if (plazaPresenceTimer) clearInterval(plazaPresenceTimer);
+  const pushPresence = async () => { try { const list = await fetchPresence(); win?.webContents.send('plaza:presence', list); } catch { /* */ } };
+  pushPresence();
+  plazaPresenceTimer = setInterval(pushPresence, 5000);
+
   // 자율 대화 루프 — 남이 마지막으로 말하면 그 흐름에 이어서 계속 응답
   if (target) {
     plazaAuto = startAutoChat({
@@ -2057,7 +2091,7 @@ ipcMain.handle('plaza:enter', async () => {
   return { ok: true, uid };
 });
 
-ipcMain.handle('plaza:leave', () => { plazaAuto?.(); plazaAuto = null; plaza?.stop(); plaza = null; demoAuto?.(); demoAuto = null; demoBot?.stop(); demoBot = null; return true; });
+ipcMain.handle('plaza:leave', () => { if (plazaPresenceTimer) { clearInterval(plazaPresenceTimer); plazaPresenceTimer = null; } plazaAuto?.(); plazaAuto = null; plaza?.stop(); plaza = null; demoAuto?.(); demoAuto = null; demoBot?.stop(); demoBot = null; return true; });
 
 ipcMain.handle('plaza:send', async (_e, text: string) => {
   const c = loadConfig();
