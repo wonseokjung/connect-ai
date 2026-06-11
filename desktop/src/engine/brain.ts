@@ -7,7 +7,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export type Category = 'marketing' | 'coding' | 'design' | 'business' | 'general';
-export type Source = 'me' | 'jay' | 'agent' | 'ezerai';
+export type Source = 'me' | 'jay' | 'agent' | 'ezerai' | 'plaza';   // plaza = 광장에서 다른 AI에게 배움
 
 export interface Note { id: string; text: string; tags: string[]; ts: number; emb?: number[]; category?: Category; source?: Source; verified?: boolean; }
 
@@ -63,7 +63,7 @@ export function addNote(text: string, emb?: number[], opts: AddOpts = {}): Note 
   const source: Source = opts.source || 'me';
   const note: Note = {
     id: 'n' + Date.now() + Math.floor(Math.random() * 1e4), text: t, tags: keywords(t), ts: Date.now(), emb,
-    category: opts.category || classify(t), source, verified: opts.verified ?? (source !== 'agent'),   // 에이전트 자동수집만 후보, 나머지(나·구독·에제르)는 검증
+    category: opts.category || classify(t), source, verified: opts.verified ?? (source !== 'agent' && source !== 'plaza'),   // 에이전트 자동수집·광장학습은 후보(미검증), 나머지(나·구독·에제르)는 검증
   };
   notes.push(note); persist(notes); return note;
 }

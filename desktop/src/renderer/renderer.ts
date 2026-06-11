@@ -181,7 +181,7 @@ async function saveNameTag() {
     agentName: ($('plazaAgentName') as HTMLInputElement).value.trim() || '에이전트',
   });
   applyCfgLabels();
-  if (plazaJoined) hint('명찰 바뀜 — 하교 후 다시 등교하면 적용돼요');
+  if (plazaJoined) hint('명찰 바뀜 — 퇴장 후 다시 입장하면 적용돼요');
 }
 ['plazaEmoji', 'plazaCompany', 'plazaAgentName'].forEach(id => $(id).addEventListener('change', saveNameTag));
 $('saveCfg').addEventListener('click', async () => {
@@ -1950,21 +1950,95 @@ function drawGraph(g: any) {
   fg.width(el.clientWidth || 700).height(el.clientHeight || 300);
   fg.graphData({ nodes, links });
 }
-$('plazaBtn')?.addEventListener('click', () => { openOverlay('plazaPanel'); ensurePlazaStream(); });
-$('hdrPlazaBtn')?.addEventListener('click', () => { openOverlay('plazaPanel'); ensurePlazaStream(); });   // 🏫 헤더 광장 진입
+// 🛡️ 광장 열 때 관리자(선생님) 여부 반영 — 주제 등록·수확은 관리자만, 일반 유저는 주제 보고 참여만
+async function openPlaza() {
+  openOverlay('plazaPanel'); ensurePlazaStream();
+  const admin = await connect.plazaIsAdmin?.().catch(() => false);
+  const dock = document.querySelector('.pw-dock') as HTMLElement | null;
+  dock?.classList.toggle('admin', !!admin);
+  // 일반 유저: 주제 입력·수확 숨기고 "현재 주제 보고 참여" 안내
+  const ti = $('topicInput') as HTMLInputElement | null, tb = $('topicBtn'), gb = $('gradeBtn');
+  if (admin) {
+    if (ti) { ti.style.display = ''; ti.placeholder = '🧑‍🏫 [선생님] 토론 주제를 등록하면 모든 에이전트가 토론해요'; }
+    tb?.classList.remove('hidden'); gb?.classList.remove('hidden');
+    $('pwLabBtn')?.classList.remove('hidden');   // 🧪 실험실 버튼 (관리자만)
+  } else {
+    if (ti) ti.style.display = 'none';
+    tb?.classList.add('hidden'); gb?.classList.add('hidden');
+    $('pwLabBtn')?.classList.add('hidden');
+  }
+}
+// 🧪 에이전트 실험실 — 페르소나 선택 + N마리 소환 + 토론 관찰
+let labSelected = new Set<string>();
+let labRunning = false;
+async function openLab() {
+  $('pwLab')?.classList.remove('hidden');
+  const grid = $('pwLabPersonas'); if (!grid) return;
+  if (!grid.children.length) {   // 페르소나 카드 1회 렌더
+    const personas = await connect.plazaLabPersonas?.().catch(() => []) || [];
+    grid.innerHTML = (personas as any[]).map(p =>
+      `<button class="pw-persona" data-key="${escAttr(p.key)}" title="${escAttr(p.trait)}"><span class="pp-e">${p.emoji}</span><span class="pp-n">${escapeHtml(p.name)}</span></button>`).join('');
+    grid.querySelectorAll('.pw-persona').forEach(el => el.addEventListener('click', () => {
+      const k = (el as HTMLElement).dataset.key!;
+      if (labSelected.has(k)) { labSelected.delete(k); el.classList.remove('on'); }
+      else { labSelected.add(k); el.classList.add('on'); }
+    }));
+  }
+}
+$('pwLabBtn')?.addEventListener('click', openLab);
+$('pwLabClose')?.addEventListener('click', () => $('pwLab')?.classList.add('hidden'));
+$('pwLabRange')?.addEventListener('input', (e: any) => { $('pwLabNum').textContent = e.target.value; });
+$('pwLabSpawn')?.addEventListener('click', async () => {
+  if (!plazaJoined) { hint('먼저 🏫 광장 입장부터 하세요'); return; }
+  const count = parseInt(($('pwLabRange') as HTMLInputElement).value, 10);
+  const keys = labSelected.size ? [...labSelected] : undefined;   // 선택 없으면 count만큼 자동
+  const btn = $('pwLabSpawn') as HTMLButtonElement; btn.disabled = true; btn.textContent = '소환 중…';
+  const r = await connect.plazaLab?.({ count, keys });
+  btn.disabled = false; btn.textContent = '🚀 실험 시작';
+  if (!r?.ok) { hint('실험 실패: ' + (r?.error || '')); return; }
+  labRunning = true;
+  $('pwLabStopBtn')?.classList.remove('hidden'); btn.classList.add('hidden');
+  const world = $('plazaWorld'); if (world) pwToast(world, `🧪 실험 에이전트 ${r.spawned.length}마리 소환! 주제를 던져보세요`);
+  hint(`🧪 소환: ${r.spawned.map((s: any) => s.emoji + s.name).join(' ')}`);
+});
+$('pwLabStopBtn')?.addEventListener('click', async () => {
+  await connect.plazaLabStop?.();
+  labRunning = false;
+  $('pwLabStopBtn')?.classList.add('hidden'); $('pwLabSpawn')?.classList.remove('hidden');
+  const world = $('plazaWorld'); if (world) pwToast(world, '⏹ 실험 종료 — 에이전트들이 퇴장했어요');
+});
+$('plazaBtn')?.addEventListener('click', openPlaza);
+$('hdrPlazaBtn')?.addEventListener('click', openPlaza);   // 🏫 헤더 광장 진입
 
 // ── 광장 ─────────────────────────────────────────────
 let plazaJoined = false, plazaES: EventSource | null = null, plazaMsgs: Record<string, any> = {};
-let friendOn = false;
 let plazaPresES: EventSource | null = null, plazaPeople: Record<string, any> = {};
-$('plazaToggle').addEventListener('click', async () => {
+async function plazaToggleFn() {
   if (!plazaJoined) {
+    await saveNameTag().catch(() => {});   // 입력 직후 바로 입장해도 명찰(이모지·회사·이름) 확실히 반영
     const r = await connect.plazaEnter();
-    if (!r?.ok) { hint('등교 실패: ' + (r?.reason || '설정에서 광장 DB URL 확인')); return; }
+    if (!r?.ok) { hint('입장 실패: ' + (r?.reason || '설정에서 광장 DB URL 확인')); return; }
     (window as any)._myPlazaUid = r.uid || '';   // 🌐 내 캐릭터 식별 (게임 월드에서 "나" 표시)
-    plazaJoined = true; ($('plazaToggle') as HTMLElement).textContent = '🚪 하교하기'; $('plazaStatus').textContent = '🟢 등교 중'; ensurePlazaStream();
-  } else { await connect.plazaLeave(); plazaJoined = false; friendOn = false; $('friendBtn').classList.remove('on'); ($('friendBtn') as HTMLElement).textContent = '👥 친구 에이전트 부르기'; ($('plazaToggle') as HTMLElement).textContent = '🏫 등교하기'; $('plazaStatus').textContent = '하교 중'; }
-});
+    plazaJoined = true; $('plazaWorld')?.classList.add('joined'); $('pwLeaveBtn')?.classList.remove('hidden'); $('plazaStatus').textContent = '🟢 입장 중'; ensurePlazaStream();
+    // ⚡ 내 캐릭터 즉시 등장 — RTDB 폴링(5초)을 기다리지 않고 바로 렌더 (첫 입장에 안 보이던 버그 수정)
+    if (r.uid) {
+      const myEmoji = (($('plazaEmoji') as HTMLInputElement)?.value || cfg.plazaEmoji || '🖥️').trim();
+      const myCompany = (($('plazaCompany') as HTMLInputElement)?.value || cfg.company || '내 회사').trim();
+      plazaPeople[r.uid] = { uid: r.uid, company: myCompany, emoji: myEmoji, agents: [], source: 'connect-ai', ts: Date.now() };
+      renderDesks();
+    }
+  } else {
+    await connect.plazaLeave(); plazaJoined = false;
+    $('plazaWorld')?.classList.remove('joined'); $('pwLeaveBtn')?.classList.add('hidden');
+    $('plazaStatus').textContent = '대기 중';
+    // 🧹 퇴장 시 캐릭터·상태 정리 (잔재가 환영카드 뒤에 남지 않게)
+    for (const uid of Object.keys(pwActors)) { pwActors[uid].el?.remove(); delete pwActors[uid]; }
+    for (const uid of Object.keys(plazaPeople)) delete plazaPeople[uid];
+    (window as any)._myPlazaUid = ''; (window as any)._mineActor = null;
+  }
+}
+$('plazaToggle')?.addEventListener('click', plazaToggleFn);
+$('pwLeaveBtn')?.addEventListener('click', plazaToggleFn);   // HUD 퇴장 = 입장토글 같은 함수
 // RTDB SSE 구독 헬퍼 — put/patch 이벤트로 변경분이 옴.
 function subscribe(url: string, sub: string, store: Record<string, any>, onChange: () => void): EventSource {
   const es = new EventSource(`${url.replace(/\/$/, '')}/plaza/rooms/lobby/${sub}.json`);
@@ -1991,7 +2065,30 @@ const escAttr = (s: string) => String(s || '').replace(/"/g, '&quot;').replace(/
 // 🌐🎮 포켓몬st 광장 — 진짜 픽셀 캐릭터가 잔디 타일맵을 또각또각 걸어다닌다.
 //   각 회사 = 48×96 스프라이트 캐릭터(걷기 4방향×6프레임). 자율로 배회하다 서로 만나면 멈춰 대화.
 const PLAZA_SPRITES = ['secretary', 'youtube', 'developer', 'business', 'designer', 'writer', 'researcher', 'editor', 'instagram', 'ceo'];
-interface PwActor { uid: string; company: string; emoji: string; sprite: string; x: number; y: number; tx: number; ty: number; dir: string; moving: boolean; mine: boolean; pauseT: number; el?: HTMLElement; charEl?: HTMLElement; }
+interface PwActor { uid: string; company: string; emoji: string; sprite: string; x: number; y: number; tx: number; ty: number; dir: string; moving: boolean; mine: boolean; pauseT: number; el?: HTMLElement; charEl?: HTMLElement; _dirty?: boolean; _met?: boolean; }
+let pwMeetBudget = 0;   // 대규모일 때 이펙트(토스트·대화) 폭주 방지 — 프레임당 제한
+// ❗ 만남 감지 (공간 해싱) — 가까운 셀끼리만 비교해 O(n²) 회피
+function pwDetectMeet(arr: PwActor[], many: boolean) {
+  const CELL = 12; const grid: Record<string, PwActor[]> = {};
+  for (const a of arr) { const k = `${(a.x / CELL) | 0},${(a.y / CELL) | 0}`; (grid[k] ||= []).push(a); }
+  pwMeetBudget = many ? 2 : 99;   // 대규모면 프레임당 최대 2쌍만 연출
+  for (const a of arr) {
+    const cx = (a.x / CELL) | 0, cy = (a.y / CELL) | 0;
+    for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) {
+      const cell = grid[`${gx},${gy}`]; if (!cell) continue;
+      for (const b of cell) {
+        if (b.uid <= a.uid) continue;
+        const dist = Math.hypot(a.x - b.x, a.y - b.y);
+        if (dist < 8 && !a._met && !b._met) {
+          a._met = b._met = true;
+          a.pauseT = 70; b.pauseT = 70; a.dir = a.x > b.x ? 'left' : 'right'; b.dir = b.x > a.x ? 'left' : 'right';
+          if (pwMeetBudget-- > 0) { pwMeetFx(a); pwMeetFx(b); pwEncounter(a, b); }   // 연출은 예산 내에서만
+          else { pwDexAdd(a); pwDexAdd(b); }   // 예산 초과여도 도감은 조용히 수집
+        } else if (dist > 15) { a._met = b._met = false; }
+      }
+    }
+  }
+}
 const pwActors: Record<string, PwActor> = {};
 let pwRaf = 0, pwFrame = 0;
 const myPlazaUid = () => (window as any)._myPlazaUid || '';
@@ -2016,42 +2113,39 @@ function pwEnsureLoop() {
   const PT = 48, PCH = 96;   // 스프라이트 셀 (사무실과 동일)
   const tick = () => {
     pwFrame++;
-    for (const a of Object.values(pwActors)) {
-      // 이동 (장애물 회피 — 막히면 그 축으로 슬라이드, 둘 다 막히면 새 목적지)
+    const arr = Object.values(pwActors);
+    const many = arr.length > 40;   // 🚦 대규모 모드 — 100명+일 때 이동·애니 빈도 줄여 60fps 유지
+    const animDiv = many ? 2 : 1;   // 프레임 절반만 업데이트
+    for (const a of arr) {
+      // 이동 (장애물 회피 — 막히면 그 축으로 슬라이드)
       const dx = a.tx - a.x, dy = a.ty - a.y; const d = Math.hypot(dx, dy);
       if (a.pauseT > 0) { a.pauseT--; a.moving = false; }
       else if (d > 0.6) {
-        const sp = Math.min(0.42, 0.18 + d * 0.04);
+        const sp = Math.min(0.42, 0.18 + d * 0.04) * animDiv;
         const nx = a.x + dx / d * sp, ny = a.y + dy / d * sp;
         let moved = false;
         if (!pwBlocked(nx, ny)) { a.x = nx; a.y = ny; moved = true; }
-        else if (!pwBlocked(nx, a.y)) { a.x = nx; moved = true; }   // 가로만 (벽 옆으로 미끄러짐)
-        else if (!pwBlocked(a.x, ny)) { a.y = ny; moved = true; }   // 세로만
+        else if (!pwBlocked(nx, a.y)) { a.x = nx; moved = true; }
+        else if (!pwBlocked(a.x, ny)) { a.y = ny; moved = true; }
         if (moved) { a.moving = true; a.dir = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up'); }
-        else { const [wx, wy] = pwWalkable(); a.tx = wx; a.ty = wy; a.moving = false; }   // 갇힘 → 새 목적지
+        else { const [wx, wy] = pwWalkable(); a.tx = wx; a.ty = wy; a.moving = false; }
       } else { a.moving = false; }
-      if (a.el) { a.el.style.left = a.x + '%'; a.el.style.top = a.y + '%'; a.el.style.zIndex = String(100 + Math.floor(a.y)); }
-      // 스프라이트 프레임 (방향 col: down0 left6 right12 up18, row idle1/walk2, 6프레임)
-      if (a.charEl) {
+      // DOM 쓰기 — 부모(plaza-world) 기준 left/top %. 변화 없으면 skip
+      if (a.el && (a.moving || a._dirty)) {
+        a._dirty = a.moving;
+        a.el.style.left = a.x + '%'; a.el.style.top = a.y + '%';
+        a.el.style.zIndex = String(100 + (a.y | 0));
+      }
+      // 스프라이트 프레임 — 대규모면 격프레임만
+      if (a.charEl && (pwFrame % animDiv === 0)) {
         const col = a.dir === 'left' ? 6 : a.dir === 'right' ? 12 : a.dir === 'up' ? 18 : 0;
         const row = a.moving ? 2 : 1;
-        const fi = Math.floor(pwFrame / (a.moving ? 7 : 16)) % 6;
+        const fi = ((pwFrame / (a.moving ? 7 : 16)) | 0) % 6;
         a.charEl.style.backgroundPosition = `-${(col + fi) * PT}px -${row * PCH}px`;
       }
     }
-    // ❗ 만남 감지 — 두 캐릭터가 가까워지면 느낌표 + 잠깐 멈춰 마주봄 (8프레임마다 체크)
-    if (pwFrame % 8 === 0) {
-      const arr = Object.values(pwActors);
-      for (let i = 0; i < arr.length; i++) for (let j = i + 1; j < arr.length; j++) {
-        const a = arr[i], b = arr[j]; const dist = Math.hypot(a.x - b.x, a.y - b.y);
-        if (dist < 9 && !(a as any)._met) {
-          (a as any)._met = (b as any)._met = true;
-          pwMeetFx(a); pwMeetFx(b);
-          a.pauseT = 70; b.pauseT = 70; a.dir = a.x > b.x ? 'left' : 'right'; b.dir = b.x > a.x ? 'left' : 'right';
-          pwEncounter(a, b);   // 💬 미니 대화 + 📕 도감 수집
-        } else if (dist > 16) { (a as any)._met = (b as any)._met = false; }
-      }
-    }
+    // ❗ 만남 감지 — 공간 그리드로 O(n²)→근접쌍만. 대규모면 16프레임마다·이펙트 throttle
+    if (pwFrame % (many ? 16 : 8) === 0) pwDetectMeet(arr, many);
     pwRaf = requestAnimationFrame(tick);
   };
   pwRaf = requestAnimationFrame(tick);
@@ -2079,41 +2173,57 @@ function pwMeetFx(a: PwActor) {
   if (!a.el) return; const m = document.createElement('div'); m.className = 'pw-meet'; m.textContent = '❗'; m.style.left = '50%'; m.style.top = '0'; a.el.appendChild(m);
   setTimeout(() => { try { m.remove(); } catch { /* */ } }, 900);
 }
+// 🤖 실험·데모·테스트 봇 uid 패턴 (진짜 사람 에이전트와 구별)
+const isBotUid = (uid: string) => /^(lab-|friend-bot|test-|demo)/.test(uid || '');
 function renderDesks() {
   const now = Date.now();
   const list = Object.values(plazaPeople).filter((p: any) => p && now - p.ts < 60000).sort((a: any, b: any) => a.ts - b.ts);
-  $('plazaStatus').textContent = list.length ? `🟢 ${list.length}개 회사 입장` : '하교 중';
+  // 🌍 라이브 현장감 — 진짜 사람 N명 · 실험 M마리 구분 표시
+  const realN = list.filter((p: any) => !isBotUid(p.uid)).length;
+  const botN = list.length - realN;
+  $('plazaStatus').innerHTML = list.length
+    ? `🟢 <b>${list.length}</b>명 접속 중${realN > 1 ? ` <span style="opacity:.8">· 👤 실제 ${realN}</span>` : ''}${botN ? ` <span style="opacity:.7">· 🧪 ${botN}</span>` : ''}`
+    : '대기 중';
   const world = $('plazaWorld'); if (!world) return;
+  // 입장 카드(명찰·입장버튼)는 "내가 입장했는지"로만 숨김 — 남들이 있어도 내가 입장 전이면 보여야 함
+  world.classList.toggle('joined', plazaJoined);
   pwBuildDeco(world);
-  const empty = $('pwEmpty');
-  if (empty) {
-    if (!list.length) { empty.style.display = ''; empty.innerHTML = '🏫 <b>등교</b>하면 광장에 캐릭터로 입장해요 — 다른 회사 에이전트와 만나 토론·도감 수집!'; }
-    else if (list.length === 1 && list[0].uid === myPlazaUid()) { empty.style.display = ''; empty.innerHTML = '🟢 입장 완료! 다른 회사가 오길 기다리는 중… <br><span style="opacity:.7">친구를 부르거나 📢 주제를 던져보세요</span>'; }
-    else empty.style.display = 'none';
-  }
   const seen = new Set<string>();
   const mine = myPlazaUid();
+  const frag = document.createDocumentFragment();   // 100명도 reflow 한 번에
+  let newCount = 0;
   list.forEach((p: any, i: number) => {
     seen.add(p.uid);
     let a = pwActors[p.uid];
     if (!a) {
+      newCount++;
       const isMine = p.uid === mine;
+      const isReal = !isBotUid(p.uid);   // 진짜 사람의 에이전트
       const sprite = isMine ? (cfg.agentSprite || 'secretary') : PLAZA_SPRITES[hashIdx(p.uid, PLAZA_SPRITES.length)];
       const [wx, wy] = pwWalkable();
-      a = pwActors[p.uid] = { uid: p.uid, company: p.company, emoji: p.emoji || '🤖', sprite, x: 48 + (i % 3) * 2, y: 96, tx: wx, ty: wy, dir: 'up', moving: false, mine: isMine, pauseT: 0 };
+      a = pwActors[p.uid] = { uid: p.uid, company: p.company, emoji: p.emoji || '🤖', sprite, x: 48 + (i % 5) * 1.5, y: 96, tx: wx, ty: wy, dir: 'up', moving: false, mine: isMine, pauseT: 0, _dirty: true };
       const el = document.createElement('div');
-      el.className = 'pw-actor' + (isMine ? ' mine' : '');
+      el.className = 'pw-actor' + (isMine ? ' mine' : '') + (isReal && !isMine ? ' real' : '');
       el.id = 'pw-' + p.uid;
+      el.style.left = a.x + '%'; el.style.top = a.y + '%';
       el.innerHTML = `<div class="pw-bubble" id="pwb-${escAttr(p.uid)}"></div>` +
+        (isMine ? '<div class="pw-portal"></div>' : '') +   // ✨ 내 입장 포탈 연출
         `<div class="pw-char" style="background-image:url('${SPRITE(sprite)}')"></div>` +
-        `<div class="pw-name">${p.emoji || ''} ${escapeHtml(p.company || '익명')}${isMine ? ' <b>(나)</b>' : ''}</div>`;
-      world.appendChild(el); a.el = el; a.charEl = el.querySelector('.pw-char') as HTMLElement;
-      el.classList.add('pw-spawn'); setTimeout(() => el.classList.remove('pw-spawn'), 600);
-      if (!isMine) pwToast(world, `✨ ${p.company} 등장!`);   // 🎬 새 회사 입장 알림
+        `<div class="pw-name">${isReal && !isMine ? '⭐ ' : ''}${p.emoji || ''} ${escapeHtml(p.company || '익명')}${isMine ? ' <b>(나)</b>' : ''}</div>`;
+      frag.appendChild(el); a.el = el; a.charEl = el.querySelector('.pw-char') as HTMLElement;
+      el.classList.add('pw-spawn'); setTimeout(() => el.classList.remove('pw-spawn'), 900);
       el.addEventListener('click', () => { pwBubble(a!, `안녕! 우리는 ${p.company}예요 ${(p.agents || []).join('') || '🤖'}`); });
+      if (isMine) { (window as any)._mineActor = a; const w2 = $('plazaWorld'); if (w2) pwToast(w2, '✨ 광장에 입장했어요!'); }
+      else if (isReal) { const w2 = $('plazaWorld'); if (w2) pwToast(w2, `🌍 실제 유저 등장! ${p.emoji || ''} ${p.company}`); }   // 진짜 사람 = 특별 강조
     }
     a.company = p.company; a.emoji = p.emoji || a.emoji;
   });
+  if (frag.childNodes.length) world.appendChild(frag);
+  // 🎬 등장 토스트 — 소수면 회사명, 대규모면 "N명 우르르 입장!"
+  if (newCount > 0 && list.length > 1) {
+    if (newCount <= 2) { for (const p of list.slice(-newCount)) { if (p.uid !== mine) pwToast(world, `✨ ${p.company} 입장!`); } }
+    else pwToast(world, `🎉 ${newCount}명이 우르르 입장! (총 ${list.length}명)`);
+  }
   for (const uid of Object.keys(pwActors)) { if (!seen.has(uid)) { pwActors[uid].el?.remove(); delete pwActors[uid]; } }
   if (list.length) pwEnsureLoop();
 }
@@ -2123,13 +2233,15 @@ function pwBubble(a: PwActor, text: string) {
 }
 // 💬 만남 미니 대화 — 두 캐릭터가 만나면 짧은 인사를 주고받는다 (도감도 수집)
 const PW_GREET = ['안녕하세요! 👋', '오, 반가워요!', '어떤 일 하세요?', '같이 공부해요!', '오늘 주제 봤어요?', '협업할래요?', '멋진 회사네요!', '저희도 1인 기업이에요', '좋은 아이디어 있어요?', '화이팅! 🔥'];
-const pwTalkCooldown: Record<string, number> = {};
+let pwTalkCooldown: Record<string, number> = {};
 function pwEncounter(a: PwActor, b: PwActor) {
   pwDexAdd(a); pwDexAdd(b);   // 📕 도감 수집 (다른 회사만 실제 기록됨)
-  const key = [a.uid, b.uid].sort().join('|');
-  if ((pwTalkCooldown[key] || 0) > Date.now()) return;
-  pwTalkCooldown[key] = Date.now() + 12000;   // 같은 쌍은 12초 쿨다운
-  // 인사 주고받기 (A → 1.2초 후 B 답)
+  const key = a.uid < b.uid ? a.uid + '|' + b.uid : b.uid + '|' + a.uid;
+  const now = Date.now();
+  if ((pwTalkCooldown[key] || 0) > now) return;
+  pwTalkCooldown[key] = now + 12000;
+  // 메모리 정리 — 쿨다운 맵이 100명에서 비대해지지 않게 만료분 청소
+  if (Math.random() < 0.05) { for (const k in pwTalkCooldown) if (pwTalkCooldown[k] < now) delete pwTalkCooldown[k]; }
   setTimeout(() => pwBubble(a, pick(PW_GREET)), 200);
   setTimeout(() => pwBubble(b, pick(PW_GREET)), 1500);
 }
@@ -2172,7 +2284,7 @@ function onMessages() {
   if (key !== lastMsgKey) { const firstLoad = !lastMsgKey; lastMsgKey = key; if (!firstLoad) talkAt(m.company, m.text); }
   // 보드 = 마지막 '문제'(선생님 📢)만 고정 표시 → 피드와 중복 제거
   const topic = [...list].reverse().find((x: any) => x.role === '선생님' || /^📢/.test(x.text || ''));
-  if (topic) $('bbLine').innerHTML = `📢 <b>${escapeHtml((topic.text || '').replace(/^📢\s*오늘의 주제:\s*/, ''))}</b>`;
+  if (topic) { const bb = $('bbLine'); bb.innerHTML = `🧑‍🏫 <b>${escapeHtml((topic.text || '').replace(/^📢\s*오늘의 주제:\s*/, ''))}</b>`; bb.classList.remove('hidden'); }
 }
 function talkAt(company: string, text: string) {
   // 🌐 게임 월드 — 그 회사 캐릭터 위에 말풍선 + 서로 다가가기
@@ -2209,20 +2321,30 @@ connect.onPlazaPresence?.((list: any[]) => {
   for (const p of list) if (p?.uid) plazaPeople[p.uid] = p;
   renderDesks();
 });
+// 🧠 광장에서 배운 지식 — 두뇌 각인 토스트 + 내 캐릭터 위 💡
+connect.onPlazaLearned?.((d: any) => {
+  const items: string[] = d?.items || [];
+  const world = $('plazaWorld');
+  if (world) pwToast(world, `🧠 광장에서 ${d.count}가지 배웠어요! → 두뇌에 각인 (총 ${d.total})`);
+  // 내 캐릭터 머리 위에 💡 + 배운 내용 말풍선
+  const mine = (window as any)._mineActor as PwActor | undefined;
+  if (mine && items[0]) { pwBubble(mine, '💡 ' + items[0]); const lb = document.createElement('div'); lb.className = 'pw-meet'; lb.textContent = '💡'; lb.style.left = '50%'; lb.style.top = '0'; mine.el?.appendChild(lb); setTimeout(() => lb.remove(), 900); }
+  hint(`🧠 광장에서 배운 지식이 두뇌에 쌓였어요: ${items.join(' · ')}`);
+});
 
-// 📢 오늘의 주제 발표 — 모든 에이전트가 이 주제로 토론
-function sendTopic() {
+// 📢 오늘의 주제 발표 — 관리자(선생님)만 등록, 모든 에이전트가 이 주제로 토론
+async function sendTopic() {
   const i = $('topicInput') as HTMLInputElement;
   const t = i.value.trim(); if (!t) return;
-  if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 등교부터 하세요!'; return; }
-  connect.plazaTopic(t);
-  $('bbLine').innerHTML = `<b>🧑‍🏫 선생님</b> ✏️ 📢 오늘의 주제: ${escapeHtml(t)}`;
+  if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 광장 입장부터 하세요!'; return; }
+  const r = await connect.plazaTopic(t);
+  if (r && r.ok === false) { hint(r.notAdmin ? '🛡️ 주제 등록은 관리자(선생님)만 할 수 있어요.' : (r.error || '실패')); return; }
   i.value = '';
 }
 $('topicBtn').addEventListener('click', sendTopic);
 $('topicInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter') sendTopic(); });
 
-// 🧑‍🏫 선생님 채점 + 🏅 리더보드 (localStorage 누적)
+// 🌾 지식 수확 + 🏅 기여도 (localStorage 누적) (localStorage 누적)
 function loadBoard(): Record<string, number> { try { return JSON.parse(localStorage.getItem('academy_board') || '{}'); } catch { return {}; } }
 function renderLeaderboard() {
   const b = loadBoard();
@@ -2231,35 +2353,62 @@ function renderLeaderboard() {
     ? '<div class="lb-title">🏅 리더보드</div>' + list.map(([c, p], i) => `<div class="lb-row"><span class="lb-rank">${['🥇', '🥈', '🥉', '4', '5'][i]}</span><span class="lb-name">${escapeHtml(c)}</span><span class="lb-pts">${p}점</span></div>`).join('')
     : '';
 }
-// 👥 친구 에이전트 (데모) 토글
-$('friendBtn').addEventListener('click', async () => {
-  if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 등교부터 하세요!'; return; }
-  friendOn = !friendOn;
-  await connect.plazaDemoBot(friendOn);
-  $('friendBtn').classList.toggle('on', friendOn);
-  $('friendBtn').textContent = friendOn ? '👥 친구 내보내기' : '👥 친구 에이전트 부르기';
-});
-$('gradeBtn').addEventListener('click', async () => {
-  if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 등교부터 하세요!'; return; }
+$('gradeBtn')?.addEventListener('click', async () => {
+  if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 광장 입장부터 하세요!'; return; }
   const btn = $('gradeBtn') as HTMLButtonElement;
-  btn.disabled = true; btn.textContent = '🧑‍🏫 채점 중…';
+  btn.disabled = true; btn.textContent = '🌾 수확 중…';
   const r = await connect.plazaGrade();
-  btn.disabled = false; btn.textContent = '🧑‍🏫 선생님 채점 — 우등생 뽑기';
-  if (!r?.ok) { hint('채점 실패: ' + (r?.reason || '')); return; }
+  btn.disabled = false; btn.textContent = '🌾 지식 수확';
+  if (!r?.ok) { hint('수확 실패: ' + (r?.reason || '아직 토론이 부족해요')); return; }
+  // 가장 빛난 관점도 보너스로 표시(경쟁 아닌 기여)
   const b = loadBoard();
-  for (const s of r.scores) b[s.company] = (b[s.company] || 0) + (s.score || 0);
+  for (const s of r.scores || []) b[s.company] = (b[s.company] || 0) + (s.score || 0);
   localStorage.setItem('academy_board', JSON.stringify(b));
   renderLeaderboard();
-  hint(`🏆 오늘의 우등생: ${r.top}`);
-  pwCrown(r.top);   // 👑 우승 캐릭터에 왕관
+  // 🎬 핵심: 수확 시네마틱 — 지식이 빛이 되어 두뇌로 응축
+  if (r.insight) {
+    playHarvestCinematic(r.insight, r.topic || '');
+    hint(`🌾 광장에서 수확한 지식: "${r.insight}" — 단기기억에 저장됨 (장기학습으로 이어집니다)`);
+  } else { hint('🌾 수확 완료'); }
+  if (r.top) setTimeout(() => pwGlow(r.top), 2600);   // 시네마틱 후 가장 빛난 관점 강조
 });
-// 👑 토론 우승자 머리에 왕관 + 폭죽
-function pwCrown(company: string) {
+// 🎬 수확 시네마틱 — 캐릭터들의 의견이 빛 입자로 중앙에 모여 결정체로 응축 → 두뇌로 빨려듦
+function playHarvestCinematic(insight: string, topic: string) {
+  const fx = $('pwHarvestFx'); const world = $('plazaWorld'); if (!fx || !world) return;
+  fx.classList.remove('hidden'); fx.classList.add('show');
+  $('phfLabel').textContent = topic ? `🌾 "${topic}" 수확 중…` : '🌾 집단지성 수확 중…';
+  $('phfInsight').textContent = ''; $('phfFoot').textContent = '';
+  const crystal = $('phfCrystal'); crystal.className = 'phf-crystal gather'; crystal.textContent = '💎';
+  // ① 각 캐릭터 위치에서 빛 입자가 중앙으로 날아감
+  const wb = world.getBoundingClientRect();
+  for (const a of Object.values(pwActors)) {
+    if (!a.el) continue;
+    const r = a.el.getBoundingClientRect();
+    const sx = r.left + r.width / 2 - wb.left, sy = r.top - wb.top;
+    for (let k = 0; k < 3; k++) {
+      const p = document.createElement('div'); p.className = 'phf-particle'; p.textContent = pick(['✨', '💡', '⭐', '🔆']);
+      p.style.left = sx + 'px'; p.style.top = sy + 'px';
+      p.style.setProperty('--dx', (wb.width / 2 - sx) + 'px'); p.style.setProperty('--dy', (wb.height / 2 - sy) + 'px');
+      p.style.animationDelay = (k * 90 + Math.random() * 220) + 'ms';
+      fx.appendChild(p); setTimeout(() => { try { p.remove(); } catch { /* */ } }, 1700);
+    }
+  }
+  // ② 결정체 펄스 → 인사이트 타이핑
+  setTimeout(() => { crystal.className = 'phf-crystal pulse'; $('phfLabel').textContent = '💎 지식 결정 완성'; }, 1300);
+  setTimeout(() => {
+    let i = 0; const el = $('phfInsight'); const t = '"' + insight + '"';
+    const typer = window.setInterval(() => { el.textContent = t.slice(0, ++i); if (i >= t.length) clearInterval(typer); }, 32);
+  }, 1700);
+  // ③ 두뇌로 빨려듦
+  setTimeout(() => { $('phfFoot').textContent = '🧠 내 두뇌에 각인 — 장기기억으로 자랍니다'; crystal.className = 'phf-crystal absorb'; }, 3400);
+  setTimeout(() => { fx.classList.remove('show'); fx.classList.add('hidden'); const w = $('plazaWorld'); if (w) pwToast(w, '🧠 두뇌에 새 지식의 별이 떴어요 ✨'); }, 4700);
+}
+// ✨ 가장 빛난 관점에 '인사이트의 빛' (경쟁/왕관 아닌 기여를 빛으로 표현)
+function pwGlow(company: string) {
   for (const a of Object.values(pwActors)) a.el?.querySelector('.pw-crown')?.remove();
   const a = Object.values(pwActors).find(x => x.company === company); if (!a?.el) return;
-  const c = document.createElement('div'); c.className = 'pw-crown'; c.textContent = '👑'; a.el.appendChild(c);
-  pwToastWorld(`🏆 우승! ${a.emoji} ${company} 🎉`);
-  for (let k = 0; k < 12; k++) { const f = document.createElement('div'); f.className = 'pw-confetti'; f.textContent = pick(['🎉', '✨', '⭐', '🎊']); f.style.left = (40 + Math.random() * 20) + '%'; f.style.setProperty('--fx', ((Math.random() - 0.5) * 200).toFixed(0) + 'px'); f.style.animationDelay = (k * 50) + 'ms'; $('plazaWorld')?.appendChild(f); setTimeout(() => f.remove(), 2000); }
+  const c = document.createElement('div'); c.className = 'pw-crown'; c.textContent = '💡'; a.el.appendChild(c);
+  for (let k = 0; k < 10; k++) { const f = document.createElement('div'); f.className = 'pw-confetti'; f.textContent = pick(['✨', '💡', '⭐']); f.style.left = (40 + Math.random() * 20) + '%'; f.style.setProperty('--fx', ((Math.random() - 0.5) * 160).toFixed(0) + 'px'); f.style.animationDelay = (k * 50) + 'ms'; $('plazaWorld')?.appendChild(f); setTimeout(() => f.remove(), 2000); }
 }
 // 📕 도감 토글
 $('pwDexBtn')?.addEventListener('click', () => { renderDex(); $('pwDex')?.classList.toggle('hidden'); });

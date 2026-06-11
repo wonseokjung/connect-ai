@@ -159,6 +159,10 @@ contextBridge.exposeInMainWorld('connect', {
   plazaTopic: (text: string) => ipcRenderer.invoke('plaza:topic', text),
   plazaDemoBot: (on: boolean) => ipcRenderer.invoke('plaza:demobot', on),
   plazaGrade: () => ipcRenderer.invoke('plaza:grade'),
+  plazaIsAdmin: () => ipcRenderer.invoke('plaza:isAdmin'),   // 🛡️ 선생님(관리자) 여부
+  plazaLab: (opts: any) => ipcRenderer.invoke('plaza:lab', opts),   // 🧪 실험 에이전트 소환
+  plazaLabStop: () => ipcRenderer.invoke('plaza:labStop'),
+  plazaLabPersonas: () => ipcRenderer.invoke('plaza:labPersonas'),
   plazaDbUrl: () => ipcRenderer.invoke('plaza:dburl'),
   onPlazaPeer: (cb: (m: any) => void) => {
     const h = (_e: any, m: any) => cb(m);
@@ -169,5 +173,10 @@ contextBridge.exposeInMainWorld('connect', {
     const h = (_e: any, list: any[]) => cb(list);
     ipcRenderer.on('plaza:presence', h);
     return () => ipcRenderer.removeListener('plaza:presence', h);
+  },
+  onPlazaLearned: (cb: (d: any) => void) => {   // 🧠 광장에서 배운 지식 알림
+    const h = (_e: any, d: any) => cb(d);
+    ipcRenderer.on('plaza:learned', h);
+    return () => ipcRenderer.removeListener('plaza:learned', h);
   },
 });

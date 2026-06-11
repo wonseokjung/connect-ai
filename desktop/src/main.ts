@@ -33,7 +33,7 @@ import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, ap
 import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
 import { AGENTS, AGENT_ORDER } from './agents';
-import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, fetchPresence, PlazaSession, PlazaMessage } from './plaza';
+import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, fetchPresence, saveArchive, fetchArchive, PlazaSession, PlazaMessage } from './plaza';
 import { startRemote, remoteInfo } from './engine/remote';
 import { startRelay, relayPush, RelayDeps } from './engine/relay';
 
@@ -91,6 +91,9 @@ function saveConfig(patch: Partial<Config>): Config {
 let win: BrowserWindow | null = null;
 let plaza: PlazaSession | null = null;
 let plazaPresenceTimer: ReturnType<typeof setInterval> | null = null;
+let plazaHarvestTimer: ReturnType<typeof setInterval> | null = null;
+let plazaHarvestBuf: PlazaMessage[] = [];   // 🧠 광장에서 들은 다른 AI 발언 (지식 수확 대기)
+let plazaLearnedToday = 0;                   // 오늘 광장에서 배운 지식 수 (브리핑용)
 let demoBot: PlazaSession | null = null;
 let plazaAuto: (() => void) | null = null;
 let demoAuto: (() => void) | null = null;
@@ -256,6 +259,7 @@ async function runBriefing(manual = false) {
       open.length ? `열린 할 일(${open.length}): ${open.slice(0, 6).map(t => t.title).join(', ')}` : '열린 할 일 없음',
       pend.length ? `승인 대기(${pend.length}): ${pend.slice(0, 4).map(a => a.title).join(', ')}` : '승인 대기 없음',
       c.services.length ? `서비스: ${c.services.map(s => s.name).join(', ')}` : '',
+      plazaLearnedToday ? `🧠 어젯밤 광장에서 다른 회사 AI들과 토론하며 ${plazaLearnedToday}가지를 새로 배웠음 (두뇌에 각인됨)` : '',
     ].filter(Boolean).join('\n');
     const title = c.userTitle || '사장님';
     const user = `${title}께 드리는 **아침 브리핑**을 작성해줘.\n\n[현재 상황]\n${ctx}\n\n형식: 따뜻한 한 줄 인사 → 오늘 핵심 3가지(우선순위) → 추천 액션 1개. 너무 길지 않게, ${title}이(가) 바로 움직일 수 있게.\n\n⚠️ 이건 읽어주는 브리핑이야. 도구·함수·<태그>·코드는 절대 쓰지 말고 순수 한국어 문장으로만 작성해.`;
@@ -275,6 +279,7 @@ async function runBriefing(manual = false) {
     if (cc.telegramToken && cc.telegramChatId) {
       tgSend(`📋 아침 브리핑\n\n${text.replace(/[#*`]/g, '').slice(0, 1500)}`).then(() => tgRunOps()).catch(() => undefined);
     }
+    plazaLearnedToday = 0;   // 브리핑에 반영했으니 리셋
   } finally { briefingBusy = false; }
 }
 function notify(title: string, body: string) { try { if (Notification.isSupported()) new Notification({ title, body, silent: false }).show(); } catch { /* */ } }
@@ -1312,6 +1317,8 @@ const DEFAULT_FIREBASE_API_KEY = 'AIzaSyAKcmDV-_1OF8XRQHLdxQcvSb7vqbrlAnU';   //
 const DEFAULT_FIREBASE_DB = 'https://samoyed-fit-2026-jay-default-rtdb.asia-southeast1.firebasedatabase.app';
 const fbApiKey = () => (loadConfig().firebaseApiKey || DEFAULT_FIREBASE_API_KEY || '').trim();
 const fbDbUrl = () => (loadConfig().firebaseDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
+// 🌐 광장 DB — 기본 내장(설정 안 해도 전원 같은 광장에 접속). plaza/rooms/lobby 경로는 공개 규칙.
+const plazaDb = () => (loadConfig().plazaDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
 const authPretty = (e: any) => { const m = e?.response?.data?.error?.message || ''; const map: any = { EMAIL_EXISTS: '이미 가입된 이메일이에요.', EMAIL_NOT_FOUND: '가입되지 않은 이메일이에요.', INVALID_PASSWORD: '비밀번호가 틀렸어요.', INVALID_LOGIN_CREDENTIALS: '이메일 또는 비밀번호가 틀렸어요.', WEAK_PASSWORD: '비밀번호는 6자 이상이어야 해요.', INVALID_EMAIL: '이메일 형식이 올바르지 않아요.' }; return map[m] || m || e?.message || '인증 실패'; };
 async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, password: string, profile?: { name?: string; phone?: string; marketing?: boolean }) {
   const key = fbApiKey(); if (!key) return { ok: false, error: '회원 시스템이 아직 설정 안 됐어요(관리자에 문의).' };
@@ -2048,9 +2055,27 @@ ipcMain.handle('models:list', async () => {
 });
 
 // ─────────────────────────── 광장 (Plaza)
+// 🧠 shared thought — 광장에서 들은 다른 AI 발언 중 '배울 점'만 골라 두뇌에 각인.
+//   사람이 토론하며 배우듯, 내 AI도 광장에서 사회적으로 학습한다.
+async function harvestPlazaKnowledge(target: any, speaker: string) {
+  const buf = plazaHarvestBuf.splice(0, plazaHarvestBuf.length);   // 비우고 처리
+  if (buf.length < 2) return;   // 너무 적으면 다음 주기로
+  const convo = buf.slice(-12).map(m => `${m.company}: ${m.text}`).join('\n');
+  try {
+    const sys = `너는 광장에서 다른 회사 AI들의 토론을 듣고 '배울 만한 인사이트'만 골라내는 큐레이터다. 잡담·인사·동어반복은 버린다. 진짜 배울 점이 있을 때만 추출한다.`;
+    const u = `다음은 광장에서 들은 다른 AI들의 대화다. 여기서 '${speaker}'(나)가 배워서 기억할 가치가 있는 핵심 인사이트를 0~2개만 뽑아라.\n\n[대화]\n${convo}\n\n규칙: 진짜 배울 게 없으면 빈 줄. 있으면 한 줄에 하나씩, "주제: 핵심" 형식으로 25자 내외. 군더더기·서론 금지.`;
+    const r = await chat(target, sys, u, { temperature: 0.4 });
+    const lines = (r || '').split('\n').map(s => s.trim().replace(/^[-•*\d.]+\s*/, '')).filter(s => s.length > 6 && s.length < 120);
+    for (const line of lines.slice(0, 2)) {
+      brainAddNote(`💡 광장에서 배움 — ${line}`, undefined, { source: 'plaza' });
+      plazaLearnedToday++;
+    }
+    if (lines.length) { win?.webContents.send('plaza:learned', { count: lines.length, items: lines.slice(0, 2), total: plazaLearnedToday }); }
+  } catch { /* 다음 주기에 재시도 */ }
+}
 ipcMain.handle('plaza:enter', async () => {
   const c = loadConfig();
-  setPlazaDbUrl(c.plazaDbUrl);
+  setPlazaDbUrl(plazaDb());
   if (!plazaConfigured()) return { ok: false, reason: 'DB URL 미설정' };
   if (plaza) return { ok: true, already: true };
 
@@ -2062,8 +2087,15 @@ ipcMain.handle('plaza:enter', async () => {
   // 비서가 아니라 '학생'으로 토론 — 자기소개·"도와드릴게요" 멘트 방지
   const studentSys = `너는 'AI Agent University'의 똑똑한 학생 에이전트 '${speaker}'(소속: ${c.company})다. 토론에서 자기 생각을 당당하고 구체적으로 말한다. 너는 비서가 아니라 '학생'이다. 사장님 같은 표현, 자기소개, "도와드리겠습니다" 류 멘트는 절대 쓰지 않는다.`;
 
-  // joinPlaza 는 프레즌스·표시 전용
-  plaza = joinPlaza(me, (m: PlazaMessage) => { win?.webContents.send('plaza:peer', m); });
+  // joinPlaza 는 프레즌스·표시 전용 + 🧠 shared thought: 남의 발언을 버퍼에 모아 두뇌로 수확
+  plaza = joinPlaza(me, (m: PlazaMessage) => {
+    win?.webContents.send('plaza:peer', m);
+    if (m.text && m.uid !== uid && m.role !== '선생님') plazaHarvestBuf.push(m);   // 다른 AI 발언만 모음
+  });
+
+  // 🧠 지식 수확 루프 — 사람이 토론하며 배우듯, 광장 대화에서 '배울 점'만 골라 두뇌에 각인
+  if (plazaHarvestTimer) clearInterval(plazaHarvestTimer);
+  if (target) plazaHarvestTimer = setInterval(() => void harvestPlazaKnowledge(target, speaker), 90000);   // 90초마다
 
   // 🌐 광장 인원(presence) 폴링 → 렌더러가 다른 회사 에이전트를 2D 맵에 캐릭터로 띄운다
   if (plazaPresenceTimer) clearInterval(plazaPresenceTimer);
@@ -2081,7 +2113,7 @@ ipcMain.handle('plaza:enter', async () => {
     // 등교 인사 한 줄
     (async () => {
       try {
-        const hello = await chat(target, studentSys, `방금 'AI Agent University'에 등교했다. 친구들에게 건넬 짧고 산뜻한 등교 인사 한 문장(30자 이내). 장황한 소개 금지. 대사만.`, { temperature: 0.85 });
+        const hello = await chat(target, studentSys, `방금 'AI 에이전트 광장'에 입장했다. 친구들에게 건넬 짧고 산뜻한 입장 인사 한 문장(30자 이내). 장황한 소개 금지. 대사만.`, { temperature: 0.85 });
         const t = cleanLine(hello);
         if (t && plaza) await postPlazaMessage({ uid, company: c.company, emoji, role: speaker, text: t });
       } catch { /* */ }
@@ -2091,24 +2123,24 @@ ipcMain.handle('plaza:enter', async () => {
   return { ok: true, uid };
 });
 
-ipcMain.handle('plaza:leave', () => { if (plazaPresenceTimer) { clearInterval(plazaPresenceTimer); plazaPresenceTimer = null; } plazaAuto?.(); plazaAuto = null; plaza?.stop(); plaza = null; demoAuto?.(); demoAuto = null; demoBot?.stop(); demoBot = null; return true; });
+ipcMain.handle('plaza:leave', () => { if (plazaPresenceTimer) { clearInterval(plazaPresenceTimer); plazaPresenceTimer = null; } if (plazaHarvestTimer) { clearInterval(plazaHarvestTimer); plazaHarvestTimer = null; } plazaHarvestBuf = []; stopLab(); plazaAuto?.(); plazaAuto = null; plaza?.stop(); plaza = null; demoAuto?.(); demoAuto = null; demoBot?.stop(); demoBot = null; return true; });
 
 ipcMain.handle('plaza:send', async (_e, text: string) => {
   const c = loadConfig();
-  setPlazaDbUrl(c.plazaDbUrl);
+  setPlazaDbUrl(plazaDb());
   if (!plazaConfigured()) return false;
   const uid = 'desk-' + Buffer.from(app.getPath('userData')).toString('base64').slice(0, 8).replace(/[^a-z0-9]/gi, '');
   await postPlazaMessage({ uid, company: c.company, emoji: c.plazaEmoji || '🖥️', role: c.agentName || '에이전트', text });
   return true;
 });
 
-ipcMain.handle('plaza:dburl', () => loadConfig().plazaDbUrl);
+ipcMain.handle('plaza:dburl', () => plazaDb());
 
 // 👥 친구 에이전트 (데모) — 혼자여도 대화가 보이게. 다른 정체성의 자율 에이전트.
 ipcMain.handle('plaza:demobot', async (_e, on: boolean) => {
   if (!on) { demoAuto?.(); demoAuto = null; demoBot?.stop(); demoBot = null; return false; }
   const c = loadConfig();
-  setPlazaDbUrl(c.plazaDbUrl);
+  setPlazaDbUrl(plazaDb());
   if (!plazaConfigured() || demoBot) return !!demoBot;
   const target = await detectTarget({ base: c.llmBase, model: c.llmModel });
   const botUid = 'friend-bot-1';
@@ -2121,25 +2153,84 @@ ipcMain.handle('plaza:demobot', async (_e, on: boolean) => {
       makePrompt: (convo, topic) => `[오늘의 주제] ${topic || '자유 토론'}\n\n[최근 대화]\n${convo}\n\n노바로서 위 '오늘의 주제'에서 벗어나지 말고 이어가라. 앞 사람 말을 반복하지 말고 위트있게 [새 관점·반론·질문] 중 하나를 더해라. 자기소개 금지. 짧고 또렷하게 한국어 1~2문장, 대사만.`,
       post: botPost,
     });
-    (async () => { try { const h = await chat(target, persona, '방금 AI Agent University에 등교했다. 짧고 발랄한 인사 한 문장(30자 이내). 대사만.', { temperature: 0.9 }); const t = cleanLine(h); if (t && demoBot) await botPost(t); } catch { /* */ } })();
+    (async () => { try { const h = await chat(target, persona, '방금 AI 에이전트 광장에 입장했다. 짧고 발랄한 인사 한 문장(30자 이내). 대사만.', { temperature: 0.9 }); const t = cleanLine(h); if (t && demoBot) await botPost(t); } catch { /* */ } })();
   }
   return true;
 });
 
+// ════════ 🧪 에이전트 실험실 — 다양한 성격의 AI를 N마리 풀어놓고 토론 관찰 ════════
+//   집단지성·창발(emergence) 실험. 관리자가 페르소나·인원을 정해 소환.
+interface LabPersona { key: string; name: string; emoji: string; company: string; trait: string; }
+const LAB_PERSONAS: LabPersona[] = [
+  { key: 'optimist', name: '해돌이', emoji: '🌞', company: '낙관연구소', trait: '극도의 낙관론자. 모든 것에서 기회와 희망을 본다. 긍정적 가능성을 강조한다.' },
+  { key: 'skeptic', name: '의심이', emoji: '🧐', company: '회의주의자클럽', trait: '날카로운 회의론자. 모든 주장에 "정말?"이라 묻고 허점·리스크를 파고든다.' },
+  { key: 'realist', name: '현실이', emoji: '⚖️', company: '현실주의컴퍼니', trait: '냉정한 현실주의자. 데이터·제약·실행가능성을 따진다. 이상론을 경계한다.' },
+  { key: 'innovator', name: '번뜩이', emoji: '💡', company: '혁신랩', trait: '대담한 혁신가. 기존 틀을 깨는 파격적 아이디어를 던진다. "왜 안 돼?"가 입버릇.' },
+  { key: 'analyst', name: '분석이', emoji: '📊', company: '데이터분석소', trait: '치밀한 분석가. 구조·수치·근거로 말한다. 감정보다 논리.' },
+  { key: 'dreamer', name: '몽상이', emoji: '🌙', company: '상상공작소', trait: '엉뚱한 몽상가. 10년 후·SF적 상상을 펼친다. 비현실적이어도 영감을 준다.' },
+  { key: 'pragmatist', name: '실속이', emoji: '🔧', company: '실용주의상회', trait: '실속파. "그래서 당장 뭘 하면 되는데?"를 묻는다. 구체적 액션 중시.' },
+  { key: 'devil', name: '딴지이', emoji: '😈', company: '악마의대변인', trait: '일부러 반대편을 든다(악마의 대변인). 모두가 동의할 때 굳이 반박한다.' },
+  { key: 'empath', name: '공감이', emoji: '💗', company: '공감연구원', trait: '따뜻한 공감형. 사람·감정·윤리 측면을 챙긴다. 인간적 영향을 본다.' },
+  { key: 'mediator', name: '중재이', emoji: '🕊️', company: '중재의전당', trait: '균형잡힌 중재자. 대립을 정리하고 공통점을 찾아 합의를 이끈다.' },
+  { key: 'scientist', name: '실험이', emoji: '🔬', company: '실험과학소', trait: '과학자. 가설·검증·반증을 말한다. "그건 어떻게 증명하지?"를 묻는다.' },
+  { key: 'hustler', name: '돌격이', emoji: '🚀', company: '그로스해커스', trait: '성장 해커. 속도·실행·돈을 본다. "일단 해보고 빨리 배우자".' },
+];
+interface LabBot { uid: string; session: PlazaSession; stop: () => void; persona: LabPersona; }
+let labBots: LabBot[] = [];
+function stopLab() { for (const b of labBots) { try { b.stop(); b.session.stop(); } catch { /* */ } } labBots = []; }
+
+ipcMain.handle('plaza:lab', async (_e, opts: { count?: number; keys?: string[] } = {}) => {
+  if (!isPlazaAdmin()) return { ok: false, error: '실험실은 관리자(선생님)만 운영할 수 있어요.' };
+  const c = loadConfig(); setPlazaDbUrl(plazaDb());
+  if (!plazaConfigured()) return { ok: false, error: '광장 DB 미설정' };
+  stopLab();   // 기존 실험 정리
+  const target = await detectTarget({ base: c.llmBase, model: c.llmModel });
+  if (!target) return { ok: false, error: 'AI 모델을 먼저 켜주세요 — 실험 에이전트들이 이 모델로 사고합니다.' };
+  // 선택된 페르소나 (없으면 count만큼 순서대로)
+  let chosen = (opts.keys && opts.keys.length) ? LAB_PERSONAS.filter(p => opts.keys!.includes(p.key)) : LAB_PERSONAS;
+  const count = Math.max(2, Math.min(opts.count || 6, LAB_PERSONAS.length));
+  chosen = chosen.slice(0, count);
+  for (let i = 0; i < chosen.length; i++) {
+    const p = chosen[i];
+    const uid = `lab-${p.key}`;
+    const sys = `너는 '${p.name}'(소속: ${p.company}). 성격: ${p.trait} 토론에서 너의 성격을 분명히 드러내며 자기 생각을 말한다. 비서 아닌 토론 참가자. 자기소개·"도와드릴게요" 금지.`;
+    const post = (t: string) => postPlazaMessage({ uid, company: p.company, emoji: p.emoji, role: p.name, text: t });
+    const session = joinPlaza({ uid, company: p.company, emoji: p.emoji, agents: [p.emoji], source: 'connect-ai' }, () => { /* 표시 전용 */ });
+    const stop = startAutoChat({
+      uid, target, sys,
+      makePrompt: (convo, topic) => `[토론 주제] ${topic || '자유 토론'}\n\n[지금까지 대화]\n${convo}\n\n너는 '${p.name}'(${p.trait}). 위 주제에서 벗어나지 말고, 너의 성격대로 [새 관점·반론·질문] 중 하나를 더해 토론을 진전시켜라. 앞 사람 말 반복 금지. 짧고 또렷하게 한국어 1~2문장, 대사만.`,
+      post,
+    });
+    labBots.push({ uid, session, stop, persona: p });
+    // 입장 인사 (살짝 시차)
+    setTimeout(async () => { try { const h = await chat(target, sys, `방금 실험 광장에 입장. 너의 성격이 드러나는 짧은 인사 한 문장(25자내). 대사만.`, { temperature: 0.95 }); const t = cleanLine(h); if (t) await post(t); } catch { /* */ } }, 400 + i * 700);
+  }
+  return { ok: true, spawned: chosen.map(p => ({ key: p.key, name: p.name, emoji: p.emoji, company: p.company })), personas: LAB_PERSONAS.map(p => ({ key: p.key, name: p.name, emoji: p.emoji, trait: p.trait })) };
+});
+ipcMain.handle('plaza:labStop', () => { stopLab(); return { ok: true }; });
+ipcMain.handle('plaza:labPersonas', () => LAB_PERSONAS.map(p => ({ key: p.key, name: p.name, emoji: p.emoji, trait: p.trait })));
+
 // 📢 오늘의 주제 — '선생님'이 낸다. 내 에이전트와 다른 정체성이라 모든 에이전트(내 것 포함)가 반응함.
+// 🛡️ 광장 관리자 — 주제 등록·채점은 관리자만 (선생님 권한)
+const PLAZA_ADMIN = 'opctverse@gmail.com';
+const isPlazaAdmin = () => (loadConfig().auth?.email || '').trim().toLowerCase() === PLAZA_ADMIN;
+ipcMain.handle('plaza:isAdmin', () => isPlazaAdmin());
+
 ipcMain.handle('plaza:topic', async (_e, topic: string) => {
+  if (!isPlazaAdmin()) return { ok: false, notAdmin: true, error: '주제 등록은 관리자(선생님)만 할 수 있어요.' };
   const c = loadConfig();
-  setPlazaDbUrl(c.plazaDbUrl);
-  if (!plazaConfigured()) return false;
+  setPlazaDbUrl(plazaDb());
+  if (!plazaConfigured()) return { ok: false, error: '광장 DB 미설정' };
   await postPlazaMessage({ uid: 'teacher-board', company: '선생님', emoji: '🧑‍🏫', role: '선생님',
     text: `📢 오늘의 주제: ${topic} — 다들 의견을 내고 함께 풀어봅시다!` });
-  return true;
+  return { ok: true };
 });
 
-// 🧑‍🏫 선생님 채점 — 최근 토론을 보고 학생(회사)들을 채점, 우등생 발표
+// 🧑‍🏫 선생님 채점 — 최근 토론을 보고 학생(회사)들을 채점, 우등생 발표 (관리자 전용)
 ipcMain.handle('plaza:grade', async () => {
+  if (!isPlazaAdmin()) return { ok: false, reason: '채점은 관리자(선생님)만 할 수 있어요.' };
   const c = loadConfig();
-  setPlazaDbUrl(c.plazaDbUrl);
+  setPlazaDbUrl(plazaDb());
   if (!plazaConfigured()) return { ok: false, reason: 'DB 미설정' };
   const target = await detectTarget({ base: c.llmBase, model: c.llmModel });
   if (!target) return { ok: false, reason: '모델 없음' };
@@ -2160,5 +2251,21 @@ ipcMain.handle('plaza:grade', async () => {
   const uid = 'desk-' + Buffer.from(app.getPath('userData')).toString('base64').slice(0, 8).replace(/[^a-z0-9]/gi, '');
   await postPlazaMessage({ uid, company: c.company, emoji: '🧑‍🏫', role: '선생님',
     text: `🏆 오늘의 우등생: ${top}! · ${scores.map((s: any) => `${s.company} ${s.score}점`).join(' · ')}` });
+  // 🏛️ 집단지성 아카이브 — 이 토론의 핵심 결론을 영구 저장 (데이터 자산)
+  try {
+    const topicMsg = [...recent].reverse().find(m => /^📢/.test(m.text || ''));
+    const topic = (topicMsg?.text || '').replace(/^📢\s*오늘의 주제:\s*/, '').split(' — ')[0] || '자유 토론';
+    const insightRaw = await chat(target, '너는 토론에서 핵심 결론·집단지성을 한 줄로 요약하는 큐레이터다.',
+      `[토론]\n${convo}\n\n이 토론에서 도출된 가장 중요한 인사이트·합의를 딱 한 문장(40자 내)으로. 결론만, 군더더기 금지.`, { temperature: 0.3 });
+    const insight = cleanLine(insightRaw).slice(0, 80);
+    await saveArchive({ topic, participants: scores.map((s: any) => s.company), top, insight, scores: scores.map((s: any) => ({ company: s.company, score: s.score })), log: convo.slice(0, 1200) });
+    // 🧠 수확한 집단지성을 내 단기기억(두뇌)에 심는다 — 광장→단기→장기 학습 루프 완성
+    if (insight) { brainAddNote(`🏛️ 광장 토론 수확 — [${topic}] ${insight}`, undefined, { source: 'plaza' }); plazaLearnedToday++; }
+    win?.webContents.send('plaza:archived', { topic, insight, top });
+    return { ok: true, scores, top, insight, topic };
+  } catch { /* 아카이브 실패해도 수확은 성공 */ }
   return { ok: true, scores, top };
 });
+
+// 🏛️ 집단지성 아카이브 열람 — 지난 토론·결론들
+ipcMain.handle('plaza:archive', async () => { setPlazaDbUrl(plazaDb()); try { return await fetchArchive(50); } catch { return []; } });

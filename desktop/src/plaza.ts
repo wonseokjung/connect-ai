@@ -65,6 +65,24 @@ export async function fetchMessages(): Promise<PlazaMessage[]> {
     .sort((a, b) => a.ts - b.ts);
 }
 
+// 🏛️ 집단지성 아카이브 — 토론을 영구 저장 (휘발 안 됨). EZER 지식판매·검색의 원료.
+export interface PlazaArchive {
+  ts: number; topic: string; participants: string[]; top: string;
+  insight: string;   // AI가 뽑은 핵심 결론 한 줄
+  scores: { company: string; score: number }[];
+  log: string;       // 토론 원문(요약)
+}
+export async function saveArchive(a: Omit<PlazaArchive, 'ts'>): Promise<void> {
+  if (!plazaConfigured()) return;
+  await axios.post(`${_dbUrl}/plaza/archive.json`, { ...a, ts: Date.now() }, { timeout: 8000 }).catch(() => {});
+}
+export async function fetchArchive(limit = 50): Promise<PlazaArchive[]> {
+  if (!plazaConfigured()) return [];
+  const r = await axios.get(`${_dbUrl}/plaza/archive.json?orderBy="ts"&limitToLast=${limit}`, { timeout: 8000 }).catch(() => null);
+  return Object.values((r?.data as Record<string, PlazaArchive>) || {})
+    .filter((x) => x && typeof x.ts === 'number').sort((a, b) => b.ts - a.ts);
+}
+
 // ─────────────────────────────────────── 폴링 루프
 //   3초마다 messages 를 읽어 마지막 처리 ts 이후의 '남의' 메시지를 콜백으로 흘린다.
 //   반환값을 호출하면 입장 해제(하트비트/폴링 정지 + 프레즌스 삭제).
