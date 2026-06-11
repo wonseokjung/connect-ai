@@ -13,7 +13,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        # 🪟 윈도우만 CI 빌드. 맥(.dmg)은 공증 인증서가 로컬에만 있어 로컬에서 빌드(애플 공증 필요).
+        os: [windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       # desktop/ 만 체크아웃 — 자체 완결(agents.ts·plaza.ts 포함)이라 루트 불필요.
