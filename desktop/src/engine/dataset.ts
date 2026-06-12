@@ -52,7 +52,8 @@ export function guessBase(llmModel?: string): string {
 
 // "내두뇌-v2" 식 다음 버전 이름 제안
 export function nextModelName(prev?: string): string {
-  if (!prev) return '내두뇌-v1';
+  // HF repo는 영어만 — 기본 제안도 영어로 (한글 이름은 학습 실패)
+  if (!prev) return 'my-brain-v1';
   const m = /^(.*?-v)(\d+)$/.exec(prev.trim());
   if (m) return `${m[1]}${parseInt(m[2], 10) + 1}`;
   return `${prev.replace(/\/+$/, '')}-v2`;

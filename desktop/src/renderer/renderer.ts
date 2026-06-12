@@ -484,8 +484,8 @@ function setOpsBtn(active: boolean) {
   opsActive = active;
   const b = $('opsStartBtn'); if (!b) return;
   b.classList.toggle('active', active);
-  b.textContent = active ? '⏹ 운영 중단' : '🚀 운영 시작';
-  b.title = active ? '운영 사이클을 멈춥니다' : '운영 시작 — 분석 → 작전 검토 → 실행 사이클을 시작합니다';
+  b.innerHTML = (active ? '⏹ 운영 중단' : '🚀 운영 시작') + ' <span class="ops-beta">BETA</span>';   // BETA 배지 유지
+  b.title = active ? '운영 사이클을 멈춥니다 (베타)' : '운영 시작 (베타) — 분석 → 작전 검토 → 실행 사이클을 시작합니다';
 }
 $('opsStartBtn')?.addEventListener('click', async () => {
   if (opsActive) { await connect.opsStop?.(); setOpsBtn(false); hint('⏹ 자율 운영을 멈췄어요'); }
@@ -495,7 +495,7 @@ $('opsSkip')?.addEventListener('click', closeOps);
 
 // ───────── 🎯 운영 사이클 패널 — 분석 → 사람이 작전 선택 → 하나씩 수행 → 다음 사이클? ─────────
 let _ops: any = null;
-function openCyclePanel() { openOverlay('opsCyclePanel'); connect.opsStatus?.().then((s: any) => { _ops = s; renderCycle(s); }).catch(() => { /* */ }); }
+function openCyclePanel() { openOverlay('opsCyclePanel'); renderGrass(); connect.opsStatus?.().then((s: any) => { _ops = s; renderCycle(s); }).catch(() => { /* */ }); }
 const PHASE_LABEL: Record<string, string> = { planning: '분석 중…', review: '할 작전을 골라주세요', executing: '실행 중…', done: '사이클 완료', idle: '대기' };
 function shipFor(s: any, title: string) { return (s.shipped || []).find((x: any) => x.title === title); }
 const fileIcon = (name: string): string => {
@@ -530,6 +530,71 @@ $('opsCyclePanel')?.addEventListener('click', async (e) => {
   const r = await connect.opsOpenArtifact?.(el.dataset.file);
   hint(r?.ok ? '📄 파일을 열었어요' : (r?.reason || '파일을 못 열었어요'));
 });
+// 🟩 성장 잔디 — 매일 사이클 완주 = 칸 채움 (GitHub st). 비워지면 아까운 심리.
+const dayKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+function loadGrass(): Record<string, number> { try { return JSON.parse(localStorage.getItem('growth_grass') || '{}'); } catch { return {}; } }
+function markGrassToday(n = 1) { const g = loadGrass(); const k = dayKey(new Date()); g[k] = Math.min(3, (g[k] || 0) + n); localStorage.setItem('growth_grass', JSON.stringify(g)); renderGrass(); }
+function grassStreak(): number { const g = loadGrass(); let s = 0; const d = new Date(); for (;;) { if ((g[dayKey(d)] || 0) > 0) { s++; d.setDate(d.getDate() - 1); } else break; } return s; }
+function grassTotal(): number { const g = loadGrass(); return Object.values(g).filter(v => v > 0).length; }
+function renderGrass() {
+  const el = $('growthGrass'); if (!el) return;
+  const g = loadGrass();
+  const WEEKS = 18;                                  // 최근 18주 표시
+  const today = new Date(); const dow = today.getDay();   // 0=일
+  const start = new Date(today); start.setDate(start.getDate() - dow - (WEEKS - 1) * 7);   // 18주 전 일요일
+  let max = 0;
+  let cells = '';
+  for (let w = 0; w < WEEKS; w++) {
+    cells += '<div class="gg-col">';
+    for (let dy = 0; dy < 7; dy++) {
+      const d = new Date(start); d.setDate(start.getDate() + w * 7 + dy);
+      if (d > today) { cells += '<div class="gg-cell gg-future"></div>'; continue; }
+      const lv = g[dayKey(d)] || 0; max = Math.max(max, lv);
+      const isToday = dayKey(d) === dayKey(today);
+      cells += `<div class="gg-cell gg-l${lv}${isToday ? ' gg-today' : ''}" title="${dayKey(d)} · ${lv ? lv + '단계 완주' : '미완'}"></div>`;
+    }
+    cells += '</div>';
+  }
+  const streak = grassStreak();
+  el.innerHTML = `<div class="gg-head"><span class="gg-flame">🔥 ${streak}일 연속</span><span class="gg-total">올해 ${grassTotal()}일 완주</span></div>
+    <div class="gg-grid">${cells}</div>
+    <div class="gg-legend"><span>적음</span><i class="gg-l0"></i><i class="gg-l1"></i><i class="gg-l2"></i><i class="gg-l3"></i><span>많음</span>${streak >= 2 ? `<span class="gg-keep">끊기지 마세요! 🔥</span>` : ''}</div>`;
+}
+
+// 💡 1단계 — 1인 기업 아이디어 엔진: 연결된 데이터 분석 → 구체적 새 서비스 제안 (수락/패스/다시)
+async function runCycleIdea() {
+  const res = $('cycIdeaResult'); if (!res) return;
+  res.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 내 데이터를 분석 중… (서비스·매출·유튜브·깃허브·이메일·지식)</div>`;
+  let r: any = null;
+  try { r = await connect.cycleIdea?.(); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  if (!r?.ok) { res.innerHTML = `<div class="cyc-idea-err">⚠️ ${escapeHtml(r?.error || '제안 생성 실패')}</div><button class="cyc-btn ghost" id="ideaRetry">🔄 다시</button>`; $('ideaRetry')?.addEventListener('click', runCycleIdea); return; }
+  const i = r.idea;
+  const used = r.dataUsed ? Object.entries(r.dataUsed).filter(([, v]) => v).map(([k]) => ({ services: '서비스', revenue: '매출', youtube: '유튜브', github: '깃허브' } as any)[k] || k).join(' · ') : '';
+  res.innerHTML = `<div class="cyc-idea-card">
+    <div class="cyc-idea-title">💡 ${escapeHtml(i.title || '새 서비스')}</div>
+    <div class="cyc-idea-row"><b>무엇을</b><span>${escapeHtml(i.what || '')}</span></div>
+    <div class="cyc-idea-row"><b>왜 지금</b><span>${escapeHtml(i.why || '')}</span></div>
+    <div class="cyc-idea-meta"><span>🎯 ${escapeHtml(i.market || '-')}</span><span>💰 ${escapeHtml(i.price || '-')}</span></div>
+    <div class="cyc-idea-first">🚀 <b>오늘 할 첫 행동</b> — ${escapeHtml(i.firstStep || '')}</div>
+    ${used ? `<div class="cyc-idea-src">📊 분석한 내 데이터: ${escapeHtml(used)}</div>` : '<div class="cyc-idea-src muted">⚠️ 연결된 데이터가 적어요 — 🗂️ 관리에서 서비스·매출·유튜브를 연결하면 제안이 정확해져요</div>'}
+    <div class="cyc-idea-btns">
+      <button class="cyc-btn primary" id="ideaAccept">✅ 수락 — 할 일로 만들기</button>
+      <button class="cyc-btn ghost" id="ideaPass">⏭️ 패스</button>
+      <button class="cyc-btn ghost" id="ideaRetry">🔄 다시 제안</button>
+    </div>
+    <div class="cyc-idea-help muted small">🙋 이건 <b>사람(사장님)이 직접</b> 만드는 거예요. 어떻게 만들지 모르겠으면 → <a id="ideaLab">Connect AI Lab 바이브코딩 강의</a> 보세요.</div>
+  </div>`;
+  $('ideaAccept')?.addEventListener('click', () => {
+    const title = `[1인기업 아이디어] ${i.title} — 첫 행동: ${i.firstStep}`;
+    connect.tasksAdd?.(title).catch(() => {});
+    markGrassToday(1);   // 🟩 아이디어 수락 = 잔디 한 칸
+    res.innerHTML = `<div class="cyc-idea-accepted">✅ "${escapeHtml(i.title)}" 할 일로 등록했어요!<br><span class="muted small">📋 태스크 보드에서 확인 — 오늘 첫 행동부터 시작하세요 🚀</span><br><span class="gg-mini">🟩 오늘 잔디 +1 · 🔥 ${grassStreak()}일 연속</span></div>`;
+    hint(`✅ 아이디어 수락: ${i.title} — 할 일로 등록됐어요`);
+  });
+  $('ideaPass')?.addEventListener('click', () => { res.innerHTML = `<div class="muted small">⏭️ 패스했어요. 다시 받으려면 위 버튼을 누르세요.</div>`; });
+  $('ideaRetry')?.addEventListener('click', runCycleIdea);
+  $('ideaLab')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com'));
+}
 function renderCycle(s: any) {
   if (!s || $('opsCyclePanel')?.classList.contains('hidden')) return;
   $('cycleNum').textContent = '#' + (s.cycle || 1);
@@ -582,10 +647,22 @@ function renderCycle(s: any) {
   } else if (s.phase === 'done') {
     const done = (s.actions || []).filter((a: any) => shipFor(s, a.title));
     const okN = done.filter((a: any) => shipFor(s, a.title)?.ok).length;
-    body.innerHTML = `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">사이클 #${s.cycle} 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개</div></div>` +
+    // 🟩 사이클 완료 = 오늘 잔디 채움 (이미 채운 날이면 중복 방지)
+    if (okN > 0 && (loadGrass()[dayKey(new Date())] || 0) < 2) markGrassToday(2);
+    body.innerHTML = `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">사이클 #${s.cycle} 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개 · 🟩 잔디 +1 · 🔥 ${grassStreak()}일 연속</div></div>` +
       done.map((a: any) => { const sh = shipFor(s, a.title); return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(a.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span>${artsHtml(sh)}</div>`; }).join('');
     foot.innerHTML = `<div class="cyc-ask">한 사이클이 끝났어요. 다음 사이클을 돌릴까요?</div><div class="cyc-foot-row"><button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button></div>`;
-  } else { body.innerHTML = `<div class="cyc-loading">운영을 시작하면 오늘의 작전이 여기 떠요.</div>`; foot.innerHTML = ''; }
+  } else {
+    // 💡 idle — 1인 기업 아이디어 엔진 진입 (내 데이터 분석 → 새 서비스 제안)
+    body.innerHTML = `<div class="cyc-idea-zone">
+      <div class="cyc-idea-intro">🎯 <b>1인 기업 성장 사이클</b><br><span class="muted small">운영을 시작하면 오늘의 작전이 떠요. 또는 — 내 데이터로 새 사업 아이디어를 받아보세요.</span></div>
+      <button class="cyc-btn primary" id="cycIdeaBtn">💡 1인 기업 아이디어 받기</button>
+      <div id="cycIdeaResult"></div>
+    </div>`;
+    foot.innerHTML = '';
+  }
+  // 💡 아이디어 받기 버튼
+  $('cycIdeaBtn')?.addEventListener('click', runCycleIdea);
   // 버튼 배선
   const run = $('cycRun'); if (run) run.onclick = async () => {
     const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
@@ -1570,10 +1647,28 @@ async function refreshMem() {
 // 탭 전환
 document.querySelectorAll('.btab').forEach(b => b.addEventListener('click', () => {
   const t = (b as HTMLElement).dataset.btab!;
+  // 🔬 AI 수술은 아직 베타 — 탭은 보이되 클릭하면 안내만 (전환 X)
+  if (t === 'surgery') { hint('🔬 AI 수술은 아직 연구 중이에요 — 곧 공개됩니다!'); return; }
   document.querySelectorAll('.btab').forEach(x => x.classList.toggle('active', (x as HTMLElement).dataset.btab === t));
   $('bsec-short').classList.toggle('hidden', t !== 'short');
   $('bsec-long').classList.toggle('hidden', t !== 'long');
+  $('bsec-surgery')?.classList.add('hidden');
 }));
+// 🔬 AI 수술 — 실습 카드 클릭 → 노트북·자료 안내
+const SURG_INFO: Record<string, { title: string; nb?: string; url?: string; msg: string }> = {
+  model_merging: { title: '모델 합치기', nb: '실험_AI두개합치기_model_merging.ipynb', msg: '🧬 작업 폴더의 노트북을 Colab에 올려 실행하세요. 두 AI를 합쳐보고 우리 앱에서 바로 테스트까지 됩니다.' },
+  task_arithmetic: { title: '능력 더하고 빼기', nb: '실험2_능력더하고빼기_task_arithmetic.ipynb', msg: '➗ Task Arithmetic (arXiv:2212.04089). 작업 폴더의 노트북을 Colab에 올려 실행하세요 — 능력을 벡터로 더하고 빼봅니다.' },
+  knowledge_edit: { title: '기억 바꾸기', url: 'https://arxiv.org/abs/2202.05262', msg: '📝 ROME (arXiv:2202.05262) · MEMIT (arXiv:2210.07229). 특정 사실을 가중치에서 직접 편집. 실습 노트북 곧.' },
+  refusal: { title: '거부 방향 해부', url: 'https://github.com/andyrdt/refusal_direction', msg: '🧭 Arditi 2024 (arXiv:2406.11717) · 공식 코드 github.com/andyrdt/refusal_direction. 방향 찾기·시각화까지만 (제거는 안 함).' },
+  steering: { title: '실시간 성격 조종', url: 'https://arxiv.org/abs/2312.06681', msg: '🎚️ Contrastive Activation Addition (Rimsky, arXiv:2312.06681). 실습 노트북 곧.' },
+};
+document.querySelectorAll('.surg-card').forEach(c => c.addEventListener('click', () => {
+  const k = (c as HTMLElement).dataset.nb!; const info = SURG_INFO[k]; if (!info) return;
+  hint(info.msg);
+  if (info.url) connect.openExternal?.(info.url);
+}));
+$('surgRoadmapBtn')?.addEventListener('click', () => { connect.fsReveal?.(`${(window as any)._wsRoot || ''}`); hint('📚 작업 폴더의 "연구_로드맵_AI해부와통제.md"를 열어보세요 (8주 커리큘럼).'); });
+$('surgPapersBtn')?.addEventListener('click', () => { hint('📄 핵심: Arditi(2406.11717)·Task Arithmetic(2212.04089)·TIES(2306.01708)·RepEng(2310.01405)·CAA(2312.06681). github.com/andyrdt/refusal_direction'); connect.openExternal?.('https://arxiv.org/abs/2406.11717'); });
 // ⚡ 단기 = GitHub
 $('ghPushBtn').addEventListener('click', async () => {
   $('ghStatus').textContent = '⬆ GitHub에 동기화 중…';
@@ -1643,9 +1738,23 @@ document.querySelectorAll('.ts-preset').forEach(b => b.addEventListener('click',
   document.querySelectorAll('.ts-preset').forEach(x => x.classList.toggle('on', x === b));
   $('tsHint').textContent = TS_PRESET[tsPreset].hint;
 }));
+// 🔤 모델 이름 검증 — HuggingFace repo는 영어·숫자·하이픈·언더스코어·점만 허용 (한글 불가)
+function validModelName(name: string): string | null {
+  if (!name) return '모델 이름을 입력하세요 (영어로).';
+  if (/[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(name)) return '⚠️ 모델 이름에 한글은 쓸 수 없어요. 영어로 입력하세요 (예: my-brain-v1).';
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return '⚠️ 영어·숫자·하이픈(-)·언더스코어(_)만 가능해요 (예: my-brain-v1).';
+  return null;
+}
+// 🚫 모델 이름칸 — 한글 입력 즉시 차단(타이핑돼도 자동 제거)
+$('modelNameInput')?.addEventListener('input', (e: any) => {
+  const cleaned = e.target.value.replace(/[^A-Za-z0-9._-]/g, '');
+  if (cleaned !== e.target.value) { e.target.value = cleaned; hint('모델 이름은 영어로만 입력돼요 (한글 자동 제거).'); }
+});
 // ③ 모델 이름 정하고 학습
 $('hfTrainBtn').addEventListener('click', async () => {
   const name = ($('modelNameInput') as HTMLInputElement).value.trim();
+  const nameErr = validModelName(name);
+  if (nameErr) { hint(nameErr); ($('modelNameInput') as HTMLInputElement).focus(); return; }
   const p = TS_PRESET[tsPreset];
   const sv = (id: string) => ($(id) as HTMLSelectElement).value;
   const steps = parseInt(($('tsSteps') as HTMLInputElement).value, 10) || 0;
@@ -1748,6 +1857,9 @@ refreshAuthBtn();
 let cloudPoll = 0;
 function cloudStat(html: string) { const el = $('cloudTrainStatus'); if (!el) return; el.style.display = 'block'; el.innerHTML = html; }
 $('cloudTrainBtn')?.addEventListener('click', async () => {
+  // 🔤 모델 이름이 영어인지 먼저 검증 (한글이면 학습 repo 생성 실패)
+  const mn = (($('modelNameInput') as HTMLInputElement)?.value || '').trim();
+  if (mn) { const e = validModelName(mn); if (e) { cloudStat('🔤 ' + e); ($('modelNameInput') as HTMLInputElement)?.focus(); return; } }
   const btn = $('cloudTrainBtn') as HTMLButtonElement; btn.disabled = true;
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
   let r: any = null;
@@ -1962,7 +2074,13 @@ function drawGraph(g: any) {
 }
 // 🛡️ 광장 열 때 관리자(선생님) 여부 반영 — 주제 등록·수확은 관리자만, 일반 유저는 주제 보고 참여만
 async function openPlaza() {
-  openOverlay('plazaPanel'); ensurePlazaStream();
+  openOverlay('plazaPanel');
+  if (PLAZA_MAINTENANCE) {   // 🚧 점검 중이면 스트림 연결 안 함 (트래픽 0)
+    const empty = $('pwEmpty'); if (empty) { empty.style.display = ''; empty.innerHTML = '🚧 <b>광장 점검 중</b><br><span style="opacity:.8">더 안정적인 광장으로 업그레이드하고 있어요.<br>곧 다시 열립니다! 🌱</span>'; }
+    const st = $('plazaStatus'); if (st) st.textContent = '🚧 점검 중';
+    return;
+  }
+  ensurePlazaStream();
   const admin = await connect.plazaIsAdmin?.().catch(() => false);
   const dock = document.querySelector('.pw-dock') as HTMLElement | null;
   dock?.classList.toggle('admin', !!admin);
@@ -2023,7 +2141,15 @@ $('hdrPlazaBtn')?.addEventListener('click', openPlaza);   // 🏫 헤더 광장 
 // ── 광장 ─────────────────────────────────────────────
 let plazaJoined = false, plazaES: EventSource | null = null, plazaMsgs: Record<string, any> = {};
 let plazaPresES: EventSource | null = null, plazaPeople: Record<string, any> = {};
+// 🚧 광장 점검 중 — 비용 안정화 작업으로 일시 차단 (RTDB 규칙도 차단됨). 안정화 후 재개.
+const PLAZA_MAINTENANCE = true;
 async function plazaToggleFn() {
+  if (PLAZA_MAINTENANCE) {
+    const st = $('plazaStatus'); if (st) st.textContent = '🚧 점검 중';
+    const empty = $('pwEmpty'); if (empty) { empty.style.display = ''; empty.innerHTML = '🚧 <b>광장 점검 중</b><br><span style="opacity:.8">더 안정적인 광장으로 업그레이드하고 있어요.<br>곧 다시 열립니다! 🌱</span>'; }
+    hint('🚧 광장은 잠시 점검 중이에요 — 곧 다시 열립니다!');
+    return;
+  }
   if (!plazaJoined) {
     await saveNameTag().catch(() => {});   // 입력 직후 바로 입장해도 명찰(이모지·회사·이름) 확실히 반영
     const r = await connect.plazaEnter();
@@ -2051,7 +2177,9 @@ $('plazaToggle')?.addEventListener('click', plazaToggleFn);
 $('pwLeaveBtn')?.addEventListener('click', plazaToggleFn);   // HUD 퇴장 = 입장토글 같은 함수
 // RTDB SSE 구독 헬퍼 — put/patch 이벤트로 변경분이 옴.
 function subscribe(url: string, sub: string, store: Record<string, any>, onChange: () => void): EventSource {
-  const es = new EventSource(`${url.replace(/\/$/, '')}/plaza/rooms/lobby/${sub}.json`);
+  // 💸 비용 안전 — messages는 최근 40개만 스트리밍 (전체 5MB 반복 수신 = 800만원 사고 원인). presence는 작아서 전체 OK.
+  const q = sub === 'messages' ? '?orderBy=%22ts%22&limitToLast=40' : '';
+  const es = new EventSource(`${url.replace(/\/$/, '')}/plaza/rooms/lobby/${sub}.json${q}`);
   const onEv = (e: MessageEvent) => {
     try {
       const { path, data } = JSON.parse(e.data);

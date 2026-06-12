@@ -104,7 +104,7 @@ export class JarvisCore {
       const x = cx + Math.cos(p.ang) * rr, y = cy + Math.sin(p.ang * 1.02) * rr * 0.5;
       ctx.globalAlpha = 0.18 + 0.3 * (1 - p.rad / 1.6);
       ctx.fillStyle = this.pal.a;
-      ctx.beginPath(); ctx.arc(x, y, p.size, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x, y, Math.max(0, p.size), 0, Math.PI * 2); ctx.fill();
     }
     ctx.restore();
 

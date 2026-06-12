@@ -156,7 +156,7 @@ export class BrainViz {
       const bright = 0.25 + front * 0.55 + fire * 0.4;
       ctx.fillStyle = `rgba(${110 + fire * 145},255,${180 - front * 40},${bright})`;
       ctx.shadowColor = '#00ff99'; ctx.shadowBlur = 2 + front * 3 + fire * 6;
-      ctx.beginPath(); ctx.arc(p.sx, p.sy, rad, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(p.sx, p.sy, Math.max(0, rad), 0, Math.PI * 2); ctx.fill();
     }
     ctx.shadowBlur = 0;
   };

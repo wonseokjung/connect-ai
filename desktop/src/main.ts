@@ -1781,7 +1781,7 @@ ipcMain.handle('train:autotrain', async (_e, modelName?: string, opts?: any) => 
   if (!dataset.includes('/')) return { ok: false, error: '먼저 ② 데이터셋을 HuggingFace에 업로드하세요.' };
   if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 변환·업로드하세요.' };
   const owner = dataset.split('/')[0] || 'my-hf-id';
-  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9가-힣._-]/g, '-') || nextModelName(c.brainModelName);
+  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || nextModelName(c.brainModelName);   // HF repo 영어만 (한글 제거)
   const base = guessBase(c.llmModel);
   const params = { rank: opts?.rank || 16, alpha: opts?.alpha || ((opts?.rank || 16) * 2), lr: opts?.learningRate || 3e-4, epochs: opts?.epochs || 3, maxSeq: opts?.maxSeq || 1024 };
   saveConfig({ brainModelName: name } as any);
@@ -1799,7 +1799,7 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
     if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 변환·업로드하세요.' };
   }
   const owner = dataset.split('/')[0] || 'my-hf-id';
-  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9가-힣._-]/g, '-') || nextModelName(c.brainModelName);
+  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || nextModelName(c.brainModelName);   // HF repo 영어만 (한글 제거)
   const trainOpts = { rank: opts?.rank, alpha: opts?.alpha, dropout: opts?.dropout, learningRate: opts?.learningRate, maxSteps: opts?.maxSteps, epochs: opts?.epochs, warmup: opts?.warmup, maxSeq: opts?.maxSeq, scheduler: opts?.scheduler, quant: opts?.quant };
   saveConfig({ brainModelName: name, trainOpts, trainMethod: method } as any);
   const outRepo = name.includes('/') ? name : `${owner}/${name}`;

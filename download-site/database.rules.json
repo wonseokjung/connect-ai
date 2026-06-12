@@ -1,18 +1,9 @@
 {
   "rules": {
-    "plaza": {
-      "rooms": {
-        "$room": {
-          "messages": { ".read": true, ".write": true, ".indexOn": ["ts"] },
-          "presence": { ".read": true, ".write": true, ".indexOn": ["ts"] }
-        }
-      }
-    },
-    "messages": { ".read": true, ".write": true },
+    "plaza": { ".read": false, ".write": false },
+    "messages": { ".read": false, ".write": false },
 
-    "cai-remote": {
-      "$pair": { ".read": true, ".write": true }
-    },
+    "cai-remote": { ".read": false, ".write": false },
 
     "cai-dl": {
       ".read": "auth != null && auth.token.email === 'opctverse@gmail.com'",

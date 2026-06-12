@@ -34,11 +34,31 @@ export function plazaConfigured(): boolean {
   return _dbUrl.startsWith('https://') && !_dbUrl.includes('REPLACE-ME');
 }
 const sub = (s: string) => `${_dbUrl}/plaza/rooms/${ROOM}/${s}.json`;
+// 💸 비용 안전 — messages는 절대 전체를 받지 않는다. 항상 최근 N개만 (egress 폭주 방지).
+const RECENT = 40;
+const subRecent = (s: string) => `${_dbUrl}/plaza/rooms/${ROOM}/${s}.json?orderBy=%22ts%22&limitToLast=${RECENT}`;
 
 // ─────────────────────────────────────── 발화 / 프레즌스
+let _postCount = 0;
 export async function postPlazaMessage(m: Omit<PlazaMessage, 'ts'>): Promise<void> {
   if (!plazaConfigured()) throw new Error('Plaza DB URL 미설정');
   await axios.post(sub('messages'), { ...m, ts: Date.now() }, { timeout: 8000 });
+  // 💸 비용 안전 — 메시지 누적 방지. 20번마다 오래된 것(최근 100개 밖) 정리해 DB가 무한히 커지지 않게.
+  if (++_postCount % 20 === 0) void pruneOldMessages().catch(() => {});
+}
+// 오래된 메시지 삭제 — 최근 100개만 남기고 나머지 제거 (egress·저장 비용 원천 차단)
+async function pruneOldMessages(): Promise<void> {
+  if (!plazaConfigured()) return;
+  const r = await axios.get(`${_dbUrl}/plaza/rooms/${ROOM}/messages.json?shallow=true`, { timeout: 8000 }).catch(() => null);
+  const keys = r?.data ? Object.keys(r.data) : [];
+  if (keys.length <= 120) return;                       // 120개 넘을 때만 정리
+  const recent = await axios.get(subRecent('messages'), { timeout: 8000 }).catch(() => null);
+  const keepTs = new Set(Object.values((recent?.data as any) || {}).map((m: any) => m?.ts));
+  // 최근 40개에 없는 오래된 키들 삭제 (한 번에 너무 많이 지우지 않게 60개까지)
+  const full = await axios.get(`${_dbUrl}/plaza/rooms/${ROOM}/messages.json`, { timeout: 10000 }).catch(() => null);
+  const entries = Object.entries((full?.data as Record<string, any>) || {});
+  const toDelete = entries.filter(([, v]) => v && !keepTs.has(v.ts)).slice(0, 60).map(([k]) => k);
+  for (const k of toDelete) await axios.delete(`${_dbUrl}/plaza/rooms/${ROOM}/messages/${k}.json`, { timeout: 8000 }).catch(() => {});
 }
 export async function putPresence(p: Omit<PlazaPresence, 'ts'>): Promise<void> {
   if (!plazaConfigured()) return;
@@ -59,7 +79,7 @@ export async function fetchPresence(): Promise<PlazaPresence[]> {
 // 광장의 최근 대화 전체 (시간순). 에이전트가 맥락 보고 끼어들 때 사용.
 export async function fetchMessages(): Promise<PlazaMessage[]> {
   if (!plazaConfigured()) return [];
-  const r = await axios.get(sub('messages'), { timeout: 8000 }).catch(() => null);
+  const r = await axios.get(subRecent('messages'), { timeout: 8000 }).catch(() => null);   // 💸 최근 40개만 (전체 X)
   return Object.values((r?.data as Record<string, PlazaMessage>) || {})
     .filter((m) => m && typeof m.ts === 'number')
     .sort((a, b) => a.ts - b.ts);
@@ -101,7 +121,7 @@ export function joinPlaza(
   const poll = setInterval(async () => {
     if (stopped || !plazaConfigured()) return;
     try {
-      const r = await axios.get(sub('messages'), { timeout: 8000 });
+      const r = await axios.get(subRecent('messages'), { timeout: 8000 });   // 💸 최근 40개만 (전체 X)
       const all = (r.data as Record<string, PlazaMessage>) || {};
       const fresh = Object.values(all)
         .filter((m) => m && m.ts > lastTs && m.uid !== me.uid)
@@ -111,7 +131,7 @@ export function joinPlaza(
         for (const m of fresh) onPeerMessage(m);
       }
     } catch { /* 일시 오류는 무시, 다음 틱에 재시도 */ }
-  }, 3000);
+  }, 8000);   // 💸 3초 → 8초 (egress 절감)
 
   const stop = () => {
     if (stopped) return;

@@ -1286,3 +1286,65 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 .phf-label { font-size: 15px; font-weight: 900; color: #b6ffce; letter-spacing: 1px; text-shadow: 0 2px 8px rgba(0,0,0,.7); }
 .phf-insight { font-size: 19px; font-weight: 800; color: #fff; text-align: center; max-width: 76%; line-height: 1.5; text-shadow: 0 0 16px rgba(108,184,79,.8), 0 2px 6px rgba(0,0,0,.8); min-height: 26px; }
 .phf-foot { font-size: 13px; font-weight: 700; color: #ffe14d; text-shadow: 0 2px 6px rgba(0,0,0,.8); }
+
+/* 🔬 AI 수술 탭 — weight surgery 실습 카드 */
+.bsec.hidden { display: none; }
+.surg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.surg-card { background: rgba(57,255,20,.05); border: 1px solid rgba(57,255,20,.22); border-radius: 12px; padding: 12px; cursor: pointer; transition: all .15s; }
+.surg-card:hover { background: rgba(57,255,20,.12); border-color: var(--accent); transform: translateY(-2px); }
+.surg-emoji { font-size: 26px; }
+.surg-t { font-size: 13.5px; font-weight: 800; color: var(--text-bright); margin-top: 4px; }
+.surg-d { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 3px; }
+.surg-tag { display: inline-block; margin-top: 7px; font-size: 9.5px; font-weight: 700; color: #74ffb4; background: rgba(57,255,20,.1); border: 1px solid rgba(57,255,20,.25); border-radius: 999px; padding: 1px 8px; }
+.surg-foot { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin-top: 8px; }
+
+/* 🔬 AI 수술 탭 — 베타 잠금 (보이되 못 누름 느낌) */
+.btab-locked { opacity: .6; cursor: not-allowed; }
+.btab-locked:hover { opacity: .8; }
+
+/* 💡 1인 기업 아이디어 엔진 (성장 사이클 1단계) */
+.cyc-idea-zone { display: flex; flex-direction: column; gap: 12px; align-items: stretch; padding: 8px 0; }
+.cyc-idea-intro { text-align: center; line-height: 1.6; }
+#cycIdeaBtn { align-self: center; padding: 12px 28px; font-size: 14px; }
+.cyc-idea-card { background: rgba(57,255,20,.05); border: 1px solid rgba(57,255,20,.25); border-radius: 14px; padding: 16px; margin-top: 10px; animation: ideaIn .35s ease; }
+@keyframes ideaIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.cyc-idea-title { font-size: 17px; font-weight: 900; color: var(--text-bright); margin-bottom: 10px; }
+.cyc-idea-row { display: flex; gap: 8px; font-size: 13px; line-height: 1.6; margin: 5px 0; color: var(--text); }
+.cyc-idea-row b { color: #74ffb4; flex: 0 0 64px; }
+.cyc-idea-meta { display: flex; gap: 14px; margin: 10px 0; font-size: 13px; font-weight: 700; color: #b6ffce; }
+.cyc-idea-first { background: rgba(255,225,77,.08); border: 1px solid rgba(255,225,77,.3); border-radius: 9px; padding: 9px 12px; font-size: 13px; color: #ffe9a8; margin: 8px 0; }
+.cyc-idea-src { font-size: 11px; color: #74ffb4; margin: 6px 0; }
+.cyc-idea-src.muted { color: var(--text-dim); }
+.cyc-idea-btns { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.cyc-idea-help { margin-top: 10px; line-height: 1.5; }
+.cyc-idea-help a { color: #74ffb4; cursor: pointer; text-decoration: underline; }
+.cyc-idea-err { color: #ff8a8a; padding: 10px; font-size: 13px; }
+.cyc-idea-accepted { background: rgba(57,255,20,.1); border: 1px solid var(--accent); border-radius: 12px; padding: 16px; text-align: center; font-size: 14px; font-weight: 700; color: #b6ffce; animation: ideaIn .3s ease; }
+
+/* 🟩 성장 잔디 (GitHub 잔디 st) */
+.growth-grass { padding: 8px 2px 4px; }
+.gg-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.gg-flame { font-size: 14px; font-weight: 900; color: #ffb84d; }
+.gg-total { font-size: 11px; color: var(--text-dim); }
+.gg-grid { display: flex; gap: 3px; justify-content: center; }
+.gg-col { display: flex; flex-direction: column; gap: 3px; }
+.gg-cell { width: 11px; height: 11px; border-radius: 3px; background: rgba(255,255,255,.06); }
+.gg-cell.gg-l0 { background: rgba(57,255,20,.08); }
+.gg-cell.gg-l1 { background: rgba(57,255,20,.35); }
+.gg-cell.gg-l2 { background: rgba(57,255,20,.6); }
+.gg-cell.gg-l3 { background: rgba(57,255,20,.95); box-shadow: 0 0 5px rgba(57,255,20,.5); }
+.gg-cell.gg-today { outline: 1.5px solid #ffe14d; outline-offset: 1px; }
+.gg-cell.gg-future { background: transparent; }
+.gg-legend { display: flex; align-items: center; gap: 4px; justify-content: flex-end; margin-top: 7px; font-size: 10px; color: var(--text-dim); }
+.gg-legend i { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.gg-legend .gg-l0 { background: rgba(57,255,20,.08); }
+.gg-legend .gg-l1 { background: rgba(57,255,20,.35); }
+.gg-legend .gg-l2 { background: rgba(57,255,20,.6); }
+.gg-legend .gg-l3 { background: rgba(57,255,20,.95); }
+.gg-keep { margin-left: auto; color: #ffb84d; font-weight: 700; animation: ggPulse 1.5s ease-in-out infinite; }
+@keyframes ggPulse { 0%,100% { opacity: .6; } 50% { opacity: 1; } }
+.gg-mini { display: inline-block; margin-top: 6px; font-size: 11px; color: #74ffb4; font-weight: 700; }
+
+/* 🧪 운영 시작 베타 배지 */
+.ops-beta { font-size: 8.5px; font-weight: 800; background: rgba(255,184,77,.2); color: #ffb84d; border: 1px solid rgba(255,184,77,.4); border-radius: 999px; padding: 0 5px; margin-left: 3px; vertical-align: middle; }
+.cyc-beta { font-size: 10px; font-weight: 800; background: rgba(255,184,77,.18); color: #ffb84d; border: 1px solid rgba(255,184,77,.4); border-radius: 999px; padding: 1px 7px; }

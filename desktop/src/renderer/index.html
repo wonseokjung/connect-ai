@@ -30,10 +30,12 @@
   <div class="overlay hidden" id="opsCyclePanel">
     <div class="overlay-card cycle-card">
       <div class="cycle-head">
-        <div class="cycle-title">🎯 운영 사이클 <span id="cycleNum">#1</span></div>
+        <div class="cycle-title">🎯 운영 사이클 <span class="cyc-beta">BETA</span> <span id="cycleNum">#1</span></div>
         <div class="cycle-phase ph-idle" id="cyclePhase">대기</div>
         <button class="overlay-x" data-close="opsCyclePanel">✕</button>
       </div>
+      <!-- 🟩 성장 잔디 — 매일 사이클 완주하면 한 칸씩 초록으로 (GitHub st) -->
+      <div class="growth-grass" id="growthGrass"></div>
       <div class="cycle-steps" id="cycleSteps">
         <div class="cstep" data-ph="planning"><span class="cstep-dot">🔍</span><span class="cstep-t">분석</span></div>
         <div class="cstep-line"></div>
@@ -97,7 +99,7 @@
       <span class="hdr-clock" id="hdrClock"></span>
     </div>
     <div class="header-right">
-      <button class="btn-ops" id="opsStartBtn" title="운영 시작 — 분석 → 작전 검토 → 실행 사이클">🚀 운영 시작</button>
+      <button class="btn-ops" id="opsStartBtn" title="운영 시작 (베타) — 분석 → 작전 검토 → 실행 사이클">🚀 운영 시작 <span class="ops-beta">BETA</span></button>
       <button class="btn-icon on" id="filesBtn" title="파일 탐색기 접기/펴기">📁</button>
       <button class="btn-icon" id="termBtn" title="터미널 접기/펴기">⌨️</button>
       <button class="btn-icon" id="brainBtn" title="지식 네트워크 — 단기/장기 기억">🧠</button>
@@ -439,6 +441,7 @@
       <div class="manage-tabs">
         <button class="btab active" data-btab="short">⚡ 단기 기억</button>
         <button class="btab" data-btab="long">🧬 장기 기억 <span class="beta">BETA</span></button>
+        <button class="btab btab-locked" data-btab="surgery" title="아직 연구 중 — 곧 공개">🔬 AI 수술 <span class="beta">🔒 연구 중</span></button>
       </div>
       <!-- 단기 기억 = GitHub 동기화 -->
       <div class="bsec" id="bsec-short">
@@ -504,7 +507,8 @@
           <div class="lf-step lf-locked" id="lfStep3">
             <span class="lf-num">3</span>
             <div class="lf-body"><b>🧠 모델 이름 정하고 학습</b>
-              <input id="modelNameInput" class="ds-name" placeholder="내두뇌-v1" disabled />
+              <input id="modelNameInput" class="ds-name" placeholder="my-brain-v1" disabled />
+              <div class="muted small" style="margin:-2px 0 6px;color:#ffb84d">⚠️ 모델 이름은 <b>영어·숫자·하이픈(-)</b>만 가능해요. 한글은 인식 안 돼요 (예: my-brain-v1)</div>
               <div class="train-set">
                 <div class="ts-row"><span class="ts-lab">학습 강도</span>
                   <div class="ts-presets">
@@ -549,6 +553,49 @@
         </div><!-- /#sftFlow -->
         <div class="mem-status" id="hfStatus"></div>
         <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 바탕화면 JSONL 보기</button></div>
+      </div>
+
+      <!-- 🔬 AI 수술 = weight surgery (학습 없이 가중치 직접 조작) -->
+      <div class="bsec hidden" id="bsec-surgery">
+        <div class="muted" style="font-size:12px;line-height:1.6">🔬 <b>AI 수술 — 학습 없이 가중치를 직접 조작.</b> 파인튜닝(가르치기)과 다른 길. 능력을 <b>더하고·합치고·해부</b>한다. (연구·교육용)</div>
+        <div class="surg-grid">
+          <div class="surg-card" data-nb="model_merging">
+            <div class="surg-emoji">🧬</div>
+            <div class="surg-t">모델 합치기</div>
+            <div class="surg-d">두 AI 가중치를 섞어 둘 다 잘하는 모델 (SLERP·mergekit)</div>
+            <div class="surg-tag">실습 노트북 준비됨</div>
+          </div>
+          <div class="surg-card" data-nb="task_arithmetic">
+            <div class="surg-emoji">➗</div>
+            <div class="surg-t">능력 더하고 빼기</div>
+            <div class="surg-d">능력=벡터. 학습모델−원본으로 능력만 추출·이식 (Task Arithmetic)</div>
+            <div class="surg-tag">실습 노트북 준비됨</div>
+          </div>
+          <div class="surg-card" data-nb="knowledge_edit">
+            <div class="surg-emoji">📝</div>
+            <div class="surg-t">기억 바꾸기</div>
+            <div class="surg-d">특정 사실이 저장된 가중치 위치를 찾아 직접 수정 (ROME·MEMIT)</div>
+            <div class="surg-tag">곧</div>
+          </div>
+          <div class="surg-card" data-nb="refusal">
+            <div class="surg-emoji">🧭</div>
+            <div class="surg-t">거부 방향 해부</div>
+            <div class="surg-d">AI가 왜 거절하는지 가중치 속 '거부 방향'을 찾아 시각화 (Arditi 2024)</div>
+            <div class="surg-tag">연구 재현 · 제거 X</div>
+          </div>
+          <div class="surg-card" data-nb="steering">
+            <div class="surg-emoji">🎚️</div>
+            <div class="surg-t">실시간 성격 조종</div>
+            <div class="surg-d">가중치 안 바꾸고 추론 중 활성화로 행동 조종 (Activation Steering)</div>
+            <div class="surg-tag">곧</div>
+          </div>
+        </div>
+        <div class="surg-foot">
+          📚 <b>연구 로드맵</b>: 논문 7편 + 실습 노트북 시리즈로 "AI 해부·통제"를 정복.
+          <button id="surgRoadmapBtn" class="lf-ghost">로드맵 열기</button>
+          <button id="surgPapersBtn" class="lf-ghost">핵심 논문</button>
+        </div>
+        <div class="muted small" style="margin-top:8px;color:#9fd9b0">🔒 원칙: 검열 제거(abliteration)는 <b>원리 이해·시각화까지만</b>. 무삭제 모델 제작·배포는 하지 않아요.</div>
       </div>
     </div>
   </div>
