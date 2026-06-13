@@ -108,7 +108,9 @@ contextBridge.exposeInMainWorld('connect', {
   mcpTest: () => ipcRenderer.invoke('mcp:test'),
   mcpTools: () => ipcRenderer.invoke('mcp:tools'),
   dashboardStats: () => ipcRenderer.invoke('dashboard:stats'),
-  cycleIdea: () => ipcRenderer.invoke('cycle:idea'),   // 🎯 성장 사이클 1단계 — 아이디어 제안
+  cycleIdea: () => ipcRenderer.invoke('cycle:idea'),   // 🎯 성장 사이클 1단계 — 아이디어 제안(웹검색 기반)
+  cycleReport: () => ipcRenderer.invoke('cycle:report'),   // 🎯 2단계 — 분석 리포트(공부)
+  cycleMarketing: (channel?: string) => ipcRenderer.invoke('cycle:marketing', channel || 'youtube'),   // 🎯 3단계 — 마케팅 자동 발행
   // 📋 태스크 보드
   tasksList: () => ipcRenderer.invoke('tasks:list'),
   tasksAdd: (title: string) => ipcRenderer.invoke('tasks:add', title),

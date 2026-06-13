@@ -466,17 +466,35 @@ async function startOps() {
     el.innerHTML = `<span class="os-who">${a.emoji} ${escapeHtml(agName(s.agent))}</span><span class="os-txt"></span><span class="os-ok">${s.ok ? '✓' : '—'}</span>`;
     lines.appendChild(el); requestAnimationFrame(() => el.classList.add('in'));
     const tEl = el.querySelector('.os-txt') as HTMLElement; const txt = s.label;
-    for (let i = 0; i <= txt.length; i += 2) { tEl.textContent = txt.slice(0, i); await opsWait(8); }
-    tEl.textContent = txt; el.classList.add('done'); await opsWait(160);
+    for (let i = 0; i <= txt.length; i += 2) { tEl.textContent = txt.slice(0, i); await opsWait(10); }
+    tEl.textContent = txt; el.classList.add('done'); await opsWait(240);   // 자산 한 줄씩 — 천천히 음미할 시간
   }
-  await opsWait(450); if (!opsRunning) return;
-  // ④ 분석 완료 → 사람이 작전을 고르는 사이클 패널로 넘긴다
+  await opsWait(600); if (!opsRunning) return;
+  // ③.5 비즈니스 분석 — 스캔한 자산을 토대로 인사이트를 뽑는 연출(진짜 분석은 이미 끝났고, 결과를 보여주는 시간)
+  stage.innerHTML = `<div class="ops-act"><div class="ops-h">비즈니스 분석</div><div class="ops-analyze" id="opsAnalyze"></div></div>`;
+  const az = $('opsAnalyze');
+  const insights: [string, string][] = [
+    ['📈', '매출·트래픽 패턴 교차 분석'],
+    ['🎯', '수익화 기회 포착'],
+    ['🧠', '내 지식·노하우 연결'],
+    ['🧩', `오늘의 성장 사이클 설계 (작전 ${(ops?.actions?.length) || 3}개)`],
+  ];
+  for (const [ic, label] of insights) {
+    if (!az || !opsRunning) break;
+    const row = document.createElement('div'); row.className = 'oz-row';
+    row.innerHTML = `<span class="oz-ic">${ic}</span><span class="oz-tx">${escapeHtml(label)}</span><span class="oz-bar"><span class="oz-fill"></span></span><span class="oz-ok">✓</span>`;
+    az.appendChild(row); requestAnimationFrame(() => row.classList.add('in'));
+    const fill = row.querySelector('.oz-fill') as HTMLElement;
+    await opsWait(80); if (fill) fill.style.width = '100%';
+    await opsWait(640); row.classList.add('done');
+  }
+  await opsWait(560); if (!opsRunning) return;
+  // ④ 분석 완료 → 오늘의 3단계 성장 사이클 홈으로
   const summary = ops?.summary ? `<div class="ops-summary">“${escapeHtml(ops.summary)}”</div>` : '';
-  const n = (ops?.actions?.length) || 0;
-  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 작전 ${n}개를 준비했어요 — 할 것을 직접 고르세요</div><button class="ops-go" id="opsGo">📋 작전 검토하기 →</button></div>`;
+  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>성장 사이클</b>을 준비했어요 — 아이디어 · 분석공부 · 마케팅 3가지를 완주하세요</div><button class="ops-go" id="opsGo">🎯 오늘의 사이클 열기 →</button></div>`;
   const finish = () => { closeOps(); openCyclePanel(); };
   $('opsGo')?.addEventListener('click', finish);
-  opsAutoTimer = window.setTimeout(finish, 3200);
+  opsAutoTimer = window.setTimeout(finish, 4500);   // 요약을 천천히 읽을 시간
 }
 // 🚀/⏹ 시작·중단 토글 — 운영 중이면 같은 버튼이 '운영 중단'으로
 let opsActive = false;
@@ -573,6 +591,7 @@ async function runCycleIdea() {
   res.innerHTML = `<div class="cyc-idea-card">
     <div class="cyc-idea-title">💡 ${escapeHtml(i.title || '새 서비스')}</div>
     <div class="cyc-idea-row"><b>무엇을</b><span>${escapeHtml(i.what || '')}</span></div>
+    ${i.how ? `<div class="cyc-idea-row"><b>만드는 법</b><span>🛠️ ${escapeHtml(i.how)}</span></div>` : ''}
     <div class="cyc-idea-row"><b>왜 지금</b><span>${escapeHtml(i.why || '')}</span></div>
     <div class="cyc-idea-meta"><span>🎯 ${escapeHtml(i.market || '-')}</span><span>💰 ${escapeHtml(i.price || '-')}</span></div>
     <div class="cyc-idea-first">🚀 <b>오늘 할 첫 행동</b> — ${escapeHtml(i.firstStep || '')}</div>
@@ -587,94 +606,191 @@ async function runCycleIdea() {
   $('ideaAccept')?.addEventListener('click', () => {
     const title = `[1인기업 아이디어] ${i.title} — 첫 행동: ${i.firstStep}`;
     connect.tasksAdd?.(title).catch(() => {});
+    const cyc = _ops?.cycle || 1;
+    setSecDone(cyc, 'idea');   // ① 섹션 완료
     markGrassToday(1);   // 🟩 아이디어 수락 = 잔디 한 칸
     res.innerHTML = `<div class="cyc-idea-accepted">✅ "${escapeHtml(i.title)}" 할 일로 등록했어요!<br><span class="muted small">📋 태스크 보드에서 확인 — 오늘 첫 행동부터 시작하세요 🚀</span><br><span class="gg-mini">🟩 오늘 잔디 +1 · 🔥 ${grassStreak()}일 연속</span></div>`;
+    refreshCycleProgress(cyc);
     hint(`✅ 아이디어 수락: ${i.title} — 할 일로 등록됐어요`);
   });
   $('ideaPass')?.addEventListener('click', () => { res.innerHTML = `<div class="muted small">⏭️ 패스했어요. 다시 받으려면 위 버튼을 누르세요.</div>`; });
   $('ideaRetry')?.addEventListener('click', runCycleIdea);
   $('ideaLab')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com'));
 }
-function renderCycle(s: any) {
-  if (!s || $('opsCyclePanel')?.classList.contains('hidden')) return;
-  $('cycleNum').textContent = '#' + (s.cycle || 1);
-  $('cyclePhase').textContent = PHASE_LABEL[s.phase] || '';
-  $('cyclePhase').className = 'cycle-phase ph-' + (s.phase || 'idle');
-  // 단계 스테퍼 — 분석 → 검토·분담 → 실행 → 완료 (지금 어디인지 한눈에)
-  const stepIdx = ['planning', 'review', 'executing', 'done'].indexOf(s.phase);
-  $('cycleSteps')?.querySelectorAll('.cstep').forEach((el, i) => {
-    el.classList.toggle('on', i === stepIdx);
-    el.classList.toggle('past', stepIdx > i);
-  });
-  const sm = $('cycleSummary'); sm.textContent = s.summary ? '“' + s.summary + '”' : ''; sm.style.display = s.summary ? '' : 'none';
-  const body = $('cycleBody'), foot = $('cycleFoot');
-  if (s.phase === 'planning') {
-    body.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 현황을 분석해 오늘의 작전을 짜는 중…</div>`;
-    foot.innerHTML = '';
-  } else if (s.phase === 'review') {
-    // ① 오늘의 TODO — 체크로 할 일 고르고, 🤖/🙋 토글로 누가 할지 정한다
-    body.innerHTML = `<div class="cyc-step">① 오늘의 TODO — 할 것만 체크하고, 누가 할지 정하세요</div>` + (s.actions || []).map((a: any, i: number) => {
-      const risky = a.risk && a.risk !== 'safe';
-      const human = a.assignee === 'human';
-      const agName = AGENTS[a.agent]?.name || '에이전트';
-      const agColor = AGENTS[a.agent]?.color || '#39ff14';
-      return `<label class="cyc-task${human ? ' is-me' : ''}"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-n">${i + 1}</span><span class="cyc-t">${escapeHtml(a.title)}</span><button type="button" class="cyc-who${human ? ' me' : ''}" data-title="${escAttr(a.title)}" data-agent="${escAttr(agName)}" style="--ag:${agColor}" title="클릭해서 담당 바꾸기">${human ? '🙋 내가 할게' : `🤖 ${escapeHtml(agName)}`}</button>${risky ? '<span class="cyc-risk">승인 필요</span>' : ''}</label>`;
-    }).join('') || '<div class="cyc-loading">작전이 없어요</div>';
-    foot.innerHTML = `<div class="cyc-legend">🤖 = 에이전트가 수행 · 🙋 = 내 할 일로 등록(태스크 보드+폰 알림)</div><button class="cyc-btn ghost" id="cycReplan">🔄 다시 분석</button><button class="cyc-btn primary" id="cycRun">TODO 전부 수행 ▶</button>`;
-    // 담당 토글 — 🤖 에이전트 ↔ 🙋 내가
-    body.querySelectorAll('.cyc-who').forEach(b => b.addEventListener('click', (e) => {
-      e.preventDefault(); e.stopPropagation();
-      const el = b as HTMLElement; const me = el.classList.toggle('me');
-      el.textContent = me ? '🙋 내가 할게' : `🤖 ${el.dataset.agent || '에이전트'}`;
-      el.closest('.cyc-task')?.classList.toggle('is-me', me);
-    }));
-  } else if (s.phase === 'executing') {
-    // 🔴 실시간 작업 로그 — 에이전트가 지금 어떤 도구로 뭘 하는지 그대로 흐른다
-    const feed = (s.feed || []).slice(0, 9);
-    const feedAgo = (ts: number) => { const sec = Math.floor((Date.now() - ts) / 1000); return sec < 5 ? '방금' : sec < 60 ? sec + '초 전' : Math.floor(sec / 60) + '분 전'; };
-    const feedHtml = feed.length ? `<div class="cyc-feed"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>실시간 작업 로그</div>${feed.map((f: any, i: number) => {
-      const ag = AGENTS[f.agent];
-      return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
-    }).join('')}</div>` : '';
-    body.innerHTML = `<div class="cyc-step">② 고른 작전을 하나씩 수행 중…</div>` + (s.actions || []).map((a: any) => {
-      const ship = shipFor(s, a.title); const running = s.executingTitle === a.title;
-      let st = '<span class="cyc-st wait">대기</span>';
-      if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
-      else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅ 완료</span>' : '<span class="cyc-st fail">결과 없음</span>';
-      return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship) : ''}</div>`;
-    }).join('') + feedHtml;
-    foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
-  } else if (s.phase === 'done') {
-    const done = (s.actions || []).filter((a: any) => shipFor(s, a.title));
-    const okN = done.filter((a: any) => shipFor(s, a.title)?.ok).length;
-    // 🟩 사이클 완료 = 오늘 잔디 채움 (이미 채운 날이면 중복 방지)
-    if (okN > 0 && (loadGrass()[dayKey(new Date())] || 0) < 2) markGrassToday(2);
-    body.innerHTML = `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">사이클 #${s.cycle} 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개 · 🟩 잔디 +1 · 🔥 ${grassStreak()}일 연속</div></div>` +
-      done.map((a: any) => { const sh = shipFor(s, a.title); return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(a.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span>${artsHtml(sh)}</div>`; }).join('');
-    foot.innerHTML = `<div class="cyc-ask">한 사이클이 끝났어요. 다음 사이클을 돌릴까요?</div><div class="cyc-foot-row"><button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button></div>`;
-  } else {
-    // 💡 idle — 1인 기업 아이디어 엔진 진입 (내 데이터 분석 → 새 서비스 제안)
-    body.innerHTML = `<div class="cyc-idea-zone">
-      <div class="cyc-idea-intro">🎯 <b>1인 기업 성장 사이클</b><br><span class="muted small">운영을 시작하면 오늘의 작전이 떠요. 또는 — 내 데이터로 새 사업 아이디어를 받아보세요.</span></div>
-      <button class="cyc-btn primary" id="cycIdeaBtn">💡 1인 기업 아이디어 받기</button>
-      <div id="cycIdeaResult"></div>
-    </div>`;
-    foot.innerHTML = '';
+// ═══════ 🎯 성장 사이클 — 항상 같은 3개 섹션 구조 (① 아이디어 · ② 분석공부 · ③ 마케팅) ═══════
+type SecKey = 'idea' | 'report' | 'mkt';
+function cycleProg(): Record<string, Partial<Record<SecKey, boolean>>> { try { return JSON.parse(localStorage.getItem('growth_cycle_prog') || '{}'); } catch { return {}; } }
+function getSecDone(cyc: number): Partial<Record<SecKey, boolean>> { return cycleProg()[String(cyc)] || {}; }
+function setSecDone(cyc: number, key: SecKey) { const p = cycleProg(); const k = String(cyc); p[k] = { ...(p[k] || {}), [key]: true }; localStorage.setItem('growth_cycle_prog', JSON.stringify(p)); }
+let _mktRunning = false;
+
+// 아주 작은 마크다운 → HTML (리포트 표시용. 외부 입력 escape 후 굵게·제목·목록만)
+function mdToHtml(md: string): string {
+  const lines = (md || '').replace(/\r/g, '').split('\n');
+  const inline = (t: string) => escapeHtml(t).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>');
+  let html = '', inList = false;
+  const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+  for (const raw of lines) {
+    const l = raw.trimEnd();
+    if (/^#{1,6}\s/.test(l)) { closeList(); const lvl = Math.min((l.match(/^#+/)![0].length) + 1, 6); html += `<h${lvl} class="rp-h">${inline(l.replace(/^#+\s/, ''))}</h${lvl}>`; }
+    else if (/^[-*]\s+/.test(l)) { if (!inList) { html += '<ul class="rp-ul">'; inList = true; } html += `<li>${inline(l.replace(/^[-*]\s+/, ''))}</li>`; }
+    else if (!l.trim()) { closeList(); }
+    else { closeList(); html += `<p>${inline(l)}</p>`; }
   }
-  // 💡 아이디어 받기 버튼
-  $('cycIdeaBtn')?.addEventListener('click', runCycleIdea);
-  // 버튼 배선
-  const run = $('cycRun'); if (run) run.onclick = async () => {
-    const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
-    if (!titles.length) { hint('실행할 작전을 하나 이상 골라주세요'); return; }
-    // 🙋 토글이 "내가"인 작전 → 사장님 할 일로 (태스크 보드 등록), 나머지 → 에이전트 실행
-    const humanTitles = Array.from(document.querySelectorAll('.cyc-who.me')).map(b => (b as HTMLElement).dataset.title!).filter(t => titles.includes(t));
-    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles, humanTitles); renderCycle(_ops);
-  };
-  const replan = $('cycReplan'); if (replan) replan.onclick = async () => { replan.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
-  const next = $('cycNext'); if (next) next.onclick = async () => { next.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
-  const stop = $('cycStop'); if (stop) stop.onclick = async () => { _ops = await connect.opsStop?.(); hint('■ 멈췄어요'); renderCycle(_ops); };
-  const end = $('cycEnd'); if (end) end.onclick = async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 종료했어요'); };
+  closeList();
+  return html;
+}
+
+function renderCycle(s: any) {
+  if (!s) return;
+  const panel = $('opsCyclePanel'); if (!panel || panel.classList.contains('hidden')) return;
+  _ops = s;
+  // 🔴 마케팅 발행 중 — 라이브 피드만 갱신하고 전체 재빌드는 막는다(깜빡임 방지). _mktRunning이 풀릴 때까지 유지.
+  if (_mktRunning) { if (!$('mktFeed')) buildCycleHome(s, s.cycle || 1); patchMktFeed(s); return; }
+  buildCycleHome(s, s.cycle || 1);
+}
+
+function buildCycleHome(s: any, cyc: number) {
+  $('cycleNum').textContent = '#' + cyc;
+  const steps = $('cycleSteps'); if (steps) steps.style.display = 'none';   // 옛 분석 스테퍼 숨김 (이제 3섹션 진행률로 대체)
+  const done = getSecDone(cyc);
+  const n = (done.idea ? 1 : 0) + (done.report ? 1 : 0) + (done.mkt ? 1 : 0);
+  $('cyclePhase').textContent = n >= 3 ? '사이클 완료 🎉' : `오늘 ${n}/3`;
+  $('cyclePhase').className = 'cycle-phase ph-' + (n >= 3 ? 'done' : 'review');
+  const sm = $('cycleSummary'); if (sm) { sm.textContent = s.summary ? '“' + s.summary + '”' : ''; sm.style.display = s.summary ? '' : 'none'; }
+  const body = $('cycleBody'), foot = $('cycleFoot');
+  const pct = Math.round(n / 3 * 100);
+  body.innerHTML = `
+    <div class="gsec-top">
+      <div class="gsec-top-t">🎯 오늘의 성장 사이클 — 3가지를 완주하세요</div>
+      <div class="gsec-prog"><div class="gsec-prog-fill" style="width:${pct}%"></div></div>
+      <div class="gsec-prog-n">${n} / 3 완료 · 🔥 ${grassStreak()}일 연속</div>
+    </div>`
+    + sectionIdea(done) + sectionReport(done) + sectionMkt(done)
+    + (n >= 3 ? `<div class="gsec-clear">🎉 오늘 사이클 완주! 🟩 잔디가 채워졌어요 — 내일도 이어가세요.</div>` : '');
+  // 🟩 3개 다 완주하면 오늘 잔디 채움 (중복 방지)
+  if (n >= 3 && (loadGrass()[dayKey(new Date())] || 0) < 2) { markGrassToday(2); renderGrass(); }
+  foot.innerHTML = n >= 3
+    ? `<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button>`
+    : `<button class="cyc-btn ghost" id="cycEnd">■ 닫기</button>`;
+  wireCycleHome();
+}
+
+function sectionIdea(done: Partial<Record<SecKey, boolean>>): string {
+  const d = !!done.idea;
+  return `<div class="gsec${d ? ' is-done' : ''}" data-sec="idea">
+    <div class="gsec-head"><span class="gsec-n">①</span><span class="gsec-ic">💡</span>
+      <div class="gsec-tt"><b>아이디어 — 새 사업을 차린다</b><span class="gsec-who me">🙋 사장님이 직접 · 바이브코딩</span></div>
+      <span class="gsec-stat">${d ? '✅ 완료' : ''}</span></div>
+    <div class="gsec-desc">웹 검색 + 내 데이터(서비스·매출·유튜브·깃허브)를 분석해 <b>오늘 만들 새 서비스 1개</b>를 — 어떤 나라·어떤 방식·가격까지 구체적으로 제안해요.</div>
+    <button class="cyc-btn primary" id="ideaGo">${d ? '🔄 새 아이디어 다시 받기' : '💡 아이디어 받기'}</button>
+    <div id="cycIdeaResult"></div>
+  </div>`;
+}
+function sectionReport(done: Partial<Record<SecKey, boolean>>): string {
+  const d = !!done.report;
+  return `<div class="gsec${d ? ' is-done' : ''}" data-sec="report">
+    <div class="gsec-head"><span class="gsec-n">②</span><span class="gsec-ic">📊</span>
+      <div class="gsec-tt"><b>분석 리포트 — 현황을 공부한다</b><span class="gsec-who">🤖 에이전트 작성 · 🙋 사장님 정독</span></div>
+      <span class="gsec-stat">${d ? '✅ 완료' : ''}</span></div>
+    <div class="gsec-desc">매출·콘텐츠·제품·리스크·이번 주 집중 3가지를 한 장으로 진단해요. 다 읽고 <b>‘공부 완료’</b>를 누르면 끝.</div>
+    <button class="cyc-btn primary" id="reportGo">${d ? '📊 리포트 다시 보기' : '📊 리포트 생성'}</button>
+    <div id="cycReportResult"></div>
+  </div>`;
+}
+function sectionMkt(done: Partial<Record<SecKey, boolean>>): string {
+  const d = !!done.mkt;
+  return `<div class="gsec${d ? ' is-done' : ''}" data-sec="mkt">
+    <div class="gsec-head"><span class="gsec-n">③</span><span class="gsec-ic">📣</span>
+      <div class="gsec-tt"><b>마케팅 — 세상에 알린다</b><span class="gsec-who">🤝 자동 발행 에이전트</span></div>
+      <span class="gsec-stat">${d ? '✅ 완료' : ''}</span></div>
+    <div class="gsec-desc">업로드 에이전트가 채널을 분석해 기획·개선안을 만들고, 실제 발행은 결재로 승인받아요.</div>
+    <div class="mkt-chips">
+      <button class="mkt-chip on" id="mktYt"${_mktRunning ? ' disabled' : ''}>${_mktRunning ? '⏳ 작동 중…' : '▶ 유튜브 마케팅 시작'} <span class="mkt-ok">연결됨</span></button>
+      <span class="mkt-chip soon">📸 인스타그램 <span class="mkt-soon">연결 예정</span></span>
+      <span class="mkt-chip soon">🧵 쓰레드 <span class="mkt-soon">연결 예정</span></span>
+      <span class="mkt-chip soon">𝕏 X <span class="mkt-soon">연결 예정</span></span>
+    </div>
+    <div class="mkt-soon-note muted small">📸 인스타 · 🧵 쓰레드 · 𝕏 X 는 곧 연결돼요 — 연결 방법을 알려주시면 바로 붙일게요.</div>
+    <div id="mktFeed"></div>
+  </div>`;
+}
+function feedAgo(ts: number): string { const sec = Math.floor((Date.now() - ts) / 1000); return sec < 5 ? '방금' : sec < 60 ? sec + '초 전' : Math.floor(sec / 60) + '분 전'; }
+function patchMktFeed(s: any) {
+  const el = $('mktFeed'); if (!el) return;
+  const feed = (s.feed || []).slice(0, 9);
+  el.innerHTML = `<div class="cyc-feed mkt-live"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>📣 마케팅 에이전트 작업 중…</div>${feed.map((f: any, i: number) => {
+    const ag = AGENTS[f.agent];
+    return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
+  }).join('')}</div>`;
+}
+
+// 진행률·완주 배지를 (전체 재빌드 없이) 갱신 — 진행 중인 카드 내용(아이디어·리포트)을 지우지 않으려고
+function refreshCycleProgress(cyc: number) {
+  const done = getSecDone(cyc);
+  (['idea', 'report', 'mkt'] as SecKey[]).forEach(k => {
+    if (!done[k]) return;
+    const sec = document.querySelector(`.gsec[data-sec="${k}"]`);
+    if (sec) { sec.classList.add('is-done'); const st = sec.querySelector('.gsec-stat'); if (st) st.textContent = '✅ 완료'; }
+  });
+  const n = (done.idea ? 1 : 0) + (done.report ? 1 : 0) + (done.mkt ? 1 : 0);
+  const fill = document.querySelector('.gsec-prog-fill') as HTMLElement; if (fill) fill.style.width = Math.round(n / 3 * 100) + '%';
+  const pn = document.querySelector('.gsec-prog-n'); if (pn) pn.textContent = `${n} / 3 완료 · 🔥 ${grassStreak()}일 연속`;
+  $('cyclePhase').textContent = n >= 3 ? '사이클 완료 🎉' : `오늘 ${n}/3`;
+  if (n >= 3) {
+    if ((loadGrass()[dayKey(new Date())] || 0) < 2) { markGrassToday(2); renderGrass(); }
+    if (!document.querySelector('.gsec-clear')) { const div = document.createElement('div'); div.className = 'gsec-clear'; div.innerHTML = '🎉 오늘 사이클 완주! 🟩 잔디가 채워졌어요 — 내일도 이어가세요.'; $('cycleBody')?.appendChild(div); }
+    const foot = $('cycleFoot'); if (foot) { foot.innerHTML = `<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button>`; wireCycleHome(); }
+  }
+}
+
+function wireCycleHome() {
+  $('ideaGo')?.addEventListener('click', runCycleIdea);
+  $('reportGo')?.addEventListener('click', runCycleReport);
+  $('mktYt')?.addEventListener('click', runMarketing);
+  $('cycEnd')?.addEventListener('click', async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 닫았어요'); });
+  $('cycNext')?.addEventListener('click', nextCycleHome);
+}
+async function nextCycleHome() {
+  const btn = $('cycNext'); btn?.setAttribute('disabled', '');
+  const ns = await connect.opsNextCycle?.().catch(() => null);
+  if (ns) { _ops = ns; buildCycleHome(ns, ns.cycle || 1); hint('▶ 다음 사이클을 준비했어요'); }
+}
+
+// ② 분석 리포트 — 현황 진단서를 만들어 보여주고, 다 읽으면 '공부 완료'
+async function runCycleReport() {
+  const res = $('cycReportResult'); if (!res) return;
+  res.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 현황을 종합해 진단 리포트를 작성 중… (매출·유튜브·깃허브·서비스)</div>`;
+  let r: any = null;
+  try { r = await connect.cycleReport?.(); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  if (!r?.ok) { res.innerHTML = `<div class="cyc-idea-err">⚠️ ${escapeHtml(r?.error || '리포트 생성 실패')}</div><button class="cyc-btn ghost" id="repRetry">🔄 다시</button>`; $('repRetry')?.addEventListener('click', runCycleReport); return; }
+  const cyc = _ops?.cycle || 1;
+  res.innerHTML = `<div class="cyc-report"><div class="cyc-report-md">${mdToHtml(r.md)}</div>
+    <div class="cyc-report-foot"><span class="muted small">👆 끝까지 읽으셨나요?</span><button class="cyc-btn primary" id="repDone">✅ 다 봤어요 — 공부 완료</button></div></div>`;
+  $('repDone')?.addEventListener('click', () => {
+    setSecDone(cyc, 'report'); markGrassToday(1);
+    const f = res.querySelector('.cyc-report-foot'); if (f) f.innerHTML = `<span class="cyc-idea-accepted">✅ 공부 완료! 🟩 오늘 잔디 +1 · 🔥 ${grassStreak()}일 연속</span>`;
+    refreshCycleProgress(cyc);
+    hint('✅ 분석 리포트 공부 완료');
+  });
+}
+
+// ③ 마케팅 — 유튜브 발행 에이전트 실행(라이브 피드는 onOpsUpdate→patchMktFeed로 흐른다)
+async function runMarketing() {
+  if (_mktRunning) return;
+  _mktRunning = true;
+  const btn = $('mktYt'); if (btn) { btn.setAttribute('disabled', ''); btn.innerHTML = '⏳ 작동 중… <span class="mkt-ok">연결됨</span>'; }
+  const fe = $('mktFeed'); if (fe) fe.innerHTML = `<div class="cyc-loading"><span class="cyc-spin"></span> 유튜브 채널을 분석하는 중…</div>`;
+  let r: any = null;
+  try { r = await connect.cycleMarketing?.('youtube'); } catch { r = null; }
+  _mktRunning = false;
+  const cyc = _ops?.cycle || 1;
+  if (r?.mktOk) { setSecDone(cyc, 'mkt'); markGrassToday(1); }
+  const fe2 = $('mktFeed'); if (fe2) fe2.innerHTML = r?.mktOk
+    ? `<div class="cyc-idea-accepted">✅ 마케팅 작업 완료 — 산출물·결재를 확인하세요. 🟩 오늘 잔디 +1</div>`
+    : `<div class="muted small">⚠️ 결과물 없이 종료됐어요. 유튜브 연결을 확인하거나 다시 시도해 주세요.</div>`;
+  const b2 = $('mktYt'); if (b2) { b2.removeAttribute('disabled'); b2.innerHTML = `▶ 유튜브 마케팅 다시 시작 <span class="mkt-ok">연결됨</span>`; }
+  refreshCycleProgress(cyc);
 }
 connect.onOpsUpdate?.((s: any) => { _ops = s; setOpsBtn(!!s?.running); renderCycle(s); try { officeOpsTick(s); } catch { /* */ } });   // 상태 변할 때마다 버튼+패널+사무실 동기화
 connect.onOpsOpenPanel?.(() => openCyclePanel());   // 🔗 대시보드 "작전 검토" 버튼 → 메인 창 패널 열림

@@ -781,14 +781,61 @@ ipcMain.handle('cycle:idea', async () => {
     : '(아직 등록된 서비스 없음 — 첫 서비스를 만들 기회)';
   const notes = allNotes().slice(-15).map(n => '· ' + (n.text || '').slice(0, 80)).join('\n') || '(지식 없음)';
   const sys = `너는 1인 기업 전략가다. 연결된 '실제 데이터'만 근거로, 사장님이 바로 만들 수 있는 구체적인 새 서비스/제품 1개를 제안한다. 막연한 일반론 금지 — 반드시 데이터에서 본 사실(매출·채널·기존서비스·지식)을 근거로 든다.`;
-  const user = `[내 비즈니스 현황 — ${c.company}]\n■ 기존 서비스:\n${services}\n■ 매출: ${rev}\n■ 유튜브: ${yt}\n■ 깃허브: ${gh}\n■ 이메일: ${mail}\n■ 내 지식·노하우:\n${notes}\n\n위 실제 데이터를 근거로 '지금 만들면 좋은 새 1인 기업 서비스' 딱 1개를 제안하라.\n반드시 이 JSON만 출력:\n{"title":"서비스 이름","what":"무엇을 만드는지 1~2문장","why":"왜 지금 이게 기회인지 — 위 데이터의 구체적 근거를 인용","market":"타겟 국가/고객층","price":"추천 가격(통화 포함)","firstStep":"오늘 당장 할 첫 행동 1개"}`;
+  const dataBlock = `[내 비즈니스 현황 — ${c.company}]\n■ 기존 서비스:\n${services}\n■ 매출: ${rev}\n■ 유튜브: ${yt}\n■ 깃허브: ${gh}\n■ 이메일: ${mail}\n■ 내 지식·노하우:\n${notes}`;
+  const jsonSpec = `{"title":"서비스 이름","what":"무엇을 만드는지 1~2문장","how":"어떤 방식/스택으로 만드는지 — 사장님이 바이브코딩으로 구현할 구체적 방법(예: Next.js+Supabase, Flutter, 노코드 등)","why":"왜 지금 기회인지 — 위 데이터+웹검색에서 본 구체 근거 인용","market":"타겟 국가/고객층(구체적으로)","price":"추천 가격(통화 포함)과 근거","firstStep":"오늘 당장 할 첫 행동 1개"}`;
+  // 🌐 1차 — 웹 검색으로 트렌드·경쟁·가격을 확인한 뒤 제안 (web_search 도구 사용)
+  const instr = `${dataBlock}\n\n[해야 할 일]\n1) web_search를 1~2회 호출해 "이 아이템이 지금 통하는지" 최신 트렌드·경쟁 서비스·가격대를 확인하라(가능하면 타겟 국가 기준).\n2) 그 근거로 사장님이 '바이브코딩으로 오늘 시작'할 수 있는 새 서비스 딱 1개를 정하라.\n3) 맨 마지막에 아래 JSON '하나만' 출력하라(앞뒤 설명·코드펜스 금지):\n${jsonSpec}`;
+  let idea: any = null;
   try {
-    const raw = await chat(target, sys, user, { temperature: 0.7 });
+    const raw = await agentWithTools([], instr, { ...opts, maxIters: 6 }, () => { /* 라이브 피드 없이 조용히 */ });
     const m = raw.match(/\{[\s\S]*\}/);
-    const idea = m ? JSON.parse(m[0]) : null;
-    if (!idea?.title) return { ok: false, error: '제안 생성 실패 — 다시 시도하거나 데이터를 더 연결해보세요.' };
-    return { ok: true, idea, dataUsed: { services: c.services.length, revenue: !rev.includes('미연결'), youtube: !yt.includes('미연결'), github: !gh.includes('미연결') } };
+    if (m) { try { idea = JSON.parse(m[0]); } catch { /* */ } }
+  } catch { /* 웹검색 실패 — 데이터 폴백으로 */ }
+  // 🛟 2차 폴백 — 웹검색이 안 되면 데이터만으로 (항상 답을 준다)
+  if (!idea?.title) {
+    try {
+      const raw = await chat(target, sys, `${dataBlock}\n\n위 실제 데이터를 근거로 '지금 만들면 좋은 새 1인 기업 서비스' 딱 1개를 제안하라.\n반드시 이 JSON만 출력:\n${jsonSpec}`, { temperature: 0.7 });
+      const m = raw.match(/\{[\s\S]*\}/); idea = m ? JSON.parse(m[0]) : null;
+    } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
+  }
+  if (!idea?.title) return { ok: false, error: '제안 생성 실패 — 다시 시도하거나 데이터를 더 연결해보세요.' };
+  return { ok: true, idea, dataUsed: { services: c.services.length, revenue: !rev.includes('미연결'), youtube: !yt.includes('미연결'), github: !gh.includes('미연결'), web: true } };
+});
+// 2️⃣ 분석 리포트 [🤖 작성 → 🙋 공부] — 현재 모든 상황을 종합한 한국어 진단 리포트(마크다운). 다 읽으면 '공부 완료'.
+ipcMain.handle('cycle:report', async () => {
+  const c = loadConfig();
+  const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() });
+  if (!target) return { ok: false, error: 'AI 두뇌를 먼저 켜주세요 — 🤖 내 AI에서 모델을 실행하면 분석할 수 있어요.' };
+  const ctrl = new AbortController();
+  const opts: any = buildRunOpts(c, ctrl.signal);
+  const within = <T>(p: Promise<T>, ms: number, fb: T): Promise<T> => Promise.race([p.catch(() => fb), new Promise<T>(r => setTimeout(() => r(fb), ms))]);
+  const [rev, yt, gh, mail] = await Promise.all([
+    within(Promise.resolve(opts.getRevenue?.() ?? ''), 9000, '(매출 미연결)'),
+    within(Promise.resolve(opts.getYoutube?.() ?? ''), 9000, '(유튜브 미연결)'),
+    within(Promise.resolve(opts.getGithub?.() ?? ''), 9000, '(깃허브 미연결)'),
+    within(Promise.resolve(opts.checkEmail?.() ?? ''), 9000, '(이메일 미연결)'),
+  ]);
+  const services = c.services.length ? c.services.map(s => `· ${s.name}${s.url ? ` (${s.url})` : ''}${s.market ? ` · 타겟:${s.market}` : ''}${s.price ? ` · ${s.price}` : ''}`).join('\n') : '(등록된 서비스 없음)';
+  const notes = allNotes().slice(-12).map(n => '· ' + (n.text || '').slice(0, 80)).join('\n') || '(지식 없음)';
+  const sys = `너는 1인 기업 전담 애널리스트다. 사장님이 5분 안에 '지금 내 사업이 어떤 상태인지' 완전히 파악하도록, 실제 데이터만 근거로 한국어 진단 리포트를 쓴다. 막연한 칭찬·일반론 금지, 숫자와 사실 중심.`;
+  const user = `아래 실제 데이터로 '오늘의 사업 진단 리포트'를 마크다운으로 작성하라.\n\n[데이터]\n■ 서비스:\n${services}\n■ 매출: ${rev}\n■ 유튜브: ${yt}\n■ 깃허브: ${gh}\n■ 이메일: ${mail}\n■ 내 지식:\n${notes}\n\n[형식 — 이 구조 그대로, 각 항목에 '왜'와 '실제 숫자' 포함]\n## 📊 한눈 요약\n## 💰 매출·수익\n## 📺 콘텐츠·트래픽\n## 🛠️ 제품·개발\n## ⚠️ 지금 가장 큰 리스크 1가지\n## 🎯 이번 주 집중할 3가지\n(데이터가 미연결이면 솔직히 '미연결'로 표시하고 무엇을 연결하면 좋은지 한 줄로 권하라.)`;
+  try {
+    const md = await chat(target, sys, user, { temperature: 0.4 });
+    return { ok: true, md: (md || '').trim(), dataUsed: { services: c.services.length, revenue: !rev.includes('미연결'), youtube: !yt.includes('미연결'), github: !gh.includes('미연결') } };
   } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
+});
+// 3️⃣ 마케팅 [🤝 자동 발행] — 유튜브 마케팅 에이전트 실행(채널 분석 → 영상 기획안 → 제목·설명 개선 결재). IG·X·쓰레드는 연결 예정.
+ipcMain.handle('cycle:marketing', async (_e, channel: string = 'youtube') => {
+  if (opsState.executing) return { ...opsPublic(), mktOk: false, busy: true };
+  const c = loadConfig();
+  opsState.running = true; opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsState.activity = '마케팅 발행'; opsEmit();
+  try { openOfficeWindow(); } catch { /* 🏢 일하는 모습이 보이게 */ }
+  const action: OpsAction = { title: '유튜브 마케팅 — 채널 분석 → 영상 기획안 → 제목·설명 개선 결재', agent: 'youtube', risk: 'post', assignee: 'agent' };
+  let ship: OpsShip | null = null;
+  try { ship = await executeOne(c, action, []); }
+  catch { /* */ }
+  finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsState.phase = 'review'; saveOpsState(); opsEmit(); }
+  return { ...opsPublic(), mktOk: !!ship?.ok };
 });
 // ▶ 다음 사이클 — 다시 스케줄을 짠다
 ipcMain.handle('ops:nextCycle', async () => {
