@@ -9,6 +9,7 @@
 import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { spawn, ChildProcess } from 'child_process';
 
 export const LOCAL_PORT = 1235;
@@ -24,6 +25,7 @@ function emitStatus() { try { _statusCb?.(localStatus()); } catch { /* */ } }
 let _maxCtx = 0, _loadedCtx = 0;              // 모델 최대 컨텍스트 / 실제 로드된 컨텍스트
 let _ready = false, _loading = false, _error = '';
 let _startSeq = 0;                            // 모델 전환 경쟁 방지용 토큰
+let _autoRestart = 0;                         // 💔 작동 중 엔진이 죽으면 자동 복구한 횟수 (사용자가 직접 켜면 리셋)
 
 // ⚙️ 추론 파라미터 — 사용자가 AI 패널에서 조절. (flashAttn·ctxSize=기동 플래그 / 나머지=요청마다 llm.ts 가 전송)
 export interface LocalOptions {
@@ -78,11 +80,14 @@ async function waitReady(timeoutMs: number): Promise<boolean> {
 }
 
 // 모델 로드 = llama-server 를 해당 모델로 (재)기동. 같은 모델이고 이미 떠 있으면 그대로.
-export async function startLocalEngine(modelPath: string, force = false, ngl?: number): Promise<LocalStatus> {
+export async function startLocalEngine(modelPath: string, force = false, ngl?: number, ctxOverride?: number): Promise<LocalStatus> {
   if (_loading) return localStatus();
   if (!force && _ready && _proc && _modelPath === modelPath) return localStatus();
+  if (!force) _autoRestart = 0;                      // 사용자가 직접 켜면 자동복구 카운터 리셋
   const seq = ++_startSeq;
   const useNgl = ngl ?? 999;                         // 999=가능한 GPU 전부 / 0=CPU 전용(폴백)
+  // 🧮 이 PC 메모리에 맞게 컨텍스트를 안전하게 — 모델이 RAM 대비 크거나 저사양이면 줄여서 OOM 크래시 예방
+  const useCtx = ctxOverride ?? safeCtx(modelPath, _opts.ctxSize);
   _loading = true; _ready = false; _error = '';
   _loadMsg = useNgl > 0 ? '⚡ GPU 가속으로 모델 켜는 중…' : '🖥️ CPU 모드로 모델 켜는 중… (조금 느릴 수 있어요)';
   emitStatus();
@@ -94,11 +99,11 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     if (!fs.existsSync(bin)) throw new Error(`추론 엔진 실행파일을 찾을 수 없어요: ${bin}`);
     try { if (process.platform !== 'win32') fs.chmodSync(bin, 0o755); } catch { /* */ }
 
-    _maxCtx = 0; _loadedCtx = _opts.ctxSize;
+    _maxCtx = 0; _loadedCtx = useCtx;
     const args = [
       '-m', modelPath,
       '--host', '127.0.0.1', '--port', String(LOCAL_PORT),
-      '-c', String(_opts.ctxSize),
+      '-c', String(useCtx),
       '-ngl', String(useNgl),                       // GPU 레이어 오프로드 (0=CPU 폴백)
       '-fa', (useNgl > 0 && _opts.flashAttn) ? 'on' : 'off',   // ⚡ flash-attention (CPU 모드선 끔)
       '--jinja',                                    // 모델 정식 chat template → 도구호출 정확도
@@ -123,21 +128,34 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     const onOut = (d: any) => { log = (log + String(d)).slice(-4000); };
     child.stdout?.on('data', onOut); child.stderr?.on('data', onOut);
     child.on('exit', (code) => {
-      if (_proc === child) { _proc = null; _ready = false; if (!_error && code) _error = `엔진이 종료됐어요 (code ${code}). ${tailErr(log)}`; }
+      if (_proc !== child) return;                  // 우리가 교체·종료한 프로세스 → 무시
+      const wasReady = _ready;
+      _proc = null; _ready = false;
+      if (!_error && code) { const d = diagCode(code); _error = `엔진이 종료됐어요 (code ${code})${d ? ' — ' + d : ''}. ${tailErr(log)}`; }
+      // 💔 작동 중이던 엔진이 갑자기 죽음(="공동두뇌 모두 종료") → 조용히 최대 2회 자동 복구
+      if (wasReady && !_loading && _autoRestart < 2) {
+        _autoRestart++;
+        _loadMsg = '⚠️ AI 엔진이 꺼져서 자동으로 다시 켜는 중…'; emitStatus();
+        startLocalEngine(_modelPath || modelPath, true).catch(() => { /* */ });
+      }
     });
     child.on('error', (e) => { if (_proc === child) { _error = String((e as any)?.message || e); _proc = null; _ready = false; } });
 
-    const ok = await waitReady(120000);             // 큰 모델 로드까지 넉넉히
+    const ok = await waitReady(useNgl > 0 ? 120000 : 150000);   // 큰 모델 로드까지 넉넉히(CPU는 더 느릴 수 있어 여유)
     if (seq !== _startSeq) return localStatus();    // 그 사이 다른 모델 요청 → 결과 무시
     if (!ok || !_proc) {
-      // 🔁 GPU(Vulkan/Metal) 오프로드 실패 → CPU 전용으로 1회 자동 재시도
-      //    (Vulkan 드라이버 없는 윈도우 PC·VM에서 엔진이 code 1로 죽던 문제 구제)
+      // 🔁 단계별 자동 폴백: GPU → CPU(같은 ctx) → CPU(작은 ctx 2048). 저사양·드라이버없음·메모리빠듯 모두 구제.
       if (useNgl > 0) {
         await killProc(); _loading = false; _error = '';
         _loadMsg = '🖥️ 이 PC는 GPU 가속이 안 돼서 CPU 모드로 다시 켜는 중…'; emitStatus();
-        return startLocalEngine(modelPath, true, 0);
+        return startLocalEngine(modelPath, true, 0, useCtx);
       }
-      throw new Error(_error || `모델 로드 실패. ${tailErr(log)}`);
+      if (useCtx > 2048) {
+        await killProc(); _loading = false; _error = '';
+        _loadMsg = '🧮 메모리가 빠듯해서 컨텍스트를 줄여 다시 켜는 중…'; emitStatus();
+        return startLocalEngine(modelPath, true, 0, 2048);
+      }
+      throw new Error(_error || `모델을 못 켰어요 — 메모리가 부족하거나 모델이 커요. 더 가벼운 모델(예: Gemma 4 E2B)을 받아보세요. ${tailErr(log)}`);
     }
 
     _modelPath = modelPath;
@@ -173,8 +191,31 @@ export async function stopLocalEngine(): Promise<void> {
 
 // 마지막 로그에서 사람이 읽을 만한 에러 줄만 추려 보여줌.
 function tailErr(log: string): string {
-  const lines = String(log).split(/\r?\n/).filter((l) => /error|failed|unknown|assert|exception/i.test(l));
+  const lines = String(log).split(/\r?\n/).filter((l) => /error|failed|unknown|assert|exception|out of memory|oom|vram|alloc/i.test(l));
   return lines.slice(-2).join(' | ').slice(0, 300);
+}
+
+// 🧮 이 PC 메모리에 맞춰 안전한 컨텍스트 크기 — 모델이 RAM 대비 크거나 저사양이면 줄인다(OOM 크래시 예방).
+function safeCtx(modelPath: string, want: number): number {
+  let ctx = want;
+  try {
+    const total = os.totalmem();
+    let sz = 0; try { sz = fs.statSync(modelPath).size; } catch { /* */ }
+    const gb = total / 1e9;
+    if (sz && sz > total * 0.6) ctx = Math.min(ctx, 2048);   // 모델이 RAM의 60%↑ → 매우 빡빡 → ctx 대폭 축소
+    else if (gb <= 6) ctx = Math.min(ctx, 2048);             // 6GB 이하
+    else if (gb <= 9) ctx = Math.min(ctx, 4096);             // 8GB 급
+  } catch { /* */ }
+  return Math.max(512, ctx);
+}
+
+// 종료 코드를 사람이 이해할 원인으로 — "code 1"만 보고 막막하던 문제 해결.
+function diagCode(code: number | null): string {
+  if (code == null) return '';
+  if (code === 3221225781 || code === -1073741819) return 'GPU 드라이버나 메모리 문제일 수 있어요(가벼운 모델을 권해요)';
+  if (code === 137 || code === 134 || code === 132 || code === -9) return '메모리가 부족해요(모델이 너무 큼 — 더 가벼운 모델 권장)';
+  if (code === 1) return 'GPU 가속이 안 되거나 메모리가 빠듯해요';
+  return '';
 }
 
 function killProc(): Promise<void> {
