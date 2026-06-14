@@ -130,7 +130,29 @@ function flattenMessages(messages: ChatMessage[]): ChatMessage[] {
 }
 const isTemplateErr = (e: any) => { const m = String(e?.response?.data?.error?.message || e?.response?.data?.error || e?.response?.data?.message || e?.message || ''); return /template|alternate|parser|roles must|jinja|raise_exception|system role/i.test(m); };
 
+// 🧹 깨진 이모지(짝 없는 UTF-16 surrogate)·비문자를 제거한다.
+//    llama-server의 JSON 파서가 lone surrogate를 만나면
+//    "[json.exception.parse_error.101] invalid string: surrogate U+D800..U+DBFF must be followed by U+DC00..U+DFFF"
+//    로 HTTP 500을 내고 대화 전체가 죽는다. (유튜브 댓글 다수 제보 — 에이전트 이름/성격/입력에 깨진 이모지가 섞일 때)
+function sanitizeContent(s: any): any {
+  if (typeof s !== 'string') return s;
+  return s
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')   // 뒤에 low surrogate가 없는 high surrogate
+    .replace(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')   // 앞에 high surrogate가 없는 low surrogate
+    .replace(/[\uFFFE\uFFFF\u0000]/g, '');                  // 비문자·널문자
+}
+function cleanMessages(messages: ChatMessage[]): ChatMessage[] {
+  let dirty = false;
+  const out = messages.map(m => {
+    const c = sanitizeContent(m.content);
+    if (c !== m.content) dirty = true;
+    return c === m.content ? m : { ...m, content: c };
+  });
+  return dirty ? out : messages;
+}
+
 export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], tools: ToolSchema[], opts: ChatOpts = {}): Promise<{ content: string; reasoning: string; toolCalls: ToolUse[]; message: any }> {
+  messages = cleanMessages(messages);   // 🧹 깨진 이모지 제거 → llama-server parse_error 500 방지
   const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
   const headers: any = t.key ? { Authorization: `Bearer ${t.key}` } : {};
   const body: any = { model: t.model, messages, temperature: opts.temperature ?? 0.4, stream: false };
@@ -170,10 +192,13 @@ export function apiError(e: any): string {
   detail = String(detail || e?.message || code || e).replace(/\s+/g, ' ').trim().slice(0, 240);
   const status = e?.response?.status;
   let hint = '';
-  if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
+  if (/model.*(required|not found|missing)|no model|모델.*(없|지정)/i.test(detail)) hint = ' — AI 두뇌(모델)가 지정되지 않았어요(🤖 내 AI 팀에서 모델을 켜고 골라주세요)';
+  else if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 문자가 있었어요(자동 정리 후 다시 시도해 주세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
+  else if (status === 401 || status === 403) hint = ' — 접근이 거부됐어요(API 키·권한 확인. OAuth는 승인 대기일 수 있어요)';
   else if (status === 404) hint = ' — 모델/주소를 찾지 못함(모델 이름·LLM 주소 확인)';
-  else if (status === 500 || status === 503) hint = ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
-  else if (/ECONNREFUSED|ECONNRESET|ETIMEDOUT|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
+  else if (status === 500 || status === 503) hint = /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 이모지/문자가 있었어요(자동 정리됨 — 다시 보내주세요)' : ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
+  else if (/timeout|ETIMEDOUT|exceeded/i.test(detail + code)) hint = ' — 응답이 너무 오래 걸려요(저사양이면 더 작은 모델을 쓰거나 잠시 후 다시)';
+  else if (/ECONNREFUSED|ECONNRESET|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
   return (status ? `HTTP ${status}: ${detail}` : detail) + hint;
 }
 
@@ -190,6 +215,7 @@ interface OneShot { text: string; truncated: boolean; }
 
 // 모델 1회 호출 (스트리밍/비스트리밍). finish_reason 'length' → truncated=true
 async function callOnce(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, stream: boolean): Promise<OneShot> {
+  messages = cleanMessages(messages);   // 🧹 깨진 이모지 제거 → llama-server parse_error 500 방지
   if (t.engine === 'lmstudio' || t.engine === 'gemini') {
     // OpenAI 호환 (LM Studio 로컬 / Gemini 클라우드)
     const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
