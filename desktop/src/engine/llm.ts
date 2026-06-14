@@ -94,7 +94,7 @@ export async function embed(base: string, text: string): Promise<number[] | null
   }
   if (!_embModel) return null;
   try {
-    const r = await axios.post(`${b}/v1/embeddings`, { model: _embModel, input: (text || '').slice(0, 6000) }, { timeout: 15000 });
+    const r = await axios.post(`${b}/v1/embeddings`, { model: _embModel, input: sanitizeContent((text || '').slice(0, 6000)) }, { timeout: 15000 });   // 🧹 깨진 이모지 제거 — 지식 주입/검색도 parse_error 500 방지
     return r.data?.data?.[0]?.embedding || null;
   } catch { return null; }
 }
