@@ -894,9 +894,10 @@ async function loadLocalAI() {
   const models = (await connect.localModels?.()) || [];
   const cur = _localStatus?.modelPath;
   const recos = models.length ? [] : ((await connect.hfRecommended?.()) || []);   // 받은 모델 없으면 추천 두뇌 원클릭
+  const liveCur = _localStatus?.running ? cur : '';   // 🔧 실제로 켜져 있을 때만 '사용 중'(크래시·꺼짐이면 '다시 켜기')
   $('localModels').innerHTML = models.length ? models.map((m: any) =>
-    `<div class="lm-row ${m.path === cur ? 'active' : ''}"><span class="lm-name">${m.name}</span><span class="muted small">${fmtGB(m.size)}</span>` +
-    `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === cur ? '사용 중' : '사용'}</button>` +
+    `<div class="lm-row ${m.path === liveCur ? 'active' : ''}"><span class="lm-name">${m.name}</span><span class="muted small">${fmtGB(m.size)}</span>` +
+    `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === liveCur ? '사용 중' : (m.path === cur && _localStatus?.error ? '🔁 다시 켜기' : '사용')}</button>` +
     `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" data-rm="${m.removable ? 1 : 0}" data-nm="${escAttr(m.name)}" data-sz="${fmtGB(m.size)}" data-src="${escAttr(m.source || '')}" title="삭제">🗑️</button></div>`).join('')
     : (recos.length
       ? `<div class="muted small" style="margin-bottom:8px">받은 두뇌가 없어요. 추천 두뇌를 한 번에 받으세요 👇</div>` + recos.map((r: any) => `<div class="reco-card" data-repo="${escAttr(r.repo)}"><div class="reco-info"><div class="reco-name">${escapeHtml(r.label)}</div><div class="reco-hint muted small">${escapeHtml(r.hint)}</div></div><button class="reco-get oc-primary">받기</button></div>`).join('')
