@@ -1728,19 +1728,26 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   const c = loadConfig();
   const backend = trainBackendBase(c);
-  // ── 서비스 모드 — 백엔드가 제공자 토큰 보관·실행·게이트 (유저는 토큰 불필요) ──
+  // ── 서비스 모드(무료 백엔드) 우선 — 실패하면 내 HF 토큰(HF Jobs)으로 폴백 ──
+  const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
-    let jsonl = lastBrainJsonl || brainToJsonl();
+    const jsonl = lastBrainJsonl || brainToJsonl();
     if (!jsonl) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓으세요.' };
     const user = await fbIdToken();
-    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '무료 학습은 로그인 후 가능해요.' };
-    const userId = user?.uid || installId();
-    try {
-      const r = await axios.post(`${backend}/train`, { userId, idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
-      const d = r.data || {};
-      if (d.ok) { gpuUse('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); }
-      return { ...d, viaBackend: true };
-    } catch (e: any) { return { ok: false, error: '학습 서버 호출 실패: ' + (e?.response?.data?.error || e?.message || String(e)) }; }
+    if (fbApiKey() && !user && !hasHf) return { ok: false, needLogin: true, error: '무료 학습은 로그인 후 가능해요. (또는 🗂️ 연동에 HuggingFace 토큰을 넣으면 내 계정으로 바로 학습돼요)' };
+    if (!fbApiKey() || user) {
+      try {
+        const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
+        const d = r.data || {};
+        if (d.ok) { gpuUse('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
+        if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
+      } catch (e: any) {
+        const st = e?.response?.status;
+        if (!hasHf) return { ok: false, error: `학습 서버가 잠시 불안정해요(${st || '네트워크'}). 🗂️ 연동에 HuggingFace 토큰을 넣으면 내 계정(HF Jobs)으로 바로 학습돼요.` };
+        // HF 토큰 있음 → 아래 직접 모드(HF Jobs)로 폴백
+      }
+    }
+    // 여기로 오면: 백엔드 실패/거절 + HF 토큰 있음 → 직접 모드로 폴백
   }
   // ── 직접 모드 — 사용자 본인 HF Pro 토큰 (검증/파워유저용) ──
   const h = connOf('huggingface');
