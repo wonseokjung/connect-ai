@@ -1,0 +1,18 @@
+분야,제목,저자,연도,게재처,arXiv,링크,핵심,읽음
+거부·안전,Refusal in Language Models Is Mediated by a Single Direction,"Arditi, Obeso, Syed, Paleka, Panickssery, Gurnee, Nanda",2024,NeurIPS 2024,2406.11717,https://arxiv.org/abs/2406.11717,거부는 활성화 공간의 단일 방향 — 지우면 답하고 더하면 거부. abliteration의 토대,No
+거부·안전,Concept Cones (multi-directional refusal),확인필요,2025,—,2502.17420,https://arxiv.org/abs/2502.17420,거부는 여러 방향이기도 — 단일방향론 보완·반박,No
+거부·안전,"Fine-tuning Aligned LMs Compromises Safety, Even When Users Do Not Intend To","Qi, Zeng, Xie, Chen, Jia, Mittal, Henderson",2024,ICLR 2024,2310.03693,https://arxiv.org/abs/2310.03693,파인튜닝만으로 안전장치가 뚫린다 — 정렬의 취약성,No
+모델합치기,Editing Models with Task Arithmetic,"Ilharco, Ribeiro, Wortsman, Gururangan, Schmidt, Hajishirzi, Farhadi",2023,ICLR 2023,2212.04089,https://arxiv.org/abs/2212.04089,능력=벡터. 학습모델−원본으로 능력 추출. 더하면 추가 빼면 제거,No
+모델합치기,TIES-Merging: Resolving Interference When Merging Models,"Yadav, Tam, Choshen, Raffel, Bansal",2023,NeurIPS 2023,2306.01708,https://arxiv.org/abs/2306.01708,충돌(interference) 해결하며 여러 모델 합치기 (trim·elect·merge),No
+모델합치기,Language Models are Super Mario: Absorbing Abilities as a Free Lunch (DARE),"Yu, Yu, Yu, Huang, Li",2024,ICML 2024,2311.03099,https://arxiv.org/abs/2311.03099,델타의 90-99%를 버리고(drop) 재조정(rescale)해도 능력 유지,No
+모델합치기,Model Soups: Averaging Weights of Multiple Fine-tuned Models,"Wortsman, Ilharco, Gadre, et al.",2022,ICML 2022,2203.05482,https://arxiv.org/abs/2203.05482,여러 파인튜닝 모델 가중치 평균 → 추론비용 증가 없이 정확도 향상,No
+파인튜닝,LoRA: Low-Rank Adaptation of Large Language Models,"Hu, Shen, Wallis, Allen-Zhu, Li, Wang, Wang, Chen",2021,ICLR 2022,2106.09685,https://arxiv.org/abs/2106.09685,저랭크 어댑터만 학습 — 큰 모델에 가벼운 패치,No
+파인튜닝,QLoRA: Efficient Finetuning of Quantized LLMs,"Dettmers, Pagnoni, Holtzman, Zettlemoyer",2023,NeurIPS 2023,2305.14314,https://arxiv.org/abs/2305.14314,양자화+LoRA — 노트북·무료 GPU에서도 대형 모델 파인튜닝,No
+파인튜닝,Direct Preference Optimization (DPO),"Rafailov, Sharma, Mitchell, Ermon, Manning, Finn",2023,NeurIPS 2023,2305.18290,https://arxiv.org/abs/2305.18290,좋은답/나쁜답 선호쌍으로 정렬 — RLHF보다 단순,No
+해석가능성,Representation Engineering: A Top-Down Approach to AI Transparency,"Zou, Phan, Chen, et al.",2023,—,2310.01405,https://arxiv.org/abs/2310.01405,모델 내부 표현을 읽고 조종 — activation steering의 토대,No
+해석가능성,Steering Llama 2 via Contrastive Activation Addition (CAA),"Rimsky, Gabrieli, Schulz, Tong, Hubinger, Turner",2024,ACL 2024,2312.06681,https://arxiv.org/abs/2312.06681,가중치 안 바꾸고 추론 중 활성화에 방향 더해 행동 조종(실시간),No
+해석가능성,Towards Monosemanticity: Decomposing LMs With Dictionary Learning,"Bricken, et al. (Anthropic)",2023,Transformer Circuits,—,https://transformer-circuits.pub/2023/monosemantic-features,Sparse Autoencoder로 뉴런을 해석 가능한 feature로 분해,No
+해석가능성,Scaling Monosemanticity: Interpretable Features from Claude 3 Sonnet,"Templeton, et al. (Anthropic)",2024,Anthropic,—,https://transformer-circuits.pub/2024/scaling-monosemanticity,Claude 3에서 수백만 개념 feature 추출 — 해석가능성 최전선,No
+지식편집,Locating and Editing Factual Associations in GPT (ROME),"Meng, Bau, Andonian, Belinkov",2022,NeurIPS 2022,2202.05262,https://arxiv.org/abs/2202.05262,특정 사실이 저장된 가중치 위치를 찾아 직접 수정,No
+지식편집,Mass-Editing Memory in a Transformer (MEMIT),"Meng, Sharma, Andonian, Belinkov, Bau",2023,ICLR 2023,2210.07229,https://arxiv.org/abs/2210.07229,수천 개 사실을 한 번에 가중치에 편집,No
+통제·정렬,Constitutional AI: Harmlessness from AI Feedback,"Bai, Kadavath, Kundu, et al. (Anthropic)",2022,—,2212.08073,https://arxiv.org/abs/2212.08073,원칙(헌법)으로 AI를 길들이기 — 검열제거의 건설적 대안,No
