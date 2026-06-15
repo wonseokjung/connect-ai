@@ -9,6 +9,7 @@ import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY } from './engin
 import { search as brainSearch } from './engine/brain';
 import { quickIntent, planServe } from './engine/intent';
 import { fetchRevenue } from './engine/paypal';
+import { fetchTossRevenue, mergeRevenue } from './engine/toss';
 import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
@@ -17,7 +18,7 @@ import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, 
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
-import { uploadDataset, hfUsername, launchTrainingJob, jobStatus } from './engine/hf';
+import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus } from './engine/hf';
 import { buildNotebook } from './engine/train';
 import { METHODS, buildMethodNotebook } from './engine/methods';
 import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
@@ -41,12 +42,13 @@ interface Service { id: string; name: string; url: string; desc: string; repo?: 
 interface Config {
   company: string; agentName: string; userTitle: string; plazaEmoji: string; greeting: string; workspace: string; tools: boolean; agentModels?: Record<string, string>; agentNames?: Record<string, string>; agentImages?: Record<string, string>;
   voiceName: string; jarvis: boolean; plazaDbUrl: string; llmBase?: string; llmModel?: string; voice: boolean;
-  services: Service[]; telegramToken: string; telegramChatId: string; telegramApprovals?: boolean; emailAutoReply?: boolean; apiKeys: Record<string, string>; paypalClientId: string; paypalSecret: string;
-  apiConn: Record<string, Record<string, string>>;   // 🔌 서비스별 자격증명 (telegram/youtube/paypal/gemini/…)
+  services: Service[]; telegramToken: string; telegramChatId: string; telegramApprovals?: boolean; emailAutoReply?: boolean; apiKeys: Record<string, string>; paypalClientId: string; paypalSecret: string; tossSecretKey: string;
+  apiConn: Record<string, Record<string, string>>;   // 🔌 서비스별 자격증명 (telegram/youtube/paypal/toss/gemini/…)
   briefingOn: boolean; briefingHour: number; briefingMin: number; lastBriefing: string;   // 📋 아침 브리핑(능동성)
   trainNotebookUrl: string;                                          // 🚀 내 학습 노트북(Colab/GitHub) URL
   autoSync: boolean; lastSyncCount: number; lastTrainHintCount: number;   // 🔄 자동 루프(GitHub 자동 커밋 + 학습 추천)
   lastCloudTrainAt?: number; cloudJob?: any; trainBaseModel?: string; brainModelName?: string;   // ☁️ 클라우드 학습(HF Jobs)
+  gpuUsage?: { month: string; train: number; surgery: number };   // 🔒 GPU 기능 월 사용량 (학습·수술 각각 월 3회)
   trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
@@ -58,6 +60,7 @@ interface Config {
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
   ttsLocalUrl: string;    // 🖥️ 로컬 Qwen3-TTS 서버 주소 (완전 로컬·무료)
   localModelPath: string; // 🧠 내장 추론 모델(GGUF) 경로 — 있으면 LM Studio 없이 앱이 직접 실행
+  modelsDirOverride?: string; // 📁 모델 다운로드 저장 폴더(비우면 기본 userData/models). 윈도우 C: 용량 회피용
   localAuto: boolean;     // 부팅 시 내장 엔진 자동 시작
   localFlashAttn: boolean; // ⚡ Flash Attention (속도)
   localCtxSize: number;    // 📏 대화 기억 길이(컨텍스트 토큰)
@@ -68,7 +71,7 @@ interface Config {
 const DEFAULTS: Config = {
   company: '1인 기업', agentName: '에이전트', userTitle: '사장님', plazaEmoji: '🖥️', greeting: '', workspace: '', tools: true,
   voiceName: '', jarvis: false, plazaDbUrl: '', llmBase: '', llmModel: '', voice: false,
-  services: [], telegramToken: '', telegramChatId: '', apiKeys: {}, paypalClientId: '', paypalSecret: '',
+  services: [], telegramToken: '', telegramChatId: '', apiKeys: {}, paypalClientId: '', paypalSecret: '', tossSecretKey: '',
   apiConn: {},
   briefingOn: true, briefingHour: 9, briefingMin: 0, lastBriefing: '', trainNotebookUrl: '',
   autoSync: true, lastSyncCount: 0, lastTrainHintCount: 0, mcpConfig: {}, voiceQuality: 'browser', qwenVoice: 'Sohee', ttsLocalUrl: '',
@@ -365,7 +368,11 @@ ipcMain.handle('safemode:set', (_e, on: boolean) => {
 ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 
 // ─────────────────────────── 🧠 내장 추론 엔진 + 🤗 HuggingFace 모델 (LM Studio 불필요)
-const modelsDir = () => path.join(app.getPath('userData'), 'models');
+const modelsDir = () => {
+  const o = (loadConfig().modelsDirOverride || '').trim();   // 📁 사용자가 다른 드라이브/폴더로 바꿨으면 거기로 (윈도우 C: 용량 회피)
+  if (o) { try { fs.mkdirSync(o, { recursive: true }); return o; } catch { /* 권한·경로 문제면 기본으로 폴백 */ } }
+  return path.join(app.getPath('userData'), 'models');
+};
 const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } };
 onEngineStatus((s) => sendLocal(s));   // 🔁 GPU→CPU 폴백 등 엔진 진행 상황을 실시간으로 화면에 표시
 async function bootLocalEngine(modelPath: string) {
@@ -378,6 +385,18 @@ ipcMain.handle('local:base', () => LOCAL_BASE);
 ipcMain.handle('local:start', async (_e, modelPath: string) => { await bootLocalEngine(modelPath); return localStatus(); });
 ipcMain.handle('local:stop', async () => { await stopLocalEngine(); saveConfig({ localModelPath: '' }); const s = localStatus(); sendLocal(s); return s; });
 ipcMain.handle('local:models', () => listLocalModels(modelsDir()));
+ipcMain.handle('local:modelsDir', () => ({ dir: modelsDir(), custom: !!(loadConfig().modelsDirOverride || '').trim() }));   // 📁 현재 모델 저장 폴더
+ipcMain.handle('local:pickModelsDir', async () => {   // 📁 다른 드라이브/폴더로 변경 (윈도우 C: 꽉 찰 때 D: 등으로)
+  const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'], title: '모델을 저장할 폴더 선택 (예: D:\\ConnectAI-모델)' });
+  if (r.canceled || !r.filePaths[0]) return { dir: modelsDir(), custom: !!(loadConfig().modelsDirOverride || '').trim() };
+  let dir = r.filePaths[0];
+  try { if (!/(models|모델)$/i.test(dir)) { dir = path.join(dir, 'ConnectAI-models'); } fs.mkdirSync(dir, { recursive: true }); fs.accessSync(dir, fs.constants.W_OK); }
+  catch (e: any) { return { error: `이 폴더에 쓸 수 없어요: ${e?.message || e}` }; }
+  saveConfig({ modelsDirOverride: dir });
+  return { dir, custom: true };
+});
+ipcMain.handle('local:openModelsDir', () => { try { shell.openPath(modelsDir()); return true; } catch { return false; } });
+ipcMain.handle('local:resetModelsDir', () => { saveConfig({ modelsDirOverride: '' }); return { dir: modelsDir(), custom: false }; });
 ipcMain.handle('local:options', () => getLocalOptions());
 ipcMain.handle('local:setOptions', async (_e, o: any) => {
   const prev = getLocalOptions(); setLocalOptions(o); const g = getLocalOptions();
@@ -390,7 +409,14 @@ ipcMain.handle('local:setOptions', async (_e, o: any) => {
 ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
 ipcMain.handle('hf:recommended', () => RECOMMENDED);
 ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
-ipcMain.handle('hf:files', async (_e, repo: string) => { try { return { ok: true, files: await listGGUF(repo) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
+ipcMain.handle('hf:files', async (_e, repo: string) => {
+  try {
+    const files = await listGGUF(repo);
+    // 🧩 내가 학습한 모델은 보통 safetensors라 GGUF가 없음 → 다운로드가 '안 되는' 게 아니라 변환이 필요
+    const hint = files.length ? '' : '이 저장소엔 실행용 GGUF 파일이 없어요. 직접 학습한 모델이면 GGUF로 변환해야 앱에서 켤 수 있어요 (영상의 변환 단계 참고). 비공개 저장소면 🤗 연동에 HF 토큰을 넣어주세요.';
+    return { ok: true, files, hint };
+  } catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
+});
 ipcMain.handle('hf:download', async (_e, repo: string, file: string) => {
   try { const p = await downloadGGUF(repo, file, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo, file, ...pr }); } catch { /* */ } }); return { ok: true, path: p }; }
   catch (e: any) { return { ok: false, error: String(e?.message || e) }; }
@@ -482,7 +508,10 @@ async function loadRevenue() {
   const c = loadConfig();
   const g = connOf('github'), y = connOf('youtube');
   const [state, services, yt, gh] = await Promise.all([
-    fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }),
+    Promise.all([   // 💰 PayPal + 💳 토스 → 하나로 합쳐 대시보드·분석에 전달
+      fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }).catch((e: any) => ({ type: 'state', loading: false, error: String(e?.message || e), data: null } as any)),
+      c.tossSecretKey ? fetchTossRevenue(c.tossSecretKey, { days: 30 }).catch((e: any) => ({ type: 'state', loading: false, error: String(e?.message || e), data: null } as any)) : Promise.resolve(null),
+    ]).then(mergeRevenue),
     Promise.all((c.services || []).map(async (s) => {
       const m = s.url ? await siteMeta(s.url).catch(() => ({ title: '', image: '', favicon: '', text: '' })) : { title: '', image: '', favicon: '', text: '' };
       return {
@@ -511,8 +540,9 @@ interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'de
 interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; files?: string[]; }   // files: 파이프라인용 실제 파일 경로
 type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
 interface OpsFeedItem { icon: string; text: string; agent: string; ok: boolean; ts: number; }
-interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; }
-let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [] };
+interface OpsFeedback { title: string; good: boolean; cycle: number; ts: number; }   // 👍/👎 — 다음 사이클 플랜의 보상신호(강화학습 루프)
+interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; }
+let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [], feedback: [] };
 const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
 function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
 function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
@@ -534,7 +564,10 @@ async function gatherOps() {
   const c = loadConfig();
   const g = connOf('github'), y = connOf('youtube');
   const [rev, yt, gh] = await Promise.all([
-    fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }).catch(() => null),
+    Promise.all([
+      fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 }).catch(() => null),
+      c.tossSecretKey ? fetchTossRevenue(c.tossSecretKey, { days: 30 }).catch(() => null) : Promise.resolve(null),
+    ]).then(mergeRevenue).catch(() => null),
     fetchChannel(y.YOUTUBE_API_KEY, y.YOUTUBE_CHANNEL_ID).catch(() => null),
     listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO || '', 20).catch(() => null),
   ]);
@@ -554,7 +587,7 @@ function buildScan(d: any): OpsScan[] {
       : null;
     const trendLabel = trend ? (parseInt(trend) > 0 ? `📈 +${trend}%` : `📉 ${trend}%`) : '';
     scan.push({ agent: 'business', label: `💰 매출 — 순 ${fmtN(net)} ${cur} · 거래 ${cc.count}건${trendLabel ? ` ${trendLabel}` : ''} · 환불율 ${((cc.refunds || 0) / (cc.gross || 1) * 100).toFixed(1)}%`, ok: true });
-  } else scan.push({ agent: 'business', label: rev?.error ? '⚠️ PayPal 연결 오류 — 재인증 필요' : '❌ PayPal 미연결 — 결제 수집 대기', ok: false });
+  } else scan.push({ agent: 'business', label: rev?.error ? `⚠️ 결제 연결 오류 — 재인증 필요` : '❌ 결제(PayPal·토스) 미연결 — 🗂️ 연동에서 키 입력', ok: false });
 
   // 📺 유튜브: 구독자·조회·상위 영상·성장률
   if (yt?.ok && yt.channel) {
@@ -587,6 +620,10 @@ function opsRisk(title: string): OpsAction['risk'] {
   if (/메일|발송|이메일|dm|게시|업로드|발행|공지|email|post|publish/i.test(title)) return 'post';
   if (/배포|deploy|푸시|머지|릴리즈|release|push/i.test(title)) return 'deploy';
   return 'safe';
+}
+// 🤝 사람이 해야 잘되는 일(로컬 AI가 약한 영역) — 모델 태그와 무관하게 사람 몫으로 강제.
+function humanCap(title: string): boolean {
+  return /코딩|코드 ?(작성|짜|구현)|바이브 ?코딩|프로그래밍|앱 ?(개발|만들|제작)|사이트 ?(개발|만들|제작)|웹사이트 ?(개발|제작)|기능 ?구현|버그 ?수정|배포|deploy|github ?(푸시|연동|업로드)|계정 ?(생성|만들|가입)|회원 ?가입|결제 ?(수단|연동|등록)|카드 ?등록|api ?키 ?(발급|등록)|연동 ?(입력|설정)|촬영|녹화|미팅|회의|전화|통화|오프라인|방문|서명|계약|최종 ?(결정|승인|선택)|의사 ?결정/i.test(title);
 }
 // AI 없거나 실패해도 점검 결과로 진짜 작전을 만든다 (구체적이고 실행 가능하게)
 function fallbackActions(scan: OpsScan[]): OpsAction[] {
@@ -636,7 +673,10 @@ async function runOperation(): Promise<OpsState> {
       const svcCtx = (c.services || []).length ? '\n\n[내 서비스/사업]\n' + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n') : '';
       const shipped = opsState.shipped.slice(0, 5).filter(s => s.ok).map(s => `✅ ${s.title}`).join('\n');
       const shippedCtx = shipped ? `\n\n[지난 실행 성공]\n${shipped}` : '';
-      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘.\n\n핵심:\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 에이전트가 컴퓨터로 할 수 있는 일(리서치·기획·코드·분석·문서)은 [에이전트id]로.\n- 사람만 할 수 있는 일(계정 만들기·연동 입력·촬영·미팅·결제수단·오프라인)은 [사장님]으로 — 1~2개만, 꼭 필요할 때.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록 순서를 짜라(파이프라인: 예→ 리서치 결과로 기획, 기획으로 스크립트).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람만 할 수 있는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}`;
+      // 🔁 강화학습 루프 — 사장님이 준 피드백(👍/👎)을 다음 플랜의 보상신호로
+      const recentFb = (opsState.feedback || []).slice(-10);
+      const fbCtx = recentFb.length ? `\n\n[지난 피드백 — 👍는 더 늘리고 👎는 줄여라]\n${recentFb.map(f => `${f.good ? '👍' : '👎'} ${f.title.replace(/\s+/g, ' ').slice(0, 50)}`).join('\n')}` : '';
+      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘. 사람(사장님)과 AI 에이전트가 '협업'하는 1인 기업이다 — 각 일을 누가 더 잘하는지로 나눠라.\n\n핵심:\n- 반드시 이 4개 고정 카테고리 안에서만 제안하라: 💡아이디어(바이브코딩으로 만들 새 서비스)·🗂️관리(고객·일정·정리·운영)·📊자산 분석(매출·지표·경쟁·현황)·📣마케팅(콘텐츠·발행·홍보). 가능하면 네 카테고리를 골고루 다뤄라.\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공/피드백을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 🤖 [에이전트id] = AI가 컴퓨터로 잘하는 일: 리서치·분석·데이터정리·문서·기획초안·콘텐츠 초안·모니터링·관리.\n- 🙋 [사장님] = 사람이 해야 잘되는 일: 코딩/바이브코딩(로컬 AI는 코딩이 약함)·계정 생성·결제수단·연동 입력·촬영·미팅·최종 의사결정·관계.\n- 분담 비율은 일에 따라 자연스럽게(보통 에이전트 2~4 : 사장님 1~2). 코딩이 필요하면 반드시 [사장님] 몫으로.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록 순서를 짜라(파이프라인).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람이 해야 잘되는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}${fbCtx}`;
       try {
         const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -645,9 +685,11 @@ async function runOperation(): Promise<OpsState> {
         actions = lines.filter(l => /^[-•*]\s*\[?/.test(l))
           .map(l => {
             const m = l.match(/\[([^\]]*)\]/); const tag = (m?.[1] || '').trim();
-            const human = /사장님|사람|human|user|owner|me/i.test(tag) && !agentMap[tag];   // [사장님] = 사람만 할 수 있는 일
-            const agent = human ? 'human' : (agentMap[tag] || 'secretary');
+            let human = /사장님|사람|human|user|owner|me/i.test(tag) && !agentMap[tag];   // [사장님] = 사람만 할 수 있는 일
             const t = l.replace(/^[-•*]\s*\[?[^\]]*\]?\s*/, '').replace(/^<[^>]{1,16}>\s*/, '').replace(/^\*+|\*+$/g, '').trim().slice(0, 120);   // <행동1>·마크다운 찌꺼기 제거
+            // 🤝 능력 기반 보정 — 로컬 AI가 약한 일(코딩·계정·결제·촬영·오프라인)은 모델이 뭐라 태그했든 사람 몫으로
+            if (humanCap(t)) human = true;
+            const agent = human ? 'human' : (agentMap[tag] || 'secretary');
             return t ? { title: t, agent, risk: opsRisk(t), assignee: human ? 'human' as const : 'agent' as const } : null;
           }).filter(Boolean) as OpsAction[];
       } catch { /* */ }
@@ -882,6 +924,12 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
 }
 ipcMain.handle('ops:executeSelected', (_e, titles: string[], humanTitles: string[] = []) => doExecuteSelected(titles, humanTitles));
 ipcMain.handle('ops:status', () => opsPublic());
+// 👍👎 피드백 — 다음 사이클 플랜에 반영되는 보상신호(강화학습 루프)
+ipcMain.handle('ops:feedback', (_e, title: string, good: boolean) => {
+  opsState.feedback = [...(opsState.feedback || []), { title: String(title || '').slice(0, 80), good: !!good, cycle: opsState.cycle, ts: Date.now() }].slice(-50);
+  saveOpsState(); opsEmit();
+  return opsPublic();
+});
 // 🔗 대시보드 → 메인 창 작전 검토 열기 (창 사이 단절 제거)
 ipcMain.handle('ops:openReview', () => { try { win?.show(); win?.focus(); win?.webContents.send('ops:openPanel'); } catch { /* */ } return true; });
 // 🧹 지난 산출물 기록 비우기 — 옛 실패 기록이 화면을 어지럽히지 않게
@@ -1369,6 +1417,7 @@ ipcMain.handle('api:get', () => {
   // 레거시 필드를 화면에 같이 보이도록 머지(이전에 저장한 값)
   conn.telegram = { TELEGRAM_BOT_TOKEN: c.telegramToken || '', TELEGRAM_CHAT_ID: c.telegramChatId || '', ...(conn.telegram || {}) };
   conn.paypal = { PAYPAL_CLIENT_ID: c.paypalClientId || '', PAYPAL_CLIENT_SECRET: c.paypalSecret || '', ...(conn.paypal || {}) };
+  conn.toss = { TOSS_SECRET_KEY: c.tossSecretKey || '', ...(conn.toss || {}) };
   conn.gemini = { GEMINI_API_KEY: (c.apiKeys || {}).gemini || '', ...(conn.gemini || {}) };
   return conn;
 });
@@ -1378,6 +1427,7 @@ ipcMain.handle('api:save', async (_e, serviceId: string, values: Record<string, 
   const patch: any = { apiConn };
   // 레거시 소비처(매출/텔레그램/제미나이)와 동기화 — 기존 기능 안 깨지게
   if (serviceId === 'paypal') { patch.paypalClientId = values.PAYPAL_CLIENT_ID || ''; patch.paypalSecret = values.PAYPAL_CLIENT_SECRET || ''; }
+  if (serviceId === 'toss') { patch.tossSecretKey = (values.TOSS_SECRET_KEY || '').trim(); }
   if (serviceId === 'telegram') { patch.telegramToken = (values.TELEGRAM_BOT_TOKEN || '').trim(); patch.telegramChatId = (values.TELEGRAM_CHAT_ID || '').trim(); }
   if (serviceId === 'gemini') { patch.apiKeys = { ...(c.apiKeys || {}), gemini: values.GEMINI_API_KEY || '' }; }
   saveConfig(patch);
@@ -1601,6 +1651,7 @@ ipcMain.handle('brain:buildDataset', async (_e, augment?: boolean) => {
   }
   lastBrainJsonl = toConversationsJsonl(pairs);
   lastBrainPairs = lastBrainJsonl ? lastBrainJsonl.split('\n').filter(Boolean).length : 0;
+  if (!lastBrainPairs) { lastBrainJsonl = ''; return { ok: false, error: '학습할 내용이 너무 짧아요 — 지식이 한두 글자뿐이면 학습이 안 돼요. 문장 단위로 좀 더 자세히 쌓은 뒤 다시 변환해 주세요.' }; }   // 🛡️ 빈/부실 데이터셋으로 학습 망가지는 것 방지
   try { fs.writeFileSync(path.join(os.homedir(), 'Desktop', 'connect-ai-brain.jsonl'), lastBrainJsonl, 'utf8'); } catch { /* */ }
   return { ok: true, notes: notes.length, pairs: lastBrainPairs, llm: !!target, augment: !!augment, sample: pairs.slice(0, 3).map(p => ({ q: p.q, a: p.a.slice(0, 90) })) };
 });
@@ -1618,7 +1669,7 @@ ipcMain.handle('brain:buildPreference', async () => {
   const c = loadConfig();
   let target: any = null;
   try { target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }); } catch { /* */ }
-  if (!target) return { ok: false, error: 'AI 모델을 먼저 켜주세요 (LM Studio/Ollama). AI가 좋은답/나쁜답을 생성합니다.' };
+  if (!target) return { ok: false, error: '🤖 내 AI에서 두뇌(모델)를 먼저 켜주세요. AI가 좋은답/나쁜답을 생성합니다.' };
   const rows: { prompt: string; chosen: string; rejected: string }[] = [];
   let i = 0;
   for (const n of notes) {
@@ -1643,19 +1694,38 @@ ipcMain.handle('hf:uploadPreference', async () => {
 // ③ 모델 이름 제안(이전 버전 → 다음 버전)
 ipcMain.handle('brain:modelName', () => { const c: any = loadConfig(); return { suggested: nextModelName(c.brainModelName), prev: c.brainModelName || '' }; });
 // ☁️ "내 AI 키우기" — 코랩 없이 HF Jobs로 학습 (무료 월 1회). 변환→업로드(데이터셋+스크립트)→GPU 작업 실행.
-function uvScriptText(): string {
-  for (const p of [path.join(__dirname, '..', 'training', 'train_qlora_uv.py'), path.join(process.resourcesPath || '', 'training', 'train_qlora_uv.py')]) {
+function scriptText(name: string): string {
+  for (const p of [path.join(__dirname, '..', 'training', name), path.join(process.resourcesPath || '', 'training', name)]) {
     try { if (fs.existsSync(p)) return fs.readFileSync(p, 'utf8'); } catch { /* */ }
   }
   return '';
 }
+function uvScriptText(): string { return scriptText('train_qlora_uv.py'); }
 // 제공자가 배포 후 채우는 기본 백엔드 (비우면 사용자 토큰 직접 모드). config.trainBackendUrl 로 덮어쓰기 가능.
 const DEFAULT_TRAIN_BACKEND = 'https://api-xozdhcl4ya-uc.a.run.app';   // ☁️ Connect AI 학습 서비스 (Firebase Functions Gen2 단일 api — /train·/trainStatus 라우팅)
 const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
 
+// 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
+const GPU_PW = '0101';
+const GPU_MONTHLY_LIMIT = 3;
+type GpuKind = 'train' | 'surgery';
+function gpuMonth() { return new Date().toISOString().slice(0, 7); }   // YYYY-MM
+function gpuUsageOf(kind: GpuKind): number { const c = loadConfig(); const m = gpuMonth(); const u: any = c.gpuUsage; return (u && u.month === m) ? (u[kind] || 0) : 0; }
+function gpuGate(password: string, kind: GpuKind): { ok: boolean; error?: string; left?: number } {
+  if ((password || '').trim() !== GPU_PW) return { ok: false, error: `비밀번호가 필요해요 (${GPU_PW}).` };
+  const used = gpuUsageOf(kind);
+  const what = kind === 'train' ? '학습' : '수술';
+  if (used >= GPU_MONTHLY_LIMIT) return { ok: false, error: `이번 달 ${what} 횟수(${GPU_MONTHLY_LIMIT}회)를 다 썼어요. 다음 달에 다시 가능해요.` };
+  return { ok: true, left: GPU_MONTHLY_LIMIT - used };
+}
+function gpuUse(kind: GpuKind) { const c = loadConfig(); const m = gpuMonth(); const u: any = (c.gpuUsage && (c.gpuUsage as any).month === m) ? c.gpuUsage : { month: m, train: 0, surgery: 0 }; saveConfig({ gpuUsage: { month: m, train: u.train || 0, surgery: u.surgery || 0, [kind]: (u[kind] || 0) + 1 } as any }); }
+ipcMain.handle('gpu:usage', (_e, kind: GpuKind = 'train') => { const used = gpuUsageOf(kind); return { used, limit: GPU_MONTHLY_LIMIT, left: Math.max(0, GPU_MONTHLY_LIMIT - used) }; });
+
 ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
+  const gate = gpuGate(accessCode, 'train');   // 🔒 비번 0101 + 학습 월 3회
+  if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   const c = loadConfig();
   const backend = trainBackendBase(c);
   // ── 서비스 모드 — 백엔드가 제공자 토큰 보관·실행·게이트 (유저는 토큰 불필요) ──
@@ -1668,16 +1738,14 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
     try {
       const r = await axios.post(`${backend}/train`, { userId, idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
       const d = r.data || {};
-      if (d.ok) saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } });
+      if (d.ok) { gpuUse('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); }
       return { ...d, viaBackend: true };
     } catch (e: any) { return { ok: false, error: '학습 서버 호출 실패: ' + (e?.response?.data?.error || e?.message || String(e)) }; }
   }
   // ── 직접 모드 — 사용자 본인 HF Pro 토큰 (검증/파워유저용) ──
   const h = connOf('huggingface');
   if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 write 토큰을 먼저 넣으세요. (또는 학습 서버 URL 설정)' };
-  // 무료 월 1회 게이트
-  const last = c.lastCloudTrainAt || 0; const days = (Date.now() - last) / 864e5;
-  if (last && days < 30) return { ok: false, gated: true, error: `무료 학습은 월 1회예요. 약 ${Math.ceil(30 - days)}일 후 다시 가능해요.` };
+  // (월 사용 제한은 위 gpuGate가 처리 — 비번 0101 + 월 3회)
   // 1) 데이터셋 — 변환된 게 있으면 그걸, 없으면 두뇌로 즉석 생성
   let jsonl = lastBrainJsonl;
   if (!jsonl) {
@@ -1701,7 +1769,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
   const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
   const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
-  if (job.ok && job.jobId) saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } });
+  if (job.ok && job.jobId) { gpuUse('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
   return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('train:cloudStatus', async () => {
@@ -1721,11 +1789,42 @@ ipcMain.handle('train:cloudInstall', async () => {
   if (!j?.outRepo) return { ok: false, error: '학습 결과가 아직 없어요.' };
   try {
     const files = await listGGUF(j.outRepo);
-    const f = (files || [])[0]; if (!f) return { ok: false, error: '아직 GGUF가 없어요 (학습 중이거나 변환 단계일 수 있어요).' };
+    const f = (files || [])[0];
+    if (!f) {
+      // GGUF 없음 → 학습이 끝났는지(어댑터/safetensors 존재) 확인해 정확히 안내 (변환 실패 vs 아직 진행중 구분)
+      let hasModel = false;
+      try { const tr = await axios.get(`https://huggingface.co/api/models/${j.outRepo}/tree/main?recursive=1`, { timeout: 12000 }); hasModel = (tr.data || []).some((e: any) => /\.safetensors$|adapter_config\.json$|adapter_model/i.test(e.path || '')); } catch { /* */ }
+      if (hasModel) return { ok: false, adapterOnly: true, repo: `https://huggingface.co/${j.outRepo}`, error: '학습은 끝났는데 자동 GGUF 변환이 실패해 어댑터(safetensors)만 올라가 있어요. 🔁 다시 학습을 돌리면 GGUF까지 재시도해요. (어댑터 형식은 앱 내장 엔진에서 바로 못 켜요)' };
+      return { ok: false, error: '아직 GGUF가 없어요 — 학습이 진행 중이거나 막 끝난 직후일 수 있어요. 잠시 후 다시 시도하세요.' };
+    }
     const fp = (f as any).path || (f as any).rfilename || f;
     const p = await downloadGGUF(j.outRepo, fp, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo: j.outRepo, file: fp, ...pr }); } catch { /* */ } });
     return { ok: true, path: p, model: j.outRepo };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+
+// ── 🔪 AI 수술 (합치기) — 장기기억과 같은 HF Jobs GPU에서 실행 (코랩 불필요) ───────
+ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, method = 'slerp', t = '0.5', outName = '', password = '') => {
+  const gate = gpuGate(password, 'surgery');   // 🔒 비번 0101 + 월 3회 (학습과 공유)
+  if (!gate.ok) return { ok: false, gated: true, error: gate.error };
+  const h = connOf('huggingface');
+  if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 write 토큰을 먼저 넣으세요. (HF Jobs는 Pro/크레딧 필요 — 장기기억과 동일)' };
+  if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요 (같은 베이스·같은 크기여야 합쳐져요).' };
+  const me = await hfUsername(h.HF_TOKEN);
+  if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
+  const script = scriptText('merge_uv.py');
+  if (!script) return { ok: false, error: '합치기 스크립트를 찾을 수 없어요 (training/merge_uv.py).' };
+  const surgRepo = `${me}/connect-ai-surgery`;
+  const up = await uploadDataset(h.HF_TOKEN, surgRepo, script, 'merge_uv.py');   // 스크립트를 데이터셋 repo에 올려 Job이 마운트
+  if (!up.ok) return { ok: false, error: '스크립트 업로드 실패: ' + up.error };
+  const safe = (outName || `merged-${Date.now().toString(36)}`).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'merged';
+  const outRepo = `${me}/${safe}`;
+  const job = await launchJob(h.HF_TOKEN, me, {
+    datasetRepo: surgRepo, scriptFile: 'merge_uv.py', flavor: 'l4x1', timeout: '1h',
+    env: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: String(t), OUTPUT_REPO: outRepo },   // ⚠️ 키 'T'는 HF Jobs가 거부 → MERGE_T
+  });
+  if (job.ok && job.jobId) { gpuUse('surgery'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
+  return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');

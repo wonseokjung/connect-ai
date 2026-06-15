@@ -44,7 +44,7 @@ export function localStatus(): LocalStatus {
 
 // 플랫폼별 llama-server 바이너리 폴더. packaged: resources/llamacpp/<plat>, dev: desktop/vendor/llamacpp/<plat>.
 function binDir(): string {
-  const plat = process.platform === 'win32' ? 'win-x64' : (process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64');
+  const plat = process.platform === 'win32' ? 'win-x64' : process.platform === 'linux' ? 'linux-x64' : (process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64');
   const res = (process as any).resourcesPath as string | undefined;
   if (res) { const p = path.join(res, 'llamacpp', plat); if (fs.existsSync(p)) return p; }
   return path.join(__dirname, '..', 'vendor', 'llamacpp', plat);   // __dirname=desktop/out → ../vendor
@@ -121,6 +121,8 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     const env: NodeJS.ProcessEnv = { ...process.env, GGML_METAL_NO_RESIDENCY: '1' };   // macOS26 Metal residency 어설션 우회
     // 윈도우: DLL 이 바이너리 옆에 있으므로 PATH 에 폴더 추가(cwd 로도 충분하지만 안전하게).
     if (process.platform === 'win32') env.PATH = `${binDir()}${path.delimiter}${env.PATH || ''}`;
+    // 리눅스: 동봉한 .so 들을 찾도록 LD_LIBRARY_PATH 에 바이너리 폴더 추가.
+    if (process.platform === 'linux') env.LD_LIBRARY_PATH = `${binDir()}${path.delimiter}${env.LD_LIBRARY_PATH || ''}`;
 
     const child = spawn(bin, args, { cwd: binDir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
     _proc = child;
@@ -174,7 +176,7 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
         _maxCtx = tr || n || 0;
       }
     } catch { /* */ }
-    _gpu = process.platform === 'win32' ? 'cuda/vulkan' : (process.arch === 'arm64' ? 'metal' : 'cpu/metal');
+    _gpu = process.platform === 'win32' ? 'cuda/vulkan' : process.platform === 'linux' ? 'vulkan/cpu' : (process.arch === 'arm64' ? 'metal' : 'cpu/metal');
     return localStatus();
   } catch (e: any) {
     if (seq === _startSeq) { _error = String(e?.message || e); _ready = false; }

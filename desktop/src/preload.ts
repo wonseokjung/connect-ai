@@ -38,6 +38,10 @@ contextBridge.exposeInMainWorld('connect', {
   localStart: (modelPath: string) => ipcRenderer.invoke('local:start', modelPath),
   localStop: () => ipcRenderer.invoke('local:stop'),
   localModels: () => ipcRenderer.invoke('local:models'),
+  localModelsDir: () => ipcRenderer.invoke('local:modelsDir'),
+  localPickModelsDir: () => ipcRenderer.invoke('local:pickModelsDir'),
+  localOpenModelsDir: () => ipcRenderer.invoke('local:openModelsDir'),
+  localResetModelsDir: () => ipcRenderer.invoke('local:resetModelsDir'),
   localDelete: (p: string) => ipcRenderer.invoke('local:delete', p),
   localOptions: () => ipcRenderer.invoke('local:options'),
   localSetOptions: (o: any) => ipcRenderer.invoke('local:setOptions', o),
@@ -72,6 +76,8 @@ contextBridge.exposeInMainWorld('connect', {
   hfUploadBrain: () => ipcRenderer.invoke('hf:uploadBrain'),
   trainCloud: (code?: string) => ipcRenderer.invoke('train:cloud', code || ''),                    // ☁️ 내 AI 키우기(HF Jobs)
   trainCloudStatus: () => ipcRenderer.invoke('train:cloudStatus'),
+  surgeryMerge: (a: string, b: string, method?: string, t?: string, outName?: string, password?: string) => ipcRenderer.invoke('surgery:merge', a, b, method || 'slerp', t || '0.5', outName || '', password || ''),   // 🔪 합치기 수술(HF Jobs)
+  gpuUsage: (kind?: string) => ipcRenderer.invoke('gpu:usage', kind || 'train'),   // 🔒 GPU 월 사용량(학습/수술 각각)
   trainCloudInstall: () => ipcRenderer.invoke('train:cloudInstall'),
   authSignup: (email: string, pw: string, profile?: any) => ipcRenderer.invoke('auth:signup', email, pw, profile),   // 👤 회원(이름·전화·약관)
   authLogin: (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
@@ -131,6 +137,8 @@ contextBridge.exposeInMainWorld('connect', {
   // 🤖 자율 운영 — 실데이터 분석 → 작전 생성 + 24시간 반복 루프
   opsStart: () => ipcRenderer.invoke('ops:start'),
   opsStatus: () => ipcRenderer.invoke('ops:status'),
+  opsFeedback: (title: string, good: boolean) => ipcRenderer.invoke('ops:feedback', title, good),   // 👍👎 강화학습 피드백
+
   opsNextCycle: () => ipcRenderer.invoke('ops:nextCycle'),
   opsExecuteSelected: (titles: string[], humanTitles?: string[]) => ipcRenderer.invoke('ops:executeSelected', titles, humanTitles || []),
   opsStop: () => ipcRenderer.invoke('ops:stop'),

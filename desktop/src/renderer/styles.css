@@ -4,7 +4,7 @@
 :root {
   --bg: #000000; --bg2: #050505; --surface: rgba(0,18,5,.75); --surface2: rgba(0,35,10,.6);
   --border: rgba(255,255,255,.08); --border2: rgba(255,255,255,.12);
-  --text: #B8B8C2; --text-bright: #FFFFFF; --text-dim: #9090A0;
+  --text: #CED2DC; --text-bright: #FFFFFF; --text-dim: #9CA0AE;
   --accent: #00FF41; --accent2: #008F11; --accent-glow: rgba(0,255,65,.25);
   --gold: #FBBF24; --yellow: #ffab40; --cyan: #00e5ff; --red: #ff5252;
   --code-bg: #020502; --input-bg: rgba(0,10,2,.9);
@@ -15,14 +15,7 @@ html { color-scheme: dark; }
 html, body { height: 100%; font-family: var(--sans); font-size: 13px; background: var(--bg); color: var(--text);
   display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
-/* 매트릭스 레인 + 오로라 배경 */
-#matrixCanvas { position: fixed; inset: 0; z-index: 0; opacity: 0.5; }
-body::before { content: ''; position: fixed; top: -50%; left: -50%; width: 200%; height: 200%; z-index: 0; pointer-events: none;
-  background: radial-gradient(ellipse at 20% 50%, rgba(0,255,65,.05) 0%, transparent 50%),
-              radial-gradient(ellipse at 80% 20%, rgba(0,143,17,.05) 0%, transparent 50%); }
-.scanlines { position: fixed; inset: 0; pointer-events: none; z-index: 50;
-  background: repeating-linear-gradient(0deg, rgba(0,255,65,.03) 0 1px, transparent 1px 3px); mix-blend-mode: screen; opacity: .4; }
-.vignette { position: fixed; inset: 0; pointer-events: none; z-index: 49; box-shadow: inset 0 0 240px rgba(0,0,0,.9); }
+/* 배경 — 깔끔한 플랫 다크 (매트릭스 그라데이션 필드 제거) */
 
 /* ── 헤더 (익스텐션 .header) ── */
 .topbar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 16px;

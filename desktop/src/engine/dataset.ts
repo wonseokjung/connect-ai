@@ -25,7 +25,8 @@ export function fallbackQuestion(note: Note): string {
 
 // 답변 길이 제한 — 너무 긴 문서는 SFT에 부적합(긴 건 RAG가 담당). 핵심만 가중치에.
 export function trimAnswer(text: string): string {
-  const body = text.replace(/^---[\s\S]*?---\s*/m, '').trim();   // 프론트매터 제거
+  // 프론트매터(맨 앞 ---…---)만 제거 — 본문 중간 구분선(---)은 건드리지 않게 문서 시작에만 앵커
+  const body = text.replace(/^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*\r?\n/, '').trim();
   return body.slice(0, 1200);
 }
 

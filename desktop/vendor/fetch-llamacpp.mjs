@@ -15,6 +15,8 @@ const BASE = `https://github.com/ggml-org/llama.cpp/releases/download/${BUILD}`;
 // 플랫폼별 받을 에셋. 맥은 두 아키텍처 모두(arm64+x64 슬라이스 빌드), 윈도우는 Vulkan(GPU 가속 + GPU 없으면 CPU 자동 폴백).
 const TARGETS = process.platform === 'win32'
   ? [{ plat: 'win-x64', asset: `llama-${BUILD}-bin-win-vulkan-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i }]   // vulkan = GPU(엔비디아·AMD·인텔) + CPU 폴백 내장
+  : process.platform === 'linux'
+  ? [{ plat: 'linux-x64', asset: `llama-${BUILD}-bin-ubuntu-vulkan-x64.tar.gz`, exe: 'llama-server', libRe: /\.so(\.\d+)*$/i }]   // 우분투 vulkan = GPU + CPU 폴백
   : [
       { plat: 'mac-arm64', asset: `llama-${BUILD}-bin-macos-arm64.tar.gz`, exe: 'llama-server', libRe: /\.dylib$/ },
       { plat: 'mac-x64', asset: `llama-${BUILD}-bin-macos-x64.tar.gz`, exe: 'llama-server', libRe: /\.dylib$/ },

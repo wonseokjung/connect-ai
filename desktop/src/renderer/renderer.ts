@@ -491,7 +491,7 @@ async function startOps() {
   await opsWait(560); if (!opsRunning) return;
   // ④ 분석 완료 → 오늘의 3단계 성장 사이클 홈으로
   const summary = ops?.summary ? `<div class="ops-summary">“${escapeHtml(ops.summary)}”</div>` : '';
-  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>성장 사이클</b>을 준비했어요 — 아이디어 · 분석공부 · 마케팅 3가지를 완주하세요</div><button class="ops-go" id="opsGo">🎯 오늘의 사이클 열기 →</button></div>`;
+  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>플랜</b>이 준비됐어요 — 🤖 AI 몫과 🙋 내 몫을 확인하고 실행하세요</div><button class="ops-go" id="opsGo">🗺️ 오늘의 플랜 열기 →</button></div>`;
   const finish = () => { closeOps(); openCyclePanel(); };
   $('opsGo')?.addEventListener('click', finish);
   opsAutoTimer = window.setTimeout(finish, 4500);   // 요약을 천천히 읽을 시간
@@ -554,6 +554,91 @@ function loadGrass(): Record<string, number> { try { return JSON.parse(localStor
 function markGrassToday(n = 1) { const g = loadGrass(); const k = dayKey(new Date()); g[k] = Math.min(3, (g[k] || 0) + n); localStorage.setItem('growth_grass', JSON.stringify(g)); renderGrass(); }
 function grassStreak(): number { const g = loadGrass(); let s = 0; const d = new Date(); for (;;) { if ((g[dayKey(d)] || 0) > 0) { s++; d.setDate(d.getDate() - 1); } else break; } return s; }
 function grassTotal(): number { const g = loadGrass(); return Object.values(g).filter(v => v > 0).length; }
+// 📅 이번 주 7일 — 깔끔한 점 스트립 (어른용 미니멀 습관 트래커: Streaks·Duolingo 느낌)
+function weekStrip(): string {
+  const g = loadGrass(); const today = new Date(); const sun = new Date(today); sun.setDate(today.getDate() - today.getDay());
+  const LBL = ['일', '월', '화', '수', '목', '금', '토'];
+  let dots = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(sun); d.setDate(sun.getDate() + i);
+    const done = (g[dayKey(d)] || 0) > 0, isToday = dayKey(d) === dayKey(today), future = d > today;
+    dots += `<span class="wk-day${done ? ' done' : ''}${isToday ? ' today' : ''}${future ? ' future' : ''}"><span class="wk-dot">${done ? '✓' : ''}</span><span class="wk-lb">${LBL[i]}</span></span>`;
+  }
+  return `<div class="week-strip"><span class="wk-streak">🔥 ${grassStreak()}<span class="wk-streak-u">일 연속</span></span><div class="wk-days">${dots}</div></div>`;
+}
+// 🗂️ 고정 카테고리 — 항상 이 안에서만 제안·관리·분석·마케팅 (사장님 지정 4기둥)
+const CATS = [
+  { key: 'idea', ic: '💡', name: '아이디어' },
+  { key: 'manage', ic: '🗂️', name: '관리' },
+  { key: 'analyze', ic: '📊', name: '자산 분석' },
+  { key: 'market', ic: '📣', name: '마케팅' },
+] as const;
+type CatKey = typeof CATS[number]['key'];
+function catOf(title: string): CatKey {
+  const t = String(title || '');
+  if (/마케팅|유튜브|인스타|쓰레드|틱톡|발행|콘텐츠|업로드|썸네일|영상|홍보|sns|게시|광고|릴스|쇼츠/i.test(t)) return 'market';
+  if (/분석|리포트|진단|매출|지표|트래픽|경쟁|시장조사|데이터|자산|현황|kpi|통계/i.test(t)) return 'analyze';
+  if (/아이디어|기획|새 ?서비스|컨셉|바이브|프로토타입|mvp|런칭|출시|차린|신규|제품 ?개발/i.test(t)) return 'idea';
+  return 'manage';   // 기본 = 관리(정리·할일·고객·이메일·일정·운영)
+}
+function catMeta(k: string) { return CATS.find(c => c.key === k) || CATS[1]; }
+// 📜 활동 트래커 — 모든 완료가 한 곳으로(연동). 잔디·연속·등급을 굴리고 타임라인으로 보여줌
+function loadActivity(): any[] { try { return JSON.parse(localStorage.getItem('growth_activity') || '[]'); } catch { return []; } }
+function track(type: string, title: string, cat: CatKey, pts = 1, icon = '✅') {
+  const a = loadActivity();
+  a.unshift({ ts: Date.now(), type, title: String(title || '').slice(0, 80), cat, pts, icon });
+  localStorage.setItem('growth_activity', JSON.stringify(a.slice(0, 300)));
+  if (pts > 0) markGrassToday(pts); else renderGrass();
+  patchActivity();   // 패널 열려 있으면 즉시 갱신
+}
+function todayActs(): any[] { const k = dayKey(new Date()); return loadActivity().filter(e => dayKey(new Date(e.ts)) === k); }
+function catCountToday(cat: string): number { return todayActs().filter(e => e.cat === cat).length; }
+// 사이클 중복 트래킹 방지
+function trackedCycles(): number[] { try { return JSON.parse(localStorage.getItem('growth_tracked_cycles') || '[]'); } catch { return []; } }
+function markCycleTracked(c: number) { const s = trackedCycles(); if (!s.includes(c)) { s.push(c); localStorage.setItem('growth_tracked_cycles', JSON.stringify(s.slice(-200))); } }
+// 🗂️ 카테고리 그리드 — idle 화면의 항상 보이는 4기둥
+function catGrid(): string {
+  return `<div class="cat-grid" id="catGrid">${CATS.map(c => {
+    const n = catCountToday(c.key);
+    return `<div class="cat-card" data-cat="${c.key}"><span class="cc-ic">${c.ic}</span><span class="cc-n">${c.name}</span><span class="cc-cnt${n ? ' on' : ''}">${n ? `오늘 ${n}건` : '대기'}</span></div>`;
+  }).join('')}</div>`;
+}
+// 📜 오늘 한 일 타임라인
+function activityTimeline(): string {
+  const t = todayActs().slice(0, 8);
+  if (!t.length) return '<div class="act-tl" id="actTl"></div>';
+  return `<div class="act-tl" id="actTl"><div class="act-tl-h">📜 오늘 한 일</div>${t.map(e => {
+    const c = catMeta(e.cat);
+    return `<div class="act-row"><span class="act-ago">${feedAgo(e.ts)}</span><span class="act-ic">${e.icon || '✅'}</span><span class="act-tx">${escapeHtml(e.title)}</span><span class="act-cat" title="${c.name}">${c.ic}</span>${e.pts ? `<span class="act-pt">+${e.pts}</span>` : ''}</div>`;
+  }).join('')}</div>`;
+}
+function patchActivity() {
+  const g = $('catGrid'); if (g) g.innerHTML = CATS.map(c => { const n = catCountToday(c.key); return `<div class="cat-card" data-cat="${c.key}"><span class="cc-ic">${c.ic}</span><span class="cc-n">${c.name}</span><span class="cc-cnt${n ? ' on' : ''}">${n ? `오늘 ${n}건` : '대기'}</span></div>`; }).join('');
+  const tl = $('actTl'); if (tl) tl.outerHTML = activityTimeline();
+}
+// 🏅 1인 기업가 등급 — 누적 운영 완주일로 올라감 (게임처럼 랭크, 단 차분하게)
+const OP_RANKS = [
+  { min: 0, ic: '🌱', name: '새싹 창업가' }, { min: 3, ic: '🌿', name: '루키' },
+  { min: 7, ic: '⚡', name: '운영자' }, { min: 14, ic: '📈', name: '성장 기업가' },
+  { min: 30, ic: '🚀', name: '스케일러' }, { min: 60, ic: '💎', name: '프로' },
+  { min: 120, ic: '👑', name: '마스터' },
+];
+function currentRank() { const s = grassTotal(); let i = 0; for (let k = 0; k < OP_RANKS.length; k++) if (s >= OP_RANKS[k].min) i = k; return OP_RANKS[i]; }
+function rankCard(): string {
+  const score = grassTotal();   // 운영 완주일 누적
+  let i = 0; for (let k = 0; k < OP_RANKS.length; k++) if (score >= OP_RANKS[k].min) i = k;
+  const cur = OP_RANKS[i], nxt = OP_RANKS[i + 1];
+  const pct = nxt ? Math.min(100, Math.round((score - cur.min) / (nxt.min - cur.min) * 100)) : 100;
+  const left = nxt ? nxt.min - score : 0;
+  return `<div class="rank-card">
+    <div class="rk-badge">${cur.ic}</div>
+    <div class="rk-body">
+      <div class="rk-name">${cur.name}<span class="rk-score">완주 ${score}일</span></div>
+      <div class="rk-bar"><span class="rk-fill" style="width:${pct}%"></span></div>
+      <div class="rk-next">${nxt ? `${left}일 더 → ${nxt.ic} ${nxt.name}` : '최고 등급 달성 👑'}</div>
+    </div>
+  </div>`;
+}
 function renderGrass() {
   const el = $('growthGrass'); if (!el) return;
   const g = loadGrass();
@@ -608,7 +693,7 @@ async function runCycleIdea() {
     connect.tasksAdd?.(title).catch(() => {});
     const cyc = _ops?.cycle || 1;
     setSecDone(cyc, 'idea');   // ① 섹션 완료
-    markGrassToday(1);   // 🟩 아이디어 수락 = 잔디 한 칸
+    track('idea', i.title || '새 아이디어 수락', 'idea', 1, '💡');   // 🗂️ 아이디어 카테고리로 트래킹
     res.innerHTML = `<div class="cyc-idea-accepted">✅ "${escapeHtml(i.title)}" 할 일로 등록했어요!<br><span class="muted small">📋 태스크 보드에서 확인 — 오늘 첫 행동부터 시작하세요 🚀</span><br><span class="gg-mini">🟩 오늘 잔디 +1 · 🔥 ${grassStreak()}일 연속</span></div>`;
     refreshCycleProgress(cyc);
     hint(`✅ 아이디어 수락: ${i.title} — 할 일로 등록됐어요`);
@@ -641,39 +726,152 @@ function mdToHtml(md: string): string {
   return html;
 }
 
+// ═══════ 🔁 운영 루프 (강화학습 구조): 상황파악 → 플랜 → 실행 → 피드백 → 트래킹 ═══════
+const LOOP_PHASES: { key: string; ic: string; t: string }[] = [
+  { key: 'planning', ic: '🔍', t: '상황파악' },
+  { key: 'review', ic: '🗺️', t: '플랜' },
+  { key: 'executing', ic: '⚡', t: '실행' },
+  { key: 'done', ic: '👍', t: '피드백' },
+];
+const LOOP_LABEL: Record<string, string> = { idle: '대기', planning: '🔍 상황 파악 중…', review: '🗺️ 오늘의 플랜', executing: '⚡ 실행 중…', done: '👍 피드백·트래킹' };
+
 function renderCycle(s: any) {
   if (!s) return;
   const panel = $('opsCyclePanel'); if (!panel || panel.classList.contains('hidden')) return;
   _ops = s;
-  // 🔴 마케팅 발행 중 — 라이브 피드만 갱신하고 전체 재빌드는 막는다(깜빡임 방지). _mktRunning이 풀릴 때까지 유지.
-  if (_mktRunning) { if (!$('mktFeed')) buildCycleHome(s, s.cycle || 1); patchMktFeed(s); return; }
-  buildCycleHome(s, s.cycle || 1);
+  buildOpsLoop(s);
 }
 
-function buildCycleHome(s: any, cyc: number) {
+function loopStepper(phase: string): string {
+  const order = ['planning', 'review', 'executing', 'done'];
+  const idx = order.indexOf(phase);
+  return `<div class="loop-steps">${LOOP_PHASES.map((p, i) =>
+    `<div class="loop-step${i === idx ? ' on' : ''}${idx > i ? ' past' : ''}"><span class="ls-ic">${p.ic}</span><span class="ls-t">${p.t}</span></div>${i < 3 ? '<span class="ls-line"></span>' : ''}`).join('')}</div>`;
+}
+
+function buildOpsLoop(s: any) {
+  const cyc = s.cycle || 1;
+  const phase = s.phase || 'idle';
   $('cycleNum').textContent = '#' + cyc;
-  const steps = $('cycleSteps'); if (steps) steps.style.display = 'none';   // 옛 분석 스테퍼 숨김 (이제 3섹션 진행률로 대체)
-  const done = getSecDone(cyc);
-  const n = (done.idea ? 1 : 0) + (done.report ? 1 : 0) + (done.mkt ? 1 : 0);
-  $('cyclePhase').textContent = n >= 3 ? '사이클 완료 🎉' : `오늘 ${n}/3`;
-  $('cyclePhase').className = 'cycle-phase ph-' + (n >= 3 ? 'done' : 'review');
+  $('cyclePhase').textContent = LOOP_LABEL[phase] || '';
+  $('cyclePhase').className = 'cycle-phase ph-' + phase;
+  const steps = $('cycleSteps'); if (steps) steps.style.display = 'none';
   const sm = $('cycleSummary'); if (sm) { sm.textContent = s.summary ? '“' + s.summary + '”' : ''; sm.style.display = s.summary ? '' : 'none'; }
   const body = $('cycleBody'), foot = $('cycleFoot');
-  const pct = Math.round(n / 3 * 100);
-  body.innerHTML = `
-    <div class="gsec-top">
-      <div class="gsec-top-t">🎯 오늘의 성장 사이클 — 3가지를 완주하세요</div>
-      <div class="gsec-prog"><div class="gsec-prog-fill" style="width:${pct}%"></div></div>
-      <div class="gsec-prog-n">${n} / 3 완료 · 🔥 ${grassStreak()}일 연속</div>
-    </div>`
-    + sectionIdea(done) + sectionReport(done) + sectionMkt(done)
-    + (n >= 3 ? `<div class="gsec-clear">🎉 오늘 사이클 완주! 🟩 잔디가 채워졌어요 — 내일도 이어가세요.</div>` : '');
-  // 🟩 3개 다 완주하면 오늘 잔디 채움 (중복 방지)
-  if (n >= 3 && (loadGrass()[dayKey(new Date())] || 0) < 2) { markGrassToday(2); renderGrass(); }
-  foot.innerHTML = n >= 3
-    ? `<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button>`
-    : `<button class="cyc-btn ghost" id="cycEnd">■ 닫기</button>`;
-  wireCycleHome();
+  const head = phase !== 'idle' ? loopStepper(phase) : '';
+  if (phase === 'idle') {
+    const hasHistory = grassTotal() > 0;
+    body.innerHTML = `<div class="loop-hero">
+      <div class="lh-emoji">✨</div>
+      <div class="lh-headline">오늘도 AI 팀이<br>같이 일해줘요</div>
+      <div class="lh-sub">버튼만 누르면 — AI가 <b>오늘 할 일</b>을 짜드려요.<br>마음에 드는 걸 고르기만 하면 끝이에요.</div>
+      <button class="cyc-btn primary lh-go" id="loopStart">▶ 오늘 운영 시작</button>
+      <div class="lh-cats">${CATS.map(c => `<span class="lh-cat">${c.ic} ${c.name}</span>`).join('')}</div>
+      ${hasHistory ? `<div class="lh-mini">🔥 ${grassStreak()}일 연속 · ${currentRank().ic} ${currentRank().name} · 올해 ${grassTotal()}일</div>` : ''}
+    </div>`;
+    foot.innerHTML = '';
+  } else if (phase === 'planning') {
+    body.innerHTML = head + `<div class="cyc-loading"><span class="cyc-spin"></span> 매출·콘텐츠·코드·할일을 살펴 오늘의 플랜을 짜는 중…</div>`;
+    foot.innerHTML = '';
+  } else if (phase === 'review') {
+    body.innerHTML = head + renderPlan(s);
+    foot.innerHTML = `<button class="cyc-btn ghost" id="cycReplan">🔄 다시</button><button class="cyc-btn primary" id="cycRun">▶ 실행</button>`;
+    wirePlanToggles();
+  } else if (phase === 'executing') {
+    body.innerHTML = head + renderExec(s);
+    foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
+  } else {   // done
+    body.innerHTML = head + renderFeedback(s);
+    foot.innerHTML = `<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button>`;
+    const okN = (s.shipped || []).filter((x: any) => x.ok).length;
+    const cyc = s.cycle || 1;
+    if (okN > 0 && !trackedCycles().includes(cyc)) {   // 사이클당 한 번만 — 산출물별 + 완주 이벤트
+      (s.shipped || []).filter((x: any) => x.ok).forEach((sh: any) => track('done', sh.title, catOf(sh.title), 0, '✅'));
+      track('cycle', `운영 사이클 #${cyc} 완주`, 'manage', 2, '🎯');
+      markCycleTracked(cyc);
+    }
+  }
+  renderGrass();
+  wireLoop();
+}
+
+// 🗺️ 플랜 — AI 몫 / 사람 몫으로 나눠 보여준다 (능력 기반 자동 분담)
+function renderPlan(s: any): string {
+  const acts: any[] = s.actions || [];
+  if (!acts.length) return '<div class="cyc-loading">플랜이 없어요 — 🔄 다시 눌러보세요</div>';
+  const human = acts.filter(a => a.assignee === 'human');
+  const ai = acts.filter(a => a.assignee !== 'human');
+  const card = (a: any) => {
+    const risky = a.risk && a.risk !== 'safe'; const me = a.assignee === 'human';
+    const an = AGENTS[a.agent]?.name || '에이전트'; const ac = AGENTS[a.agent]?.color || '#39ff14';
+    const cm = catMeta(a.cat || catOf(a.title));
+    return `<label class="cyc-task${me ? ' is-me' : ''}"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="cyc-t">${escapeHtml(a.title)}</span><button type="button" class="cyc-who${me ? ' me' : ''}" data-title="${escAttr(a.title)}" data-agent="${escAttr(an)}" style="--ag:${ac}" title="담당 바꾸기">${me ? '🙋 내가' : '🤖 ' + escapeHtml(an)}</button>${risky ? '<span class="cyc-risk">승인</span>' : ''}</label>`;
+  };
+  return `<div class="plan-grp"><div class="plan-h">🤖 AI 에이전트 <span class="plan-c">${ai.length}</span></div>${ai.map(card).join('') || '<div class="muted small">없음</div>'}</div>
+    <div class="plan-grp"><div class="plan-h me">🙋 사장님 <span class="plan-c me">${human.length}</span></div>${human.map(card).join('') || '<div class="muted small">없음</div>'}</div>
+    <div class="cyc-legend">담당 칩을 눌러 바꿀 수 있어요</div>`;
+}
+
+// ⚡ 실행 — 작업 상태 + 실시간 피드
+function renderExec(s: any): string {
+  const tasks = (s.actions || []).map((a: any) => {
+    const ship = shipFor(s, a.title); const running = s.executingTitle === a.title;
+    let st = '<span class="cyc-st wait">대기</span>';
+    if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
+    else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅</span>' : '<span class="cyc-st fail">—</span>';
+    return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship) : ''}</div>`;
+  }).join('');
+  const feed = (s.feed || []).slice(0, 9);
+  const feedHtml = feed.length ? `<div class="cyc-feed"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>실시간 작업</div>${feed.map((f: any, i: number) => {
+    const ag = AGENTS[f.agent];
+    return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
+  }).join('')}</div>` : '';
+  return tasks + feedHtml;
+}
+
+// 👍👎 피드백 — 결과 평가(다음 플랜의 보상신호) + 트래킹
+function renderFeedback(s: any): string {
+  const done = (s.actions || []).map((a: any) => shipFor(s, a.title)).filter(Boolean);
+  const okN = done.filter((x: any) => x.ok).length;
+  const fbMap: Record<string, boolean> = {}; (s.feedback || []).forEach((f: any) => { fbMap[f.title] = f.good; });
+  const items = done.map((sh: any) => {
+    const g = fbMap[sh.title];
+    return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(sh.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span><span class="fb-btns" data-title="${escAttr(sh.title)}"><button class="fb-up${g === true ? ' on' : ''}" data-g="1">👍</button><button class="fb-dn${g === false ? ' on' : ''}" data-g="0">👎</button></span>${artsHtml(sh)}</div>`;
+  }).join('');
+  return `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">오늘 운영 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개</div></div>
+    ${weekStrip()}
+    <div class="fb-hint muted small">👍/👎로 평가하면 <b>다음 플랜이 더 똑똑해져요</b></div>${items}
+    ${activityTimeline()}`;
+}
+
+function wirePlanToggles() {
+  document.querySelectorAll('.cyc-who').forEach(b => b.addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const el = b as HTMLElement; const me = el.classList.toggle('me');
+    el.textContent = me ? '🙋 내가' : '🤖 ' + (el.dataset.agent || '에이전트');
+    el.closest('.cyc-task')?.classList.toggle('is-me', me);
+  }));
+}
+
+function wireLoop() {
+  $('loopStart')?.addEventListener('click', () => { closeOverlay('opsCyclePanel'); startOps(); });   // 버튼 없이 바로 전체 루프(분석→플랜) 실행
+  $('ideaGo')?.addEventListener('click', runCycleIdea);
+  $('cycEnd')?.addEventListener('click', async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 닫았어요'); });
+  const run = $('cycRun'); if (run) run.onclick = async () => {
+    const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
+    if (!titles.length) { hint('실행할 걸 하나 이상 골라주세요'); return; }
+    const humanTitles = Array.from(document.querySelectorAll('.cyc-who.me')).map(b => (b as HTMLElement).dataset.title!).filter(t => titles.includes(t));
+    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles, humanTitles); renderCycle(_ops);
+  };
+  const replan = $('cycReplan'); if (replan) replan.onclick = async () => { replan.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
+  const next = $('cycNext'); if (next) next.onclick = async () => { next.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
+  const stop = $('cycStop'); if (stop) stop.onclick = async () => { _ops = await connect.opsStop?.(); hint('■ 멈췄어요'); renderCycle(_ops); };
+  // 👍👎 피드백 — 누르면 다음 사이클 플랜에 반영
+  document.querySelectorAll('.fb-btns button').forEach(b => b.addEventListener('click', async () => {
+    const wrap = (b as HTMLElement).closest('.fb-btns') as HTMLElement; const title = wrap.dataset.title!; const g = (b as HTMLElement).dataset.g === '1';
+    wrap.querySelectorAll('button').forEach(x => x.classList.remove('on')); (b as HTMLElement).classList.add('on');
+    await connect.opsFeedback?.(title, g); hint(g ? '👍 다음에 더 늘릴게요' : '👎 다음엔 줄일게요');
+  }));
 }
 
 function sectionIdea(done: Partial<Record<SecKey, boolean>>): string {
@@ -754,7 +952,7 @@ function wireCycleHome() {
 async function nextCycleHome() {
   const btn = $('cycNext'); btn?.setAttribute('disabled', '');
   const ns = await connect.opsNextCycle?.().catch(() => null);
-  if (ns) { _ops = ns; buildCycleHome(ns, ns.cycle || 1); hint('▶ 다음 사이클을 준비했어요'); }
+  if (ns) { _ops = ns; renderCycle(ns); hint('▶ 다음 사이클을 준비했어요'); }
 }
 
 // ② 분석 리포트 — 현황 진단서를 만들어 보여주고, 다 읽으면 '공부 완료'
@@ -768,7 +966,7 @@ async function runCycleReport() {
   res.innerHTML = `<div class="cyc-report"><div class="cyc-report-md">${mdToHtml(r.md)}</div>
     <div class="cyc-report-foot"><span class="muted small">👆 끝까지 읽으셨나요?</span><button class="cyc-btn primary" id="repDone">✅ 다 봤어요 — 공부 완료</button></div></div>`;
   $('repDone')?.addEventListener('click', () => {
-    setSecDone(cyc, 'report'); markGrassToday(1);
+    setSecDone(cyc, 'report'); track('analyze', '자산 분석 리포트 정독', 'analyze', 1, '📊');
     const f = res.querySelector('.cyc-report-foot'); if (f) f.innerHTML = `<span class="cyc-idea-accepted">✅ 공부 완료! 🟩 오늘 잔디 +1 · 🔥 ${grassStreak()}일 연속</span>`;
     refreshCycleProgress(cyc);
     hint('✅ 분석 리포트 공부 완료');
@@ -785,7 +983,7 @@ async function runMarketing() {
   try { r = await connect.cycleMarketing?.('youtube'); } catch { r = null; }
   _mktRunning = false;
   const cyc = _ops?.cycle || 1;
-  if (r?.mktOk) { setSecDone(cyc, 'mkt'); markGrassToday(1); }
+  if (r?.mktOk) { setSecDone(cyc, 'mkt'); track('market', '유튜브 마케팅 작업', 'market', 1, '📣'); }
   const fe2 = $('mktFeed'); if (fe2) fe2.innerHTML = r?.mktOk
     ? `<div class="cyc-idea-accepted">✅ 마케팅 작업 완료 — 산출물·결재를 확인하세요. 🟩 오늘 잔디 +1</div>`
     : `<div class="muted small">⚠️ 결과물 없이 종료됐어요. 유튜브 연결을 확인하거나 다시 시도해 주세요.</div>`;
@@ -895,13 +1093,24 @@ async function loadLocalAI() {
   const cur = _localStatus?.modelPath;
   const recos = models.length ? [] : ((await connect.hfRecommended?.()) || []);   // 받은 모델 없으면 추천 두뇌 원클릭
   const liveCur = _localStatus?.running ? cur : '';   // 🔧 실제로 켜져 있을 때만 '사용 중'(크래시·꺼짐이면 '다시 켜기')
-  $('localModels').innerHTML = models.length ? models.map((m: any) =>
+  // 📁 모델 저장 폴더 — 윈도우 C: 꽉 차면 D: 등으로 바꾸기 (유튜브 [한글사랑] 요청)
+  const md: any = (await connect.localModelsDir?.()) || {};
+  const folderBar = `<div class="models-dir"><span class="md-ic">📁</span><span class="md-path" title="${escAttr(md.dir || '')}">${escapeHtml(md.dir || '기본 폴더')}</span><button class="md-btn" id="mdChange" title="다른 드라이브/폴더로 변경">📂 변경</button><button class="md-btn" id="mdOpen" title="폴더 열기">열기</button>${md.custom ? '<button class="md-btn" id="mdReset" title="기본 폴더로">기본</button>' : ''}</div>`;
+  $('localModels').innerHTML = folderBar + (models.length ? models.map((m: any) =>
     `<div class="lm-row ${m.path === liveCur ? 'active' : ''}"><span class="lm-name">${m.name}</span><span class="muted small">${fmtGB(m.size)}</span>` +
     `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === liveCur ? '사용 중' : (m.path === cur && _localStatus?.error ? '🔁 다시 켜기' : '사용')}</button>` +
     `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" data-rm="${m.removable ? 1 : 0}" data-nm="${escAttr(m.name)}" data-sz="${fmtGB(m.size)}" data-src="${escAttr(m.source || '')}" title="삭제">🗑️</button></div>`).join('')
     : (recos.length
       ? `<div class="muted small" style="margin-bottom:8px">받은 두뇌가 없어요. 추천 두뇌를 한 번에 받으세요 👇</div>` + recos.map((r: any) => `<div class="reco-card" data-repo="${escAttr(r.repo)}"><div class="reco-info"><div class="reco-name">${escapeHtml(r.label)}</div><div class="reco-hint muted small">${escapeHtml(r.hint)}</div></div><button class="reco-get oc-primary">받기</button></div>`).join('')
-      : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받으세요.</div>');
+      : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받으세요.</div>'));
+  // 📁 모델 저장 폴더 버튼 와이어링
+  $('mdChange')?.addEventListener('click', async () => {
+    const r: any = await connect.localPickModelsDir?.();
+    if (r?.error) { hint('⚠️ ' + r.error); return; }
+    if (r?.dir) { hint('📁 모델 저장 폴더를 바꿨어요 — 새로 받는 모델이 여기로 저장돼요'); loadLocalAI(); }
+  });
+  $('mdOpen')?.addEventListener('click', () => connect.localOpenModelsDir?.());
+  $('mdReset')?.addEventListener('click', async () => { await connect.localResetModelsDir?.(); hint('기본 폴더로 되돌렸어요'); loadLocalAI(); });
   $('localModels').querySelectorAll('.reco-card').forEach(c => c.addEventListener('click', () => pickRepo((c as HTMLElement).dataset.repo!)));
   $('localModels').querySelectorAll('.lm-use').forEach(b => b.addEventListener('click', async () => {
     if ((b as HTMLButtonElement).disabled) return;
@@ -993,14 +1202,21 @@ $('mcpTestBtn').addEventListener('click', async () => {
 async function renderTasks() {
   const all = await connect.tasksList();
   const open = (all || []).filter((t: any) => t.status === 'open');
-  if (!open.length) { $('taskBoard').innerHTML = '<div class="muted small" style="padding:6px 2px">열린 할 일이 없어요. 위에서 추가하거나, 에이전트에게 맡기면 자동으로 쌓여요.</div>'; return; }
-  $('taskBoard').innerHTML = open.map((t: any) => `<div class="task-tile prio-${t.priority}">
-    <div class="tt-emoji">${t.agentEmoji || (t.owner === 'user' ? '👤' : '🤖')}</div>
-    <div class="tt-title">${escapeHtml(t.title)}</div>
-    <div class="tt-actions"><button class="tt-done" data-id="${t.id}" title="완료">✓</button><button class="tt-cancel" data-id="${t.id}" title="삭제">✕</button></div>
+  const board = $('taskBoard');
+  if (!open.length) { board.innerHTML = '<div class="todo-empty">할 일이 없어요 — 위에 입력하거나, 에이전트가 자동으로 쌓아줘요.</div>'; return; }
+  // 노션식 깔끔한 체크리스트 — 동그란 체크박스 · 클릭하면 체크·줄긋고 사라짐
+  board.innerHTML = open.map((t: any) => `<div class="todo-row${t.priority === 'urgent' ? ' urgent' : t.priority === 'high' ? ' high' : ''}" data-id="${t.id}">
+    <button class="todo-chk" data-id="${t.id}" title="완료"></button>
+    <span class="todo-tx">${escapeHtml(t.title)}</span>
+    <span class="todo-who" title="${t.owner === 'user' ? '내 할 일' : '에이전트'}">${t.agentEmoji || (t.owner === 'user' ? '🙋' : '🤖')}</span>
+    <button class="todo-del" data-id="${t.id}" title="삭제">✕</button>
   </div>`).join('');
-  $('taskBoard').querySelectorAll('.tt-done').forEach(b => b.addEventListener('click', async () => { await connect.tasksDone((b as HTMLElement).dataset.id); renderTasks(); }));
-  $('taskBoard').querySelectorAll('.tt-cancel').forEach(b => b.addEventListener('click', async () => { await connect.tasksCancel((b as HTMLElement).dataset.id); renderTasks(); }));
+  board.querySelectorAll('.todo-chk').forEach(b => b.addEventListener('click', async () => {
+    const id = (b as HTMLElement).dataset.id; const row = b.closest('.todo-row'); row?.classList.add('done');   // 체크 애니메이션 먼저
+    const t = open.find((x: any) => x.id === id); const title = t?.title || '할 일';
+    setTimeout(async () => { await connect.tasksDone(id); track('task', title, catOf(title), 1, '☑️'); renderTasks(); }, 240);
+  }));
+  board.querySelectorAll('.todo-del').forEach(b => b.addEventListener('click', async () => { await connect.tasksCancel((b as HTMLElement).dataset.id); renderTasks(); }));
 }
 async function addTaskFromInput() {
   const inp = $('taskInput') as HTMLInputElement; const v = inp.value.trim(); if (!v) return;
@@ -1017,7 +1233,7 @@ async function renderApprovals() {
     <div class="ac-body"><div class="ac-title">${escapeHtml(a.title)}${a.action ? `<span class="ac-exec">⚡ ${escapeHtml(a.action.kind)}</span>` : ''}</div>${a.summary ? `<div class="ac-sum">${escapeHtml(a.summary)}</div>` : ''}</div>
     <div class="ac-actions"><button class="ac-ok" data-id="${a.id}" title="${a.action ? '승인하고 실행' : '승인'}">✓</button><button class="ac-no" data-id="${a.id}" title="거절">✕</button></div>
   </div>`).join('');
-  $('aprBoard').querySelectorAll('.ac-ok').forEach(b => b.addEventListener('click', async () => { const r = await connect.approvalsApprove((b as HTMLElement).dataset.id); renderApprovals(); if (r?.result) addLog('✅ 실행 결과', r.result, false, false, '#00cc77'); hint(r?.result ? '승인 + 실행 완료 ⚡' : '승인했어요 ✅'); }));
+  $('aprBoard').querySelectorAll('.ac-ok').forEach(b => b.addEventListener('click', async () => { const id = (b as HTMLElement).dataset.id; const ap = pend.find((x: any) => x.id === id); const r = await connect.approvalsApprove(id); track('approve', ap?.title || '결재 승인', catOf(ap?.title || ''), 1, '✅'); renderApprovals(); if (r?.result) addLog('✅ 실행 결과', r.result, false, false, '#00cc77'); hint(r?.result ? '승인 + 실행 완료 ⚡' : '승인했어요 ✅'); }));
   $('aprBoard').querySelectorAll('.ac-no').forEach(b => b.addEventListener('click', async () => { await connect.approvalsReject((b as HTMLElement).dataset.id); renderApprovals(); }));
 }
 // ✈️ 폰 결재 테스트 — 텔레그램으로 테스트 결재 푸시 → 폰에서 "보내기" 답장 → 실제 실행 한 바퀴 체험
@@ -1102,6 +1318,8 @@ const API_SERVICES: any[] = [
     { key: 'PAYPAL_CLIENT_SECRET', label: 'Client Secret', type: 'password' },
     { key: 'PAYPAL_LOOKBACK_DAYS', label: '분석 기간(일)', type: 'text', placeholder: '30 (최대 31)' },
     { key: 'PAYPAL_CURRENCY', label: '기본 통화(선택)', type: 'text', placeholder: 'USD' } ] },
+  { id: 'toss', name: '토스페이먼츠 (매출 분석)', icon: '💳', summary: '토스 결제 거래(KRW)를 분석. 💰 매출 대시보드 + 자산분석에 PayPal과 합쳐서 보여줘요.', helpUrl: 'https://developers.tosspayments.com/my/api-keys', fields: [
+    { key: 'TOSS_SECRET_KEY', label: '시크릿 키', type: 'password', help: '토스페이먼츠 개발자센터 → API 키 → 시크릿 키(live_sk_… 실거래 / test_sk_… 테스트). 클라이언트 키 말고 시크릿 키예요.' } ] },
   { id: 'github', name: 'GitHub — ⚡ 단기 기억', icon: '💻', summary: '지식 네트워크(단기 기억)를 GitHub 레포에 버전관리로 동기화. 어디서든 불러오고 사람이 직접 편집도.', helpUrl: 'https://github.com/settings/tokens', fields: [
     { key: 'GITHUB_TOKEN', label: 'Personal Access Token', type: 'password', help: 'github.com/settings/tokens → repo(Contents) 권한' },
     { key: 'GITHUB_DEFAULT_REPO', label: '지식 저장소', type: 'text', placeholder: 'owner/repo' } ] },
@@ -1764,28 +1982,49 @@ async function refreshMem() {
 // 탭 전환
 document.querySelectorAll('.btab').forEach(b => b.addEventListener('click', () => {
   const t = (b as HTMLElement).dataset.btab!;
-  // 🔬 AI 수술은 아직 베타 — 탭은 보이되 클릭하면 안내만 (전환 X)
-  if (t === 'surgery') { hint('🔬 AI 수술은 아직 연구 중이에요 — 곧 공개됩니다!'); return; }
   document.querySelectorAll('.btab').forEach(x => x.classList.toggle('active', (x as HTMLElement).dataset.btab === t));
   $('bsec-short').classList.toggle('hidden', t !== 'short');
   $('bsec-long').classList.toggle('hidden', t !== 'long');
-  $('bsec-surgery')?.classList.add('hidden');
+  $('bsec-surgery')?.classList.toggle('hidden', t !== 'surgery');
 }));
 // 🔬 AI 수술 — 실습 카드 클릭 → 노트북·자료 안내
-const SURG_INFO: Record<string, { title: string; nb?: string; url?: string; msg: string }> = {
-  model_merging: { title: '모델 합치기', nb: '실험_AI두개합치기_model_merging.ipynb', msg: '🧬 작업 폴더의 노트북을 Colab에 올려 실행하세요. 두 AI를 합쳐보고 우리 앱에서 바로 테스트까지 됩니다.' },
-  task_arithmetic: { title: '능력 더하고 빼기', nb: '실험2_능력더하고빼기_task_arithmetic.ipynb', msg: '➗ Task Arithmetic (arXiv:2212.04089). 작업 폴더의 노트북을 Colab에 올려 실행하세요 — 능력을 벡터로 더하고 빼봅니다.' },
-  knowledge_edit: { title: '기억 바꾸기', url: 'https://arxiv.org/abs/2202.05262', msg: '📝 ROME (arXiv:2202.05262) · MEMIT (arXiv:2210.07229). 특정 사실을 가중치에서 직접 편집. 실습 노트북 곧.' },
-  refusal: { title: '거부 방향 해부', url: 'https://github.com/andyrdt/refusal_direction', msg: '🧭 Arditi 2024 (arXiv:2406.11717) · 공식 코드 github.com/andyrdt/refusal_direction. 방향 찾기·시각화까지만 (제거는 안 함).' },
-  steering: { title: '실시간 성격 조종', url: 'https://arxiv.org/abs/2312.06681', msg: '🎚️ Contrastive Activation Addition (Rimsky, arXiv:2312.06681). 실습 노트북 곧.' },
+const SURG_INFO: Record<string, { title: string; nb?: string; url: string; msg: string }> = {
+  model_merging: { title: '모델 합치기', nb: '실험_AI두개합치기_model_merging.ipynb', url: 'https://github.com/arcee-ai/mergekit', msg: '🧬 노트북 실험_AI두개합치기_model_merging.ipynb 준비됨 · mergekit 문서를 엽니다. (앱 🔪 수술실에서 바로 합치기도 됩니다)' },
+  task_arithmetic: { title: '능력 더하고 빼기', nb: '실험2_능력더하고빼기_task_arithmetic.ipynb', url: 'https://arxiv.org/abs/2212.04089', msg: '➗ 노트북 실험2_능력더하고빼기_task_arithmetic.ipynb 준비됨 · Task Arithmetic 논문(2212.04089)을 엽니다.' },
+  lora: { title: '내 데이터로 가르치기 (LoRA)', nb: '실험4_내데이터로_가르치기_LoRA.ipynb', url: 'https://arxiv.org/abs/2106.09685', msg: '🎓 노트북 실험4_내데이터로_가르치기_LoRA.ipynb 준비됨 · LoRA 논문(2106.09685)을 엽니다. (이게 장기기억의 원리)' },
+  interpret: { title: 'AI 내부 들여다보기', nb: '실험5_내부_들여다보기_transformer_lens.ipynb', url: 'https://github.com/TransformerLensOrg/TransformerLens', msg: '🔬 노트북 실험5_내부_들여다보기_transformer_lens.ipynb 준비됨 · transformer_lens를 엽니다.' },
+  refusal: { title: '거부 방향 해부', nb: '실험3_거부방향_해부_refusal_direction.ipynb', url: 'https://arxiv.org/abs/2406.11717', msg: '🧭 노트북 실험3_거부방향_해부_refusal_direction.ipynb 준비됨 · Arditi 2024(2406.11717)를 엽니다. 찾기·시각화까지만(제거 X).' },
+  steering: { title: '실시간 성격 조종', nb: '실험6_실시간_성격조종_steering.ipynb', url: 'https://arxiv.org/abs/2312.06681', msg: '🎚️ 노트북 실험6_실시간_성격조종_steering.ipynb 준비됨 · CAA Steering 논문(2312.06681)을 엽니다.' },
+  knowledge_edit: { title: '기억 바꾸기', url: 'https://arxiv.org/abs/2202.05262', msg: '📝 ROME(2202.05262)·MEMIT 논문을 엽니다. 실습 노트북은 곧 추가돼요.' },
 };
 document.querySelectorAll('.surg-card').forEach(c => c.addEventListener('click', () => {
   const k = (c as HTMLElement).dataset.nb!; const info = SURG_INFO[k]; if (!info) return;
   hint(info.msg);
   if (info.url) connect.openExternal?.(info.url);
 }));
-$('surgRoadmapBtn')?.addEventListener('click', () => { connect.fsReveal?.(`${(window as any)._wsRoot || ''}`); hint('📚 작업 폴더의 "연구_로드맵_AI해부와통제.md"를 열어보세요 (8주 커리큘럼).'); });
-$('surgPapersBtn')?.addEventListener('click', () => { hint('📄 핵심: Arditi(2406.11717)·Task Arithmetic(2212.04089)·TIES(2306.01708)·RepEng(2310.01405)·CAA(2312.06681). github.com/andyrdt/refusal_direction'); connect.openExternal?.('https://arxiv.org/abs/2406.11717'); });
+// 📚 연구 로드맵 — 앱 안에서 펼쳐 보기 (8주 커리큘럼 · 논문/노트북 클릭)
+const ROADMAP: { w: string; ic: string; t: string; papers: [string, string][]; nb?: string }[] = [
+  { w: '1주', ic: '🧬', t: '합치기 (Merging)', papers: [['Task Arithmetic', '2212.04089'], ['TIES', '2306.01708'], ['Model Soups', '2203.05482']], nb: '실험_AI두개합치기' },
+  { w: '2주', ic: '🎓', t: '가르치기 (LoRA)', papers: [['LoRA', '2106.09685'], ['QLoRA', '2305.14314']], nb: '실험4' },
+  { w: '3주', ic: '➗', t: '더하고 빼기', papers: [['Task Arithmetic', '2212.04089']], nb: '실험2' },
+  { w: '4주', ic: '🔬', t: '내부 들여다보기', papers: [['Representation Engineering', '2310.01405']], nb: '실험5' },
+  { w: '5주', ic: '🧭', t: '거부 방향 해부', papers: [['Refusal Direction (Arditi)', '2406.11717'], ['Concept Cones', '2502.17420']], nb: '실험3' },
+  { w: '6주', ic: '🎚️', t: '실시간 조종', papers: [['CAA Steering', '2312.06681']], nb: '실험6' },
+  { w: '7주', ic: '⚖️', t: '안전·윤리', papers: [['Constitutional AI', '2212.08073'], ['Fine-tuning Compromises Safety', '2310.03693']] },
+];
+function renderRoadmap() {
+  const el = $('surgRoadmap'); if (!el) return;
+  el.innerHTML = ROADMAP.map(r => `<div class="rm-row"><span class="rm-w">${r.ic} ${r.w}</span><div class="rm-mid"><div class="rm-t">${r.t}${r.nb ? `<span class="rm-nb">📓 ${r.nb}</span>` : ''}</div><div class="rm-papers">${r.papers.map(([n, id]) => `<a class="rm-paper" data-ax="${id}">${escapeHtml(n)} <span>${id}</span></a>`).join('')}</div></div></div>`).join('')
+    + `<div class="rm-note muted small">🔒 abliteration은 원리 이해·시각화까지만. 무삭제 모델 배포는 안 함.</div>`;
+  el.querySelectorAll('.rm-paper').forEach(a => a.addEventListener('click', () => connect.openExternal?.(`https://arxiv.org/abs/${(a as HTMLElement).dataset.ax}`)));
+}
+$('surgRoadmapBtn')?.addEventListener('click', () => {
+  const el = $('surgRoadmap'); if (!el) return;
+  const show = el.classList.contains('hidden');
+  if (show) renderRoadmap();
+  el.classList.toggle('hidden', !show);
+  const btn = $('surgRoadmapBtn'); if (btn) btn.textContent = show ? '📚 로드맵 접기' : '📚 로드맵 펼치기';
+});
 // ⚡ 단기 = GitHub
 $('ghPushBtn').addEventListener('click', async () => {
   $('ghStatus').textContent = '⬆ GitHub에 동기화 중…';
@@ -1981,7 +2220,7 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
   let r: any = null;
   const code = (($('cloudCode') as HTMLInputElement)?.value || '').trim();
-  if (!code) { btn.disabled = false; cloudStat('🎟️ 멤버십 코드를 입력하세요. <a href="#" id="acbLink">AI CITY BUILDERS</a> 멤버에게 공유된 코드예요.'); $('acbLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal?.('https://aicitybuilders.com'); }); return; }
+  if (!code) { btn.disabled = false; cloudStat('🔒 비밀번호를 입력하세요. 학습·수술은 각각 한 달에 3번까지 쓸 수 있어요.'); ($('cloudCode') as HTMLInputElement)?.focus(); return; }
   try { r = await connect.trainCloud?.(code); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
   btn.disabled = false;
   if (!r) { cloudStat('⚠️ 응답이 없어요.'); return; }
@@ -2016,6 +2255,86 @@ function wireCloudInstall() {
   });
 }
 
+// ═══════ 🔪 AI 수술실 — 두 모델 합치기 (HF Jobs GPU, 코랩 불필요) ═══════
+const MERGE_RECIPES = [
+  { id: 'code', emoji: '💬+💻', name: '대화 + 코딩', a: 'Qwen/Qwen2.5-1.5B-Instruct', b: 'Qwen/Qwen2.5-Coder-1.5B-Instruct', desc: '잘 말하면서 코딩도 하는 두뇌' },
+  { id: 'math', emoji: '💬+🧮', name: '대화 + 수학', a: 'Qwen/Qwen2.5-1.5B-Instruct', b: 'Qwen/Qwen2.5-Math-1.5B-Instruct', desc: '대화 + 수학 추론' },
+];
+const _surg = { a: '', b: '', t: 0.5, recipe: 'code', running: false };
+function surgRecipe() {
+  if (_surg.recipe === 'custom') return { a: (($('surgA') as HTMLInputElement)?.value || '').trim(), b: (($('surgB') as HTMLInputElement)?.value || '').trim(), name: '직접 합치기' };
+  const r = MERGE_RECIPES.find(x => x.id === _surg.recipe) || MERGE_RECIPES[0];
+  return { a: r.a, b: r.b, name: r.name };
+}
+function openSurgery() { closeOverlay('aiPanel'); closeOverlay('brainPanel'); openOverlay('surgeryPanel'); _surg.running = false; renderSurgery(); }   // 부모 패널 먼저 닫아 겹침 방지(옛 화면이 덮는 버그)
+function surgStat(html: string) { const el = $('surgStatus'); if (el) el.innerHTML = html; }
+function renderSurgery() {
+  const body = $('surgBody'); if (!body) return;
+  const recipes = MERGE_RECIPES.map(r => `<button class="surg-recipe${_surg.recipe === r.id ? ' on' : ''}" data-r="${r.id}"><span class="sr-emoji">${r.emoji}</span><span class="sr-name">${r.name}</span><span class="sr-desc">${escapeHtml(r.desc)}</span><span class="sr-models">🤖 ${escapeHtml(short(r.a))} + ${escapeHtml(short(r.b))}</span></button>`).join('')
+    + `<button class="surg-recipe${_surg.recipe === 'custom' ? ' on' : ''}" data-r="custom"><span class="sr-emoji">🧪</span><span class="sr-name">직접 고르기</span><span class="sr-desc">HF 모델 2개 (같은 베이스)</span><span class="sr-models">↓ 아래에 주소 입력</span></button>`;
+  const r = surgRecipe();
+  body.innerHTML = `<div class="surg-intro">두 AI 두뇌를 <b>하나로 합쳐</b> 둘 다 잘하는 모델을 만들어요.<br><span class="muted small">🖥️ HF GPU가 합치고 → <b>결과 모델이 내 허깅페이스에 올라가</b> → '받기'로 앱에서 바로 써요 <span style="color:#74ffb4">(장기기억과 똑같이)</span>.</span><br><span class="surg-paper">📄 논문: <a id="surgPaper1">Model Soups (2203.05482)</a> · <a id="surgPaper2">TIES (2306.01708)</a> · <a id="surgPaper3">mergekit</a></span></div>
+    <div class="surg-recipes">${recipes}</div>
+    <div class="surg-custom" id="surgCustom"${_surg.recipe === 'custom' ? '' : ' hidden'}>
+      <div class="muted small">⚠️ 받은 모델(GGUF) 말고 <b>HF 모델 주소</b> 2개 — 같은 베이스·같은 크기여야 합쳐져요</div>
+      <input id="surgA" placeholder="모델 A (예: Qwen/Qwen2.5-1.5B-Instruct)" value="${escAttr(_surg.a)}" autocomplete="off">
+      <input id="surgB" placeholder="모델 B (예: Qwen/Qwen2.5-Coder-1.5B-Instruct)" value="${escAttr(_surg.b)}" autocomplete="off">
+    </div>
+    <div class="surg-blend">
+      <div class="sb-head"><span class="sb-end">${escapeHtml(short(r.a) || 'A')}</span><span class="sb-mid">블렌드</span><span class="sb-end">${escapeHtml(short(r.b) || 'B')}</span></div>
+      <input type="range" id="surgBlend" min="0" max="100" value="${Math.round(_surg.t * 100)}">
+      <div class="sb-val" id="sbVal">${Math.round((1 - _surg.t) * 100)} : ${Math.round(_surg.t * 100)}</div>
+    </div>
+    <div class="surg-gate"><input id="surgPw" type="password" placeholder="비밀번호" maxlength="8" autocomplete="off"><span class="surg-left" id="surgLeft"></span></div>
+    <button class="cyc-btn primary surg-go" id="surgGo">🔪 합치기 수술 시작</button>
+    <div class="surg-status" id="surgStatus"></div>`;
+  wireSurgery();
+  connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.textContent = `이번 달 수술 ${u.left}/${u.limit}회 남음`; }).catch(() => {});
+}
+function short(repo: string) { return (repo || '').split('/').pop()?.replace(/-Instruct$/i, '') || repo; }
+function wireSurgery() {
+  document.querySelectorAll('.surg-recipe').forEach(b => b.addEventListener('click', () => { _surg.recipe = (b as HTMLElement).dataset.r!; renderSurgery(); }));
+  const bl = $('surgBlend') as HTMLInputElement;
+  if (bl) bl.oninput = () => { _surg.t = (+bl.value) / 100; const v = $('sbVal'); if (v) v.textContent = `${100 - +bl.value} : ${bl.value}`; };
+  const a = $('surgA') as HTMLInputElement, b2 = $('surgB') as HTMLInputElement;
+  if (a) a.oninput = () => { _surg.a = a.value; }; if (b2) b2.oninput = () => { _surg.b = b2.value; };
+  $('surgGo')?.addEventListener('click', surgeryGo);
+  $('surgPaper1')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2203.05482'));
+  $('surgPaper2')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2306.01708'));
+  $('surgPaper3')?.addEventListener('click', () => connect.openExternal?.('https://github.com/arcee-ai/mergekit'));
+}
+async function surgeryGo() {
+  const r = surgRecipe();
+  if (!r.a || !r.b) { surgStat('⚠️ 합칠 두 모델을 모두 골라주세요.'); return; }
+  if (r.a === r.b) { surgStat('⚠️ 서로 다른 두 모델이어야 해요.'); return; }
+  const pw = (($('surgPw') as HTMLInputElement)?.value || '').trim();
+  if (!pw) { surgStat('🔒 비밀번호를 입력하세요.'); return; }
+  const btn = $('surgGo') as HTMLButtonElement; btn.disabled = true; btn.classList.add('surg-cut');
+  surgStat('<span class="cyc-spin"></span> 수술 준비 · 스크립트 업로드 · GPU 작업 요청 중…');
+  let res: any = null;
+  try { res = await connect.surgeryMerge?.(r.a, r.b, 'slerp', String(_surg.t), '', pw); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
+  btn.classList.remove('surg-cut');
+  const cmd = res?.command ? `<div class="cmd-box">${escapeHtml(res.command)}</div>` : '';
+  if (!res) { surgStat('⚠️ 응답이 없어요.'); btn.disabled = false; return; }
+  if (res.needsPro) { surgStat(`💳 ${escapeHtml(res.error || 'HF Pro/크레딧이 필요해요')}${cmd}`); btn.disabled = false; return; }
+  if (!res.ok) { surgStat(`⚠️ ${escapeHtml(res.error || '시작 실패')}${cmd}`); btn.disabled = false; return; }
+  surgStat(`🔪 수술 시작! <a href="${escAttr(res.url || res.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 받기 버튼이 떠요. (보통 5~20분)</span>`);
+  const poll = window.setInterval(async () => {
+    const s: any = await connect.trainCloudStatus?.(); if (!s?.ok) return;
+    if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(poll); surgStat(`✅ 수술 완료! <button id="surgInstall" class="oc-primary">⬇️ 합쳐진 모델 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
+    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(poll); surgStat(`⚠️ 수술 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); btn.disabled = false; }
+    else surgStat(`⏳ 수술 중… (${escapeHtml(s.stage || '진행')})${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>` : ''}`);
+  }, 12000);
+}
+async function surgInstall() {
+  const b = $('surgInstall') as HTMLButtonElement; if (b) { b.disabled = true; b.textContent = '받는 중…'; }
+  const r: any = await connect.trainCloudInstall?.();
+  if (r?.ok) { surgStat(`🎉 받았어요! 🤖 내 AI에서 "${escapeHtml((r.model || '').split('/').pop() || '합쳐진 모델')}"을 켜서 쓰세요.`); loadLocalAI?.(); }
+  else surgStat(`⚠️ ${escapeHtml(r?.error || '받기 실패')}`);
+}
+$('surgeryOpenBtn')?.addEventListener('click', openSurgery);
+$('surgeryOpenBtn2')?.addEventListener('click', openSurgery);
+
 // 🎓 학습 방법론 — 선택 시 교육 카드 + SFT/배움용 뷰 전환
 let currentMethod = 'sft', methodsRendered = false, methodList: any[] = [];
 async function renderMethods() {
@@ -2037,7 +2356,7 @@ function selectMethod(id: string) {
   ($('augToggle') as HTMLElement).style.display = isDpo ? 'none' : '';
   // 단계 초기화
   ['lfStep1', 'lfStep2', 'lfStep3'].forEach(s => $(s).classList.remove('lf-done'));
-  $('lfStep2').classList.add('lf-locked'); $('lfStep3').classList.add('lf-locked');
+  $('lfStep2').classList.add('lf-locked');   // ②업로드만 변환 필요(선택) — ③학습은 안 잠금(바로 가능)
   ($('hfUploadBtn') as HTMLButtonElement).disabled = true; ($('hfTrainBtn') as HTMLButtonElement).disabled = true;
   $('dsProg').classList.add('hidden');
 }

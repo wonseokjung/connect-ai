@@ -10,16 +10,18 @@ export async function hfUsername(token: string): Promise<string> {
 
 // 🧬 HF Jobs — "내 AI 키우기" 클라우드 학습 (Pro/Team 전용, 초당 종량제). 제공자 토큰으로 실행.
 export interface JobLaunch { ok: boolean; jobId?: string; url?: string; command?: string; error?: string; needsPro?: boolean; }
-export async function launchTrainingJob(token: string, namespace: string, opts: { datasetRepo: string; outputRepo: string; baseModel: string; flavor?: string; maxSteps?: number; scriptUrl: string; }): Promise<JobLaunch> {
+// 🧪 범용 HF Jobs 러너 — 데이터셋 repo에 올린 파이썬 스크립트를 GPU에서 실행 (학습·합치기·수술 공통).
+export async function launchJob(token: string, namespace: string, opts: { datasetRepo: string; scriptFile: string; env: Record<string, string>; flavor?: string; timeout?: string }): Promise<JobLaunch> {
   const flavor = opts.flavor || 'l4x1';
-  const env: Record<string, string> = { DATASET_REPO: opts.datasetRepo, DATASET_FILE: 'connect-ai-brain.jsonl', OUTPUT_REPO: opts.outputRepo, BASE_MODEL: opts.baseModel, MAX_STEPS: String(opts.maxSteps || 120) };
+  const timeout = opts.timeout || '1h';
+  const scriptUrl = `https://huggingface.co/datasets/${opts.datasetRepo}/resolve/main/${opts.scriptFile}`;
   // 코랩 없이 실행되는 동등 CLI(확실한 폴백 — 복사해서 돌리면 무조건 됨)
-  const command = `hf jobs uv run --flavor ${flavor} --timeout 1h --secrets HF_TOKEN ${Object.entries(env).map(([k, v]) => `-e ${k}=${v}`).join(' ')} ${opts.scriptUrl}`;
+  const command = `hf jobs uv run --flavor ${flavor} --timeout ${timeout} --secrets HF_TOKEN ${Object.entries(opts.env).map(([k, v]) => `-e ${k}=${v}`).join(' ')} ${scriptUrl}`;
   // best-effort REST 자동 실행 — Volume으로 데이터셋(스크립트 포함) 마운트 후 uv run
   const body = {
     dockerImage: 'ghcr.io/astral-sh/uv:python3.12-bookworm',
-    command: ['uv', 'run', '/data/train_qlora_uv.py'],
-    flavor, timeout: '1h', environment: env, secrets: { HF_TOKEN: token },
+    command: ['uv', 'run', `/data/${opts.scriptFile}`],
+    flavor, timeout, environment: opts.env, secrets: { HF_TOKEN: token },
     volumes: [{ type: 'dataset', source: opts.datasetRepo, mountPath: '/data' }],
   };
   try {
@@ -32,6 +34,13 @@ export async function launchTrainingJob(token: string, namespace: string, opts: 
     if (st === 403 || /pro|subscription|payment|billing/i.test(String(msg))) return { ok: false, needsPro: true, command, error: 'HF Jobs는 HF Pro($9/월)·Team·Enterprise가 필요해요. Pro 가입 후 다시 시도하거나 아래 명령을 복사해 실행하세요.' };
     return { ok: false, command, error: (st ? `HTTP ${st}: ` : '') + (msg || '작업 실행 실패') + ' — 아래 명령으로 직접 실행할 수 있어요.' };
   }
+}
+// 🧬 장기기억 학습 — 범용 러너 위에 얹은 래퍼(기존 호출 호환)
+export async function launchTrainingJob(token: string, namespace: string, opts: { datasetRepo: string; outputRepo: string; baseModel: string; flavor?: string; maxSteps?: number; scriptUrl: string; }): Promise<JobLaunch> {
+  return launchJob(token, namespace, {
+    datasetRepo: opts.datasetRepo, scriptFile: 'train_qlora_uv.py', flavor: opts.flavor,
+    env: { DATASET_REPO: opts.datasetRepo, DATASET_FILE: 'connect-ai-brain.jsonl', OUTPUT_REPO: opts.outputRepo, BASE_MODEL: opts.baseModel, MAX_STEPS: String(opts.maxSteps || 120) },
+  });
 }
 export async function jobStatus(token: string, namespace: string, jobId: string): Promise<{ ok: boolean; stage?: string; message?: string; error?: string }> {
   try {
