@@ -2279,6 +2279,8 @@ function renderSurgery() {
       <div class="muted small">⚠️ 받은 모델(GGUF) 말고 <b>HF 모델 주소</b> 2개 — 같은 베이스·같은 크기여야 합쳐져요</div>
       <input id="surgA" placeholder="모델 A (예: Qwen/Qwen2.5-1.5B-Instruct)" value="${escAttr(_surg.a)}" autocomplete="off">
       <input id="surgB" placeholder="모델 B (예: Qwen/Qwen2.5-Coder-1.5B-Instruct)" value="${escAttr(_surg.b)}" autocomplete="off">
+      <button class="lf-ghost" id="surgLoadMine">🤗 내 허깅페이스 모델 불러오기</button>
+      <div class="surg-mine" id="surgMine"></div>
     </div>
     <div class="surg-blend">
       <div class="sb-head"><span class="sb-end">${escapeHtml(short(r.a) || 'A')}</span><span class="sb-mid">블렌드</span><span class="sb-end">${escapeHtml(short(r.b) || 'B')}</span></div>
@@ -2298,6 +2300,20 @@ function wireSurgery() {
   if (bl) bl.oninput = () => { _surg.t = (+bl.value) / 100; const v = $('sbVal'); if (v) v.textContent = `${100 - +bl.value} : ${bl.value}`; };
   const a = $('surgA') as HTMLInputElement, b2 = $('surgB') as HTMLInputElement;
   if (a) a.oninput = () => { _surg.a = a.value; }; if (b2) b2.oninput = () => { _surg.b = b2.value; };
+  $('surgLoadMine')?.addEventListener('click', async () => {
+    const box = $('surgMine'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 내 모델 불러오는 중…';
+    const r: any = await connect.hfMyModels?.();
+    if (!r?.ok) { if (box) box.innerHTML = `<span class="muted small">⚠️ ${escapeHtml(r?.error || '불러오기 실패')}</span>`; return; }
+    if (!r.models.length) { if (box) box.innerHTML = '<span class="muted small">내 HF 모델이 아직 없어요 (장기기억 학습으로 만들면 여기 떠요).</span>'; return; }
+    if (box) box.innerHTML = `<div class="muted small" style="margin-bottom:5px">탭하면 A→B 순서로 채워져요:</div>` + r.models.map((m: string) => `<button class="mine-chip" data-m="${escAttr(m)}">${escapeHtml(m.split('/').pop() || m)}</button>`).join('');
+    box?.querySelectorAll('.mine-chip').forEach(c => c.addEventListener('click', () => {
+      const m = (c as HTMLElement).dataset.m!;
+      if (!_surg.a) { _surg.a = m; (($('surgA') as HTMLInputElement)).value = m; }
+      else if (!_surg.b) { _surg.b = m; (($('surgB') as HTMLInputElement)).value = m; }
+      else { _surg.a = m; (($('surgA') as HTMLInputElement)).value = m; _surg.b = ''; (($('surgB') as HTMLInputElement)).value = ''; }
+      hint(`선택: ${m.split('/').pop()}`);
+    }));
+  });
   $('surgGo')?.addEventListener('click', surgeryGo);
   $('surgPaper1')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2203.05482'));
   $('surgPaper2')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2306.01708'));

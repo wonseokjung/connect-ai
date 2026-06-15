@@ -1582,3 +1582,8 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 
 /* 🤖 레시피 카드 모델명 */
 .sr-models { font-size: 10px; font-weight: 700; color: #7fdcff; margin-top: 3px; word-break: break-all; line-height: 1.3; }
+
+/* 🤗 내 HF 모델 칩 (수술 합치기) */
+.surg-mine { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.mine-chip { font-size: 11px; font-weight: 700; color: #d6ffe6; background: rgba(57,255,20,.08); border: 1px solid rgba(57,255,20,.3); border-radius: 8px; padding: 4px 9px; cursor: pointer; }
+.mine-chip:hover { background: rgba(57,255,20,.18); }

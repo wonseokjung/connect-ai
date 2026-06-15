@@ -409,6 +409,18 @@ ipcMain.handle('local:setOptions', async (_e, o: any) => {
 ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
 ipcMain.handle('hf:recommended', () => RECOMMENDED);
 ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
+// 🤗 내 허깅페이스 모델 목록 — 수술실(합치기)에서 내 모델을 골라 합치도록 (safetensors 모델, GGUF 아님)
+ipcMain.handle('hf:myModels', async () => {
+  const h = connOf('huggingface');
+  if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 토큰을 먼저 넣어주세요.' };
+  try {
+    const me = await hfUsername(h.HF_TOKEN);
+    if (!me) return { ok: false, error: 'HF 토큰 확인 실패' };
+    const r: any = await axios.get(`https://huggingface.co/api/models?author=${encodeURIComponent(me)}&limit=100&full=false`, { headers: { Authorization: `Bearer ${h.HF_TOKEN}` }, timeout: 15000 });
+    const models = (r.data || []).map((m: any) => m.id || m.modelId).filter(Boolean).sort();
+    return { ok: true, me, models };
+  } catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
+});
 ipcMain.handle('hf:files', async (_e, repo: string) => {
   try {
     const files = await listGGUF(repo);
