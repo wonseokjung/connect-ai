@@ -7,4 +7,10 @@
  * 좁혀지지만 `if (getExtCtx()) { getExtCtx().x }` 는 좁혀지지 않아 컴파일 에러가 난다. */
 import * as vscode from 'vscode';
 
-export const runtime: { extCtx: vscode.ExtensionContext | null } = { extCtx: null };
+/* extCtx: 확장 컨텍스트 (activate 에서 1회 설정).
+ * autoSyncRunning: 두뇌 git 자동/수동 동기화 동시 실행 방지 락. _safeGitAutoSync(git-sync)와
+ *   SidebarChatProvider 수동 동기화·상태 패널이 공유하므로 holder 에 둔다. */
+export const runtime: {
+    extCtx: vscode.ExtensionContext | null;
+    autoSyncRunning: boolean;
+} = { extCtx: null, autoSyncRunning: false };
