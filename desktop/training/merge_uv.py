@@ -82,11 +82,32 @@ def prefetch(repo, token, tries=4):
             time.sleep(wait)
     print(f"❌ {repo} 를 받지 못했어요(네트워크 불안정). 잠시 후 다시 합성해 주세요.", file=sys.stderr); sys.exit(1)
 
+def assert_mergeable(repo, token):
+    # 🛡️ 합치기 전 미리 점검 — 합성(mergekit)은 풀모델 safetensors가 필요.
+    #    GGUF(LM Studio용)만 있거나 LoRA 어댑터/빈 저장소면 10GB 받기 전에 친절히 막는다.
+    from huggingface_hub import HfApi
+    try:
+        files = HfApi(token=token).list_repo_files(repo)
+    except Exception as e:
+        print(f"❌ '{repo}' 정보를 불러올 수 없어요(주소·접근권한 확인): {e}", file=sys.stderr); sys.exit(1)
+    has_weights = any(f.endswith(".safetensors") for f in files) or any(f.endswith(".bin") and "pytorch_model" in f for f in files)
+    if not has_weights:
+        only_gguf = any(f.endswith(".gguf") for f in files)
+        is_lora = any("adapter_" in f for f in files)
+        why = ("GGUF 파일만 있어요(LM Studio 전용). 내가 학습시킨 모델은 GGUF라 합성엔 못 써요." if only_gguf
+               else "LoRA 어댑터만 있어요(원본+어댑터 병합 후라야 합성 가능)." if is_lora
+               else "가중치 파일이 없는 저장소예요.")
+        print(f"❌ '{repo}' 에는 합칠 수 있는 가중치(safetensors)가 없어요.\n   {why}\n   👉 합성은 원본 풀모델(예: google/gemma-2-2b-it, Qwen/Qwen2.5-1.5B 등 safetensors)끼리만 됩니다.",
+              file=sys.stderr); sys.exit(1)
+
 def main():
     if not (MODEL_A and MODEL_B and OUTPUT_REPO and HF_TOKEN):
         print("MODEL_A, MODEL_B, OUTPUT_REPO, HF_TOKEN(secret) 이 필요합니다.", file=sys.stderr); sys.exit(1)
 
-    # 0) 두 모델을 미리 받아둔다(재시도) — 다운로드 타임아웃으로 합치기가 죽던 문제 예방
+    # 0) 합칠 수 있는 모델인지 먼저 점검(10GB 받기 전에) → 안 되면 명확한 이유로 즉시 종료
+    assert_mergeable(MODEL_A, HF_TOKEN); assert_mergeable(MODEL_B, HF_TOKEN)
+
+    # 0-2) 두 모델을 미리 받아둔다(재시도) — 다운로드 타임아웃으로 합치기가 죽던 문제 예방
     prefetch(MODEL_A, HF_TOKEN); prefetch(MODEL_B, HF_TOKEN)
 
     # 1) 합치기 설정 — SLERP/passthrough는 'slices'(정석), 그 외(ties/dare/linear)는 'models' 리스트
