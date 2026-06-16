@@ -19,6 +19,7 @@ import { LOCKED_AGENTS_DEFAULT, ALWAYS_ON_AGENTS, DEFAULT_ON_AGENTS, OPTIONAL_AG
 import { readAgentModelMap, writeAgentModelMap, getAgentModel, _autoOrchestrateModelMap, listInstalledModels } from './company/orchestration';
 import { _safeGitAutoSync, _safeGitAutoSyncCompany } from './git-sync';
 import { BrainGraph, buildKnowledgeGraph, _RENDER_GRAPH_HTML } from './panels/brain-network';
+import { TaskPriority, TrackerTask, TASK_PRIORITY_ORDER, TASK_PRIORITY_LABEL, _coercePriority, readTracker, writeTracker, addTrackerTask, updateTrackerTask, listOpenTrackerTasks, trackerToMarkdown, onTrackerChanged, setTrackerCalendarHooks } from './tracker';
 
 // ============================================================
 // Security helpers
@@ -2614,64 +2615,6 @@ function stopRevenueWatcherLoop() {
        owner ∈ 'agent' | 'user' | 'mixed'
        status ∈ 'pending' | 'in_progress' | 'done' | 'cancelled' */
 
-type TaskPriority = 'urgent' | 'high' | 'normal' | 'low';
-const TASK_PRIORITY_ORDER: Record<TaskPriority, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
-const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = {
-  urgent: '🔴 긴급',
-  high:   '🟠 높음',
-  normal: '⚪ 보통',
-  low:    '🔵 낮음',
-};
-
-interface TrackerTask {
-  id: string;
-  title: string;
-  description?: string;
-  owner: 'agent' | 'user' | 'mixed';
-  agentIds?: string[];
-  createdAt: string;
-  dueAt?: string;
-  status: 'pending' | 'in_progress' | 'done' | 'cancelled';
-  completedAt?: string;
-  sessionDir?: string;
-  nudges?: number; /* how many telegram nudges sent for stale user tasks */
-  evidence?: string;
-  calendarEventId?: string; /* Google Calendar event id (when auto-created) */
-  priority?: TaskPriority; /* added v2.78 — defaults to 'normal' on read */
-  /* P1-6: recurrence — when set, the task is a template that auto-spawns
-     fresh copies after each completion. cadence is a simple semantic key,
-     nextRunAt is computed by the recurrence loop. */
-  recurrence?: 'daily' | 'weekly' | 'monthly';
-  nextRunAt?: string;
-  /* P1-7: pre-alarms — track which "due-N" reminders we've already sent
-     so the alarm loop doesn't re-fire every cycle. 't1d' = "1 day before",
-     't1h' = "1 hour before". */
-  preAlarmsSent?: string[];
-}
-
-function _coercePriority(v: unknown): TaskPriority {
-  return v === 'urgent' || v === 'high' || v === 'low' ? v : 'normal';
-}
-
-function _trackerPath(): string {
-  return path.join(getCompanyDir(), '_shared', 'tracker.json');
-}
-
-function readTracker(): { tasks: TrackerTask[] } {
-  try {
-    const p = _trackerPath();
-    if (!fs.existsSync(p)) return { tasks: [] };
-    const raw = fs.readFileSync(p, 'utf-8');
-    const parsed = JSON.parse(raw || '{}');
-    return { tasks: Array.isArray(parsed.tasks) ? parsed.tasks : [] };
-  } catch { return { tasks: [] }; }
-}
-
-/* Module-level event emitter so the sidebar Task TreeView auto-refreshes
-   whenever the tracker file is modified through writeTracker (no matter who
-   calls it — Secretary, autoMark, edit commands, recurrence loop). */
-const _trackerChangeEmitter = new vscode.EventEmitter<void>();
-const onTrackerChanged = _trackerChangeEmitter.event;
 
 /* ── P0-4: Approval gate ──────────────────────────────────────────────────
    When an agent wants to do something risky (deploy, send, post, delete)
@@ -3120,95 +3063,6 @@ async function _youtubeCommentReplyDraftBatch(opts: { maxComments?: number; maxP
     return { drafted, skipped };
 }
 
-function writeTracker(t: { tasks: TrackerTask[] }) {
-  try {
-    const dir = path.join(getCompanyDir(), '_shared');
-    fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(_trackerPath(), JSON.stringify(t, null, 2));
-    try { _trackerChangeEmitter.fire(); } catch { /* no listeners — fine */ }
-  } catch { /* never let tracker errors break flow */ }
-}
-
-function _trackerNewId(): string {
-  const stamp = new Date().toISOString().replace(/[-:T.]/g, '').slice(0, 14);
-  const rand = Math.random().toString(36).slice(2, 6);
-  return `${stamp}-${rand}`;
-}
-
-function addTrackerTask(partial: Partial<TrackerTask> & { title: string; owner: TrackerTask['owner'] }): TrackerTask {
-  const t = readTracker();
-  const task: TrackerTask = {
-    id: partial.id || _trackerNewId(),
-    title: partial.title.slice(0, 200),
-    description: partial.description?.slice(0, 1000),
-    owner: partial.owner,
-    agentIds: partial.agentIds,
-    createdAt: partial.createdAt || new Date().toISOString(),
-    dueAt: partial.dueAt,
-    status: partial.status || (partial.owner === 'agent' ? 'in_progress' : 'pending'),
-    sessionDir: partial.sessionDir,
-    nudges: 0,
-    priority: _coercePriority(partial.priority),
-    recurrence: partial.recurrence,
-    nextRunAt: partial.nextRunAt,
-    preAlarmsSent: partial.preAlarmsSent || [],
-  };
-  t.tasks.push(task);
-  /* Keep file from growing unbounded — drop very old completed/cancelled. */
-  const cutoff = Date.now() - 30 * 86_400_000;
-  t.tasks = t.tasks.filter(x => {
-    if (x.status === 'done' || x.status === 'cancelled') {
-      const at = new Date(x.completedAt || x.createdAt).getTime();
-      return at >= cutoff;
-    }
-    return true;
-  });
-  writeTracker(t);
-  /* Auto-create Google Calendar event when due is set + Calendar is wired.
-     Fire-and-forget — never blocks tracker creation. Updates the tracker
-     entry with the eventId once the API call returns. */
-  if (task.dueAt && isCalendarWriteConnected()) {
-    createCalendarEventForTask(task).then(eventId => {
-      if (eventId) {
-        updateTrackerTask(task.id, { calendarEventId: eventId });
-      }
-    }).catch(() => { /* silent — calendar errors shouldn't break tracker */ });
-  }
-  return task;
-}
-
-function updateTrackerTask(id: string, patch: Partial<TrackerTask>): TrackerTask | null {
-  const t = readTracker();
-  const idx = t.tasks.findIndex(x => x.id === id);
-  if (idx < 0) return null;
-  const prev = t.tasks[idx];
-  t.tasks[idx] = { ...prev, ...patch };
-  const cur = t.tasks[idx];
-  if ((patch.status === 'done' || patch.status === 'cancelled') && !cur.completedAt) {
-    cur.completedAt = new Date().toISOString();
-  }
-  writeTracker(t);
-  /* Mirror tracker state to Google Calendar so the user's calendar isn't
-     stuck on stale plans. Cancelled → delete event; status/title/due change
-     while still active → patch event. Best-effort, never blocks. */
-  if (cur.calendarEventId && isCalendarWriteConnected()) {
-    const becameCancelled = patch.status === 'cancelled' && prev.status !== 'cancelled';
-    const titleOrDueChanged = (patch.title && patch.title !== prev.title) || (patch.dueAt && patch.dueAt !== prev.dueAt);
-    const becameDone = patch.status === 'done' && prev.status !== 'done';
-    if (becameCancelled) {
-      deleteCalendarEvent(cur.calendarEventId).then(ok => {
-        if (ok) updateTrackerTask(cur.id, { calendarEventId: undefined });
-      }).catch(() => { /* silent */ });
-    } else if (becameDone || titleOrDueChanged) {
-      updateCalendarEventForTask(cur).catch(() => { /* silent */ });
-    }
-  }
-  return t.tasks[idx];
-}
-
-function listOpenTrackerTasks(): TrackerTask[] {
-  return readTracker().tasks.filter(t => t.status !== 'done' && t.status !== 'cancelled');
-}
 
 /* P1-8: Forgiving date parser for /reschedule. Covers the four shapes the
    user actually types in chat: ISO ("2026-05-10 14:00"), Korean relative
@@ -3408,44 +3262,6 @@ function _harvestActionItems(text: string): string[] {
   return out;
 }
 
-function trackerToMarkdown(opts: { onlyOpen?: boolean; max?: number } = {}): string {
-  const all = readTracker().tasks;
-  const tasks = opts.onlyOpen ? all.filter(t => t.status !== 'done' && t.status !== 'cancelled') : all;
-  if (tasks.length === 0) return '';
-  /* Sort: status (in_progress > pending > done) → priority (urgent > high > normal > low)
-     → newest createdAt within ties. Status before priority means a 'done urgent'
-     still falls below an open 'low' — open work always surfaces first. */
-  const order = (s: TrackerTask['status']) => s === 'in_progress' ? 0 : s === 'pending' ? 1 : s === 'done' ? 2 : 3;
-  tasks.sort((a, b) => {
-    const o = order(a.status) - order(b.status);
-    if (o !== 0) return o;
-    const pa = TASK_PRIORITY_ORDER[_coercePriority(a.priority)];
-    const pb = TASK_PRIORITY_ORDER[_coercePriority(b.priority)];
-    if (pa !== pb) return pa - pb;
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-  });
-  const max = opts.max || 25;
-  const lines: string[] = [];
-  for (const t of tasks.slice(0, max)) {
-    const icon = t.status === 'done' ? '✅'
-      : t.status === 'in_progress' ? '🔄'
-      : t.status === 'pending' ? '⏳'
-      : '✖️';
-    const ownerEmoji = t.owner === 'user' ? '👤'
-      : t.owner === 'mixed' ? '👥'
-      : (t.agentIds && t.agentIds[0] ? (AGENTS[t.agentIds[0]]?.emoji || '🤖') : '🤖');
-    const due = t.dueAt ? ` ⏰${t.dueAt.slice(0, 10)}` : '';
-    const aged = (Date.now() - new Date(t.createdAt).getTime()) / 86_400_000;
-    const stale = (t.status === 'pending' && aged > 1) ? ' 🟡' : '';
-    const prio = _coercePriority(t.priority);
-    /* Show priority chip only for non-default — keeps the line short for
-       the common 'normal' case while still surfacing urgent/high visually. */
-    const prioChip = prio === 'normal' ? '' : ` ${TASK_PRIORITY_LABEL[prio].split(' ')[0]}`;
-    const recur = t.recurrence ? ` 🔁${t.recurrence}` : '';
-    lines.push(`- ${icon}${prioChip} ${ownerEmoji} \`${t.id.slice(-9)}\` ${t.title}${due}${recur}${stale}`);
-  }
-  return lines.join('\n');
-}
 
 /* ── Task Tree View (sidebar) ─────────────────────────────────────────────
    P0-1: visualizes tracker.json as a clickable tree. Top level = status
@@ -6384,6 +6200,14 @@ export function activate(context: vscode.ExtensionContext) {
     console.log('Connect AI extension activated.');
 
     runtime.extCtx = context;
+    /* tracker → 구글 캘린더 연동 훅 주입 (DI). tracker.ts 가 캘린더 함수를 직접
+       참조하지 않도록 분리(순환 결합 차단) — 실제 동작은 여기서 연결. */
+    setTrackerCalendarHooks({
+        isConnected: isCalendarWriteConnected,
+        createForTask: createCalendarEventForTask,
+        updateForTask: updateCalendarEventForTask,
+        deleteEvent: deleteCalendarEvent,
+    });
     /* v2.89.138 — extensionUri 즉시 세팅. 이전엔 "우리 회사 대시보드" 명령
        처음 열기 전엔 _dashboardExtensionUri=null 이라 ApiConnectionsPanel /
        RevenueDashboardPanel 가 _loadWebviewAsset() 으로 빈 CSS·JS 받음 →
