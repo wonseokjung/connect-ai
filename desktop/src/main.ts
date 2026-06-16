@@ -1730,19 +1730,24 @@ function installId(): string { const c = loadConfig() as any; if (c.installId) r
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
 
 // 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
+//    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
 const GPU_PW = '0101';
+const GPU_ADMIN_PW = '0003';
 const GPU_MONTHLY_LIMIT = 3;
 type GpuKind = 'train' | 'surgery';
 function gpuMonth() { return new Date().toISOString().slice(0, 7); }   // YYYY-MM
+function isGpuAdmin(password: string): boolean { return (password || '').trim() === GPU_ADMIN_PW; }
 function gpuUsageOf(kind: GpuKind): number { const c = loadConfig(); const m = gpuMonth(); const u: any = c.gpuUsage; return (u && u.month === m) ? (u[kind] || 0) : 0; }
-function gpuGate(password: string, kind: GpuKind): { ok: boolean; error?: string; left?: number } {
-  if ((password || '').trim() !== GPU_PW) return { ok: false, error: `비밀번호가 필요해요 (${GPU_PW}).` };
+function gpuGate(password: string, kind: GpuKind): { ok: boolean; error?: string; left?: number; admin?: boolean } {
+  if (isGpuAdmin(password)) return { ok: true, left: 999, admin: true };   // 👑 무제한
+  if (!(password || '').trim()) return { ok: false, error: `비밀번호를 입력해주세요.` };
+  if ((password || '').trim() !== GPU_PW) return { ok: false, error: `비밀번호가 맞지 않아요.` };
   const used = gpuUsageOf(kind);
   const what = kind === 'train' ? '학습' : '수술';
   if (used >= GPU_MONTHLY_LIMIT) return { ok: false, error: `이번 달 ${what} 횟수(${GPU_MONTHLY_LIMIT}회)를 다 썼어요. 다음 달에 다시 가능해요.` };
   return { ok: true, left: GPU_MONTHLY_LIMIT - used };
 }
-function gpuUse(kind: GpuKind) { const c = loadConfig(); const m = gpuMonth(); const u: any = (c.gpuUsage && (c.gpuUsage as any).month === m) ? c.gpuUsage : { month: m, train: 0, surgery: 0 }; saveConfig({ gpuUsage: { month: m, train: u.train || 0, surgery: u.surgery || 0, [kind]: (u[kind] || 0) + 1 } as any }); }
+function gpuUse(kind: GpuKind, password = '') { if (isGpuAdmin(password)) return; const c = loadConfig(); const m = gpuMonth(); const u: any = (c.gpuUsage && (c.gpuUsage as any).month === m) ? c.gpuUsage : { month: m, train: 0, surgery: 0 }; saveConfig({ gpuUsage: { month: m, train: u.train || 0, surgery: u.surgery || 0, [kind]: (u[kind] || 0) + 1 } as any }); }
 ipcMain.handle('gpu:usage', (_e, kind: GpuKind = 'train') => { const used = gpuUsageOf(kind); return { used, limit: GPU_MONTHLY_LIMIT, left: Math.max(0, GPU_MONTHLY_LIMIT - used) }; });
 
 // 🎒 누적 전적 — 학습 1회 = 데이터셋 1개 + 레벨업, 합성 1회 = fusion. 인벤토리/광장 프로필의 원천.
@@ -1799,7 +1804,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
       try {
         const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
         const d = r.data || {};
-        if (d.ok) { gpuUse('train'); bumpStat('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
+        if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
       } catch (e: any) {
         const st = e?.response?.status;
@@ -1836,7 +1841,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
   const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
   const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
-  if (job.ok && job.jobId) { gpuUse('train'); bumpStat('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
+  if (job.ok && job.jobId) { gpuUse('train', accessCode); bumpStat('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
   return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('train:cloudStatus', async () => {
@@ -1890,7 +1895,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
     datasetRepo: surgRepo, scriptFile: 'merge_uv.py', flavor: 'l4x1', timeout: '1h',
     env: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: String(t), OUTPUT_REPO: outRepo },   // ⚠️ 키 'T'는 HF Jobs가 거부 → MERGE_T
   });
-  if (job.ok && job.jobId) { gpuUse('surgery'); bumpStat('fusion'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
+  if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('memstatus', async () => {

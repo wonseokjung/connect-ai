@@ -421,16 +421,27 @@
   <!-- 🔪 AI 합성소 — 두 모델을 GPU(HF Jobs)에서 합치기. 코랩 불필요. -->
   <div class="overlay hidden" id="surgeryPanel">
     <div class="overlay-card surgery-card">
-      <div class="overlay-head">🔪 AI 합성소 <span class="surg-beta">BETA</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
+      <div class="overlay-head"><button class="overlay-back" data-close="surgeryPanel" title="뒤로 — 입력한 내용은 저장돼요">← 뒤로</button>🔪 AI 합성소 <span class="surg-beta">BETA</span><span class="surg-saved" title="입력한 모델·이름·강도는 자동 저장돼요 (앱을 꺼도 유지)">💾 자동저장</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
       <div class="surg-body" id="surgBody"></div>
     </div>
   </div>
   <div class="overlay hidden" id="officePanel">
     <div class="overlay-card office-card">
       <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><button class="code-mini" id="officeVoiceBtn" title="🎭 에이전트 음성 대화 — 자비스처럼 각자 목소리로 말해요">🔇</button><button class="code-mini" id="officePop" title="별도 창으로 띄우기 (옆에 놓고 보기)">🪟</button><button class="overlay-x" data-close="officePanel">✕</button></div>
-      <div class="voffice" id="voffice"></div>
-      <div class="confer-feed" id="conferFeed"></div>
-      <div class="muted" style="text-align:center;font-size:11px">💬 동료를 클릭하면 상세 정보 · 큰 일을 맡기면 모였다가 → 자리로 걸어가 일하고 → 회의합니다</div>
+      <div class="office-main">
+        <div class="office-left">
+          <div class="voffice" id="voffice"></div>
+          <div class="confer-feed" id="conferFeed"></div>
+          <div class="muted" style="text-align:center;font-size:11px">💬 동료를 클릭하면 상세 정보 · 큰 일을 맡기면 모였다가 → 자리로 걸어가 일하고 → 회의합니다</div>
+        </div>
+        <!-- 🎯 오른쪽 = 메인 투두와 연결된 '오늘의 작전' (같은 tasks 데이터) -->
+        <aside class="office-todo">
+          <div class="ot-head">🎯 오늘의 작전 <span class="ot-count" id="officeTodoCount"></span></div>
+          <div class="ot-add"><input id="officeTaskInput" placeholder="할 일 추가…" autocomplete="off" /><button id="officeTaskAddBtn" title="추가">＋</button></div>
+          <div class="ot-board" id="officeTodoBoard"></div>
+          <button class="ot-ops" id="officeOpsBtn">🚀 운영 시작 — AI 팀에게 맡기기</button>
+        </aside>
+      </div>
     </div>
   </div>
 
@@ -448,11 +459,20 @@
       <div class="overlay-head">🧠 지식 네트워크 <span class="cls-count" id="brainCount"></span><button class="overlay-x" data-close="brainPanel">✕</button></div>
       <div class="manage-tabs">
         <button class="btab active" data-btab="short">⚡ 단기 기억</button>
-        <button class="btab" data-btab="long">🧬 장기 기억 <span class="beta">BETA</span></button>
+        <button class="btab" data-btab="long">🌱 장기 기억 <span class="beta">BETA</span></button>
         <button class="btab" data-btab="surgery">🧬 AI 합성 <span class="beta">BETA</span></button>
       </div>
       <!-- 단기 기억 = GitHub 동기화 -->
       <div class="bsec" id="bsec-short">
+        <!-- ⚡ 게임 히어로 — 지식 수집 -->
+        <div class="game-hero gh-cyan">
+          <div class="gh-emoji" id="ghShortEmoji">⚡</div>
+          <div class="gh-mid"><div class="gh-cap">수집한 지식</div><div class="gh-big" id="ghShortNum">0</div></div>
+          <button class="gh-go" id="ghHeroSync">⬆ 지식 수집</button>
+        </div>
+        <!-- 🔧 기능(연결·동기화)은 접어둠 -->
+        <details class="tab-tools" open>
+          <summary>🔧 자세히 — 클라우드 백업 · 멘토 두뇌 받기</summary>
         <div class="mem-bar">
           <div class="mem-info">⚡ 단기 기억 = <b>GitHub</b> <span class="mem-repo" id="ghRepo">미연결</span></div>
           <div class="mem-acts"><button id="ghPushBtn" class="oc-primary">⬆ 동기화</button><button id="ghPullBtn" class="oc-primary">⬇ 불러오기</button></div>
@@ -470,25 +490,82 @@
           </div>
         </details>
         <div class="mem-status" id="mentorStatus"></div>
+        </details>
         <!-- 📊 분야별 두뇌 성장 — "어떻게 쌓이는지"가 눈에 보이는 곳 -->
         <div class="cat-growth" id="catGrowth"></div>
         <div id="brainGraph" class="brain-graph"></div>
-        <div class="graph-cap"><span class="muted">노드 = 지식 · 선 = 연결 · 색 = 분야</span><button id="notesToggle" class="notes-toggle">🗂️ 목록·정리</button></div>
+        <div class="graph-cap"><span class="muted small" title="노드 = 지식 · 선 = 연결 · 색 = 분야">🔵 지식 지도 ⓘ</span><button id="notesToggle" class="notes-toggle">🗂️ 목록</button></div>
         <div class="brain-notes hidden" id="brainNotes"></div>
       </div>
       <!-- 장기 기억 = HuggingFace 학습 (단기 → 장기 변환 흐름) -->
       <div class="bsec hidden" id="bsec-long">
-        <div class="muted" style="font-size:12px" title="쌓인 단기 지식을 데이터셋으로 바꿔 내 모델에 파인튜닝합니다">🧬 <b>단기 → 장기</b> · 쌓인 지식을 내 모델에 각인</div>
-        <!-- 🎓 학습 방식 -->
+        <!-- 🌱 게임 히어로 — 두뇌 육성 -->
+        <div class="game-hero gh-green">
+          <div class="gh-emoji">🌱</div>
+          <div class="gh-mid">
+            <div class="gh-cap">내 AI 두뇌 키우기</div>
+            <div class="gh-big">모은 지식 <span id="ghLongXp">0</span>개</div>
+            <div class="gh-sub">모은 지식으로 내 AI를 학습시켜요 🌱→🌳</div>
+          </div>
+          <button class="gh-go" id="ghHeroTrain">🚀 학습</button>
+        </div>
+        <!-- 🌱→🌳 비주얼 파이프라인 -->
+        <div class="grow-pipe">
+          <div class="gp-step"><span class="gp-ic">⚡</span><b id="longShortCount">0</b><span class="gp-t">지식</span></div>
+          <span class="gp-arr">→</span>
+          <div class="gp-step"><span class="gp-ic">🧠</span><span class="gp-t">학습</span></div>
+          <span class="gp-arr">→</span>
+          <div class="gp-step"><span class="gp-ic">🌳</span><span class="gp-t">내 AI</span></div>
+        </div>
+        <!-- 핵심: 이름 + 비번 + 학습 (항상 보임) -->
+        <div class="grow-do" id="lfStep3">
+          <input id="modelNameInput" class="fuse-in" placeholder="🏷️ 새 AI 이름 (my-brain-v1)" title="⚠️ 한글 X · 영어·숫자·하이픈(-)만" autocomplete="off" />
+          <div class="grow-acts">
+            <input id="cloudCode" class="surg-pw" placeholder="🔒" maxlength="8" type="password" autocomplete="off" title="비밀번호" />
+            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버 학습 — 버튼 한 번 (멤버십·월3회)">💎 유료</button>
+            <button id="hfTrainBtn" class="train-free" title="내 Colab/HF로 직접 학습 (무료) — 먼저 ⚙️ 안에서 ①변환 ②업로드가 필요해요">🆓 무료</button>
+          </div>
+          <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
+        </div>
+        <!-- ⚙️ 학습 설정 — 전부 접어둠 (기본값으로도 학습됨) -->
+        <details class="tab-tools" id="longTools">
+          <summary>⚙️ 학습 방법 · 강도 · 전문가 설정</summary>
+        <div id="sftFlow">
+        <div class="method-h">🎓 학습 방법 <span class="muted small">하나 골라요</span></div>
         <div class="method-pick" id="methodPick"></div>
         <div class="method-card" id="methodCard"></div>
-        <!-- 흐름: ①변환/생성 ②업로드 ③학습 (방식별 분기) -->
-        <div id="sftFlow">
-        <div class="long-flow">
-          <div class="lf-src">⚡ 단기 지식 <b id="longShortCount">0</b>개 <span class="muted">→ 장기 기억으로</span></div>
-          <div class="lf-quick">💡 <b>🚀 학습</b>만 눌러도 AI가 알아서 해요</div>
-          <details class="lf-optional"><summary>🔧 데이터 직접 다듬기 — ①변환 ②업로드 <b>(선택·고급)</b></summary>
-          <!-- ① 변환/생성 -->
+        <div class="train-set">
+          <div class="ts-row"><span class="ts-lab">💪 강도</span>
+            <div class="ts-presets">
+              <button class="ts-preset" data-preset="safe">🛡️ 안전</button>
+              <button class="ts-preset on" data-preset="balanced">⚖️ 기본</button>
+              <button class="ts-preset" data-preset="strong">🔥 강하게</button>
+            </div>
+          </div>
+          <div class="ts-hint" id="tsHint">⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)</div>
+          <details class="ts-adv">
+            <summary>🎓 전문가 파라미터</summary>
+            <div class="ts-f"><span class="ts-k">LoRA rank (r)<i>학습 용량. 클수록 많이 외움(메모리↑). 페르소나엔 8~16 충분</i></span>
+              <select id="tsRank"><option value="8">8 · 가벼움</option><option value="16" selected>16 · 권장</option><option value="32">32 · 깊게</option><option value="64">64 · 대용량</option></select></div>
+            <div class="ts-f"><span class="ts-k">lora_alpha<i>학습 강도. 보통 rank의 2배가 정석</i></span>
+              <select id="tsAlpha"><option value="auto" selected>자동(r×2)</option><option value="16">16</option><option value="32">32</option><option value="64">64</option></select></div>
+            <div class="ts-f"><span class="ts-k">lora_dropout<i>과적합 방지. 데이터 적으면 0, 많으면 0.05~0.1</i></span>
+              <select id="tsDropout"><option value="0" selected>0 · 없음</option><option value="0.05">0.05</option><option value="0.1">0.1</option></select></div>
+            <div class="ts-f"><span class="ts-k">learning_rate<i>학습 속도. 크면 빨리 배우나 망가지기 쉬움</i></span>
+              <select id="tsLr"><option value="" selected>강도 프리셋 따름</option><option value="0.0002">2e-4 · 안전</option><option value="0.0003">3e-4 · 권장</option><option value="0.0005">5e-4 · 강함</option></select></div>
+            <div class="ts-f"><span class="ts-k">epochs<i>같은 데이터 반복 횟수. 많으면 외우다 과적합</i></span>
+              <select id="tsEpochs"><option value="">프리셋 따름</option><option value="6">6 · 적게</option><option value="8" selected>8 · 권장</option><option value="10">10 · 많이</option></select></div>
+            <div class="ts-f"><span class="ts-k">max_seq_length<i>한 번에 보는 토큰 길이. 길수록 메모리 제곱 증가</i></span>
+              <select id="tsSeq"><option value="512">512 · 가벼움</option><option value="1024" selected>1024 · 권장</option><option value="2048">2048 · 긴 문맥</option></select></div>
+            <div class="ts-f"><span class="ts-k">lr_scheduler<i>학습률 감소 곡선. cosine이 후반 더 부드러움</i></span>
+              <select id="tsSched"><option value="linear" selected>linear</option><option value="cosine">cosine</option></select></div>
+            <div class="ts-f"><span class="ts-k">양자화 (quant)<i>모델 크기·속도. q4_k_m이 균형 최고</i></span>
+              <select id="tsQuant"><option value="q4_k_m" selected>q4_k_m · 빠름(권장)</option><option value="q8_0">q8_0 · 고품질</option><option value="f16">f16 · 원본</option></select></div>
+            <div class="ts-f"><span class="ts-k">max_steps<i>총 학습 횟수. 0이면 데이터수·epochs로 자동</i></span>
+              <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
+          </details>
+        </div>
+        <details class="lf-optional"><summary>🔧 데이터 직접 다듬기 — ①변환 ②업로드 <b>(선택·고급)</b></summary>
           <div class="lf-step" id="lfStep1">
             <span class="lf-num">1</span>
             <div class="lf-body"><b id="step1Title">📦 학습 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → AI가 Q&amp;A 문제로 자동 출제</div>
@@ -501,122 +578,76 @@
             <div class="ds-cnt" id="dsCnt"></div>
             <div class="ds-preview" id="dsPreview"></div>
           </div>
-
           <div class="lf-arrow">↓</div>
-          <!-- ② 업로드 -->
           <div class="lf-step lf-locked" id="lfStep2">
             <span class="lf-num">2</span>
-            <div class="lf-body"><b>🤗 HuggingFace 업로드 <span class="beta" style="background:rgba(150,150,150,.22)">선택</span></b><div class="muted small">내 HF 계정에 데이터셋 보관용 <span class="mem-repo" id="hfRepo">미연결</span> · <b style="color:#74ffb4">서버 학습은 이 단계 없이 바로 가능</b></div></div>
+            <div class="lf-body"><b>🤗 HuggingFace 업로드 <span class="beta" style="background:rgba(150,150,150,.22)">선택</span></b><div class="muted small">내 HF 계정에 데이터셋 보관용 <span class="mem-repo" id="hfRepo">미연결</span> · <b style="color:#74ffb4">💎 유료 학습은 이 단계 없이 바로</b></div></div>
             <button id="hfUploadBtn" class="oc-primary" disabled>업로드</button>
           </div>
-
-          </details>
-          <!-- ③ 모델 이름 + 학습 설정 -->
-          <div class="lf-step lf-primary" id="lfStep3">
-            <span class="lf-num">3</span>
-            <div class="lf-body"><b>🧠 모델 이름 정하고 학습</b>
-              <input id="modelNameInput" class="ds-name" placeholder="my-brain-v1" />
-              <div class="muted small" style="margin:-2px 0 6px;color:#ffb84d" title="한글은 인식 안 돼요. 영어·숫자·하이픈(-)만 가능">⚠️ 영어·숫자·하이픈만 (예: my-brain-v1)</div>
-              <div class="train-set">
-                <div class="ts-row"><span class="ts-lab">학습 강도</span>
-                  <div class="ts-presets">
-                    <button class="ts-preset" data-preset="safe">🛡️ 안전</button>
-                    <button class="ts-preset on" data-preset="balanced">⚖️ 기본</button>
-                    <button class="ts-preset" data-preset="strong">🔥 강하게</button>
-                  </div>
-                </div>
-                <div class="ts-hint" id="tsHint">⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)</div>
-                <details class="ts-adv">
-                  <summary>🎓 전문가 설정 (파라미터 직접 조정 · 배우면서)</summary>
-                  <div class="ts-f"><span class="ts-k">LoRA rank (r)<i>학습 용량. 클수록 많이 외움(메모리↑). 페르소나엔 8~16 충분</i></span>
-                    <select id="tsRank"><option value="8">8 · 가벼움</option><option value="16" selected>16 · 권장</option><option value="32">32 · 깊게</option><option value="64">64 · 대용량</option></select></div>
-                  <div class="ts-f"><span class="ts-k">lora_alpha<i>학습 강도. 보통 rank의 2배가 정석</i></span>
-                    <select id="tsAlpha"><option value="auto" selected>자동(r×2)</option><option value="16">16</option><option value="32">32</option><option value="64">64</option></select></div>
-                  <div class="ts-f"><span class="ts-k">lora_dropout<i>과적합 방지. 데이터 적으면 0, 많으면 0.05~0.1</i></span>
-                    <select id="tsDropout"><option value="0" selected>0 · 없음</option><option value="0.05">0.05</option><option value="0.1">0.1</option></select></div>
-                  <div class="ts-f"><span class="ts-k">learning_rate<i>학습 속도. 크면 빨리 배우나 망가지기 쉬움</i></span>
-                    <select id="tsLr"><option value="" selected>강도 프리셋 따름</option><option value="0.0002">2e-4 · 안전</option><option value="0.0003">3e-4 · 권장</option><option value="0.0005">5e-4 · 강함</option></select></div>
-                  <div class="ts-f"><span class="ts-k">epochs<i>같은 데이터 반복 횟수. 많으면 외우다 과적합</i></span>
-                    <select id="tsEpochs"><option value="">프리셋 따름</option><option value="6">6 · 적게</option><option value="8" selected>8 · 권장</option><option value="10">10 · 많이</option></select></div>
-                  <div class="ts-f"><span class="ts-k">max_seq_length<i>한 번에 보는 토큰 길이. 길수록 메모리 제곱 증가</i></span>
-                    <select id="tsSeq"><option value="512">512 · 가벼움</option><option value="1024" selected>1024 · 권장</option><option value="2048">2048 · 긴 문맥</option></select></div>
-                  <div class="ts-f"><span class="ts-k">lr_scheduler<i>학습률 감소 곡선. cosine이 후반 더 부드러움</i></span>
-                    <select id="tsSched"><option value="linear" selected>linear</option><option value="cosine">cosine</option></select></div>
-                  <div class="ts-f"><span class="ts-k">양자화 (quant)<i>모델 크기·속도. q4_k_m이 균형 최고</i></span>
-                    <select id="tsQuant"><option value="q4_k_m" selected>q4_k_m · 빠름(권장)</option><option value="q8_0">q8_0 · 고품질</option><option value="f16">f16 · 원본</option></select></div>
-                  <div class="ts-f"><span class="ts-k">max_steps<i>총 학습 횟수. 0이면 데이터수·epochs로 자동</i></span>
-                    <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
-                </details>
-              </div>
-              <div class="train-acts">
-                <input id="cloudCode" class="ws-input" style="width:130px;flex:0 0 auto" placeholder="비밀번호" maxlength="8" type="password" autocomplete="off"/>
-                <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버에서 학습 — HF토큰·코랩 불필요 (멤버 전용·월 1회 무료)"><span>🚀 서버에서 바로 학습</span><span class="beta-pill">무료·토큰 불필요</span></button>
-                <button id="hfTrainBtn" class="train-free" disabled title="②업로드를 하면 켜져요 — Colab이 HF에 올라간 데이터셋을 받아가야 해서요">🆓 Colab으로 직접 학습 <span class="tf-cond">②업로드 후</span></button>
-              </div>
-              <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
-            </div>
-          </div>
-        </div>
+        </details>
         </div><!-- /#sftFlow -->
         <div class="mem-status" id="hfStatus"></div>
-        <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 바탕화면 JSONL 보기</button></div>
+        <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 JSONL</button></div>
+        </details>
       </div>
 
       <!-- 🧬 AI 합성 = weight surgery (학습 없이 가중치 직접 조작) -->
       <div class="bsec hidden" id="bsec-surgery">
-        <div class="muted" style="font-size:12px" title="파인튜닝(가르치기)과 다른 길 — 능력을 더하고·합치고·해부합니다">🧬 <b>합성·해부</b> · 학습 없이 가중치를 직접 다뤄요</div>
-        <button class="surgery-entry" id="surgeryOpenBtn2" style="margin:12px 0 6px"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 합성소 — 두 모델 합치기</b><span>앱에서 바로 (코랩 불필요)</span></span><span class="se-arr">→</span></button>
-        <div class="muted small" style="margin:4px 0 8px">📚 <b>실습 노트북</b> — 누르면 자료가 떠요</div>
+        <!-- 🧬 게임 히어로 — 합성소 -->
+        <div class="game-hero gh-purple">
+          <div class="gh-emoji">🧬</div>
+          <div class="gh-mid">
+            <div class="gh-cap">AI 합성소</div>
+            <div class="gh-big">두 AI를 하나로 합치기</div>
+            <div class="gh-sub">내가 만든 AI 둘을 합쳐 더 똑똑한 AI로</div>
+          </div>
+          <button class="gh-go" id="ghHeroFuse">⚡ 합성</button>
+        </div>
+        <!-- 📚 아래는 '배우기' 영역 — 위 히어로(합성 실행)와 역할이 다름 -->
+        <details class="tab-tools" open>
+          <summary>📚 원리 배우기 — 논문 실습 (무료)</summary>
+        <div class="muted small" style="margin:4px 0 8px">📄 = 논문으로 배우기 · 🔒 = 앱에서 직접 합성</div>
         <div class="surg-grid">
-          <div class="surg-card" data-nb="model_merging">
+          <div class="surg-card" data-nb="model_merging" title="두 AI 가중치를 섞어 둘 다 잘하는 모델 — SLERP·mergekit">
             <div class="surg-emoji">🧬</div>
             <div class="surg-t">모델 합치기</div>
-            <div class="surg-d" title="두 AI 가중치를 섞어 둘 다 잘하는 모델 — SLERP·mergekit">두 AI를 섞어 둘 다 잘하게</div>
-            <div class="surg-tag">실습 노트북 준비됨</div>
+            <button class="surg-try" data-try="slerp">🔒 합성</button>
           </div>
-          <div class="surg-card" data-nb="lora">
-            <div class="surg-emoji">🎓</div>
-            <div class="surg-t">내 데이터로 가르치기</div>
-            <div class="surg-d" title="작은 어댑터(LoRA)만 학습해 내 지식·말투를 체득 — 장기기억의 원리">내 지식·말투 가르치기</div>
-            <div class="surg-tag">실습 노트북 준비됨</div>
-          </div>
-          <div class="surg-card" data-nb="task_arithmetic">
+          <div class="surg-card" data-nb="task_arithmetic" title="능력=벡터. 학습모델−원본으로 능력만 추출·이식 — Editing Models with Task Arithmetic (2212.04089)">
             <div class="surg-emoji">➗</div>
-            <div class="surg-t">능력 더하고 빼기</div>
-            <div class="surg-d" title="능력=벡터. 학습모델−원본으로 능력만 추출·이식 — Task Arithmetic">능력만 추출해 이식</div>
-            <div class="surg-tag">실습 노트북 준비됨</div>
+            <div class="surg-t">Task Arithmetic</div>
+            <button class="surg-try" data-try="task_add">🔒 합성</button>
           </div>
-          <div class="surg-card" data-nb="interpret">
+          <div class="surg-card" data-nb="lora" title="작은 어댑터(LoRA)만 학습해 내 지식·말투를 체득 — 장기기억의 원리">
+            <div class="surg-emoji">🎓</div>
+            <div class="surg-t">데이터로 가르치기</div>
+            <div class="surg-tag" title="실습 노트북 준비됨">📓</div>
+          </div>
+          <div class="surg-card" data-nb="interpret" title="생각이 레이어마다 또렷해지는 과정·주목 패턴 시각화 — transformer_lens">
             <div class="surg-emoji">🔬</div>
-            <div class="surg-t">AI 내부 들여다보기</div>
-            <div class="surg-d" title="생각이 레이어마다 또렷해지는 과정·주목 패턴 시각화 — transformer_lens">생각 흐름 시각화</div>
-            <div class="surg-tag">실습 노트북 준비됨</div>
+            <div class="surg-t">내부 들여다보기</div>
+            <div class="surg-tag" title="실습 노트북 준비됨">📓</div>
           </div>
-          <div class="surg-card" data-nb="knowledge_edit">
+          <div class="surg-card" data-nb="knowledge_edit" title="특정 사실이 저장된 가중치 위치를 찾아 직접 수정 — ROME·MEMIT">
             <div class="surg-emoji">📝</div>
             <div class="surg-t">기억 바꾸기</div>
-            <div class="surg-d" title="특정 사실이 저장된 가중치 위치를 찾아 직접 수정 — ROME·MEMIT">기억 직접 수정</div>
-            <div class="surg-tag">곧</div>
+            <div class="surg-tag" title="곧 추가돼요">🔜</div>
           </div>
-          <div class="surg-card" data-nb="refusal">
+          <div class="surg-card" data-nb="refusal" title="AI가 왜 거절하는지 가중치 속 '거부 방향'을 찾아 시각화 — Arditi 2024 (제거 X)">
             <div class="surg-emoji">🧭</div>
             <div class="surg-t">거부 방향 해부</div>
-            <div class="surg-d" title="AI가 왜 거절하는지 가중치 속 '거부 방향'을 찾아 시각화 — Arditi 2024">거부 이유 시각화</div>
-            <div class="surg-tag">연구 재현 · 제거 X</div>
+            <div class="surg-tag" title="연구 재현 · 제거 X">🔬</div>
           </div>
-          <div class="surg-card" data-nb="steering">
+          <div class="surg-card" data-nb="steering" title="가중치 안 바꾸고 추론 중 활성화로 행동 조종 — Activation Steering">
             <div class="surg-emoji">🎚️</div>
-            <div class="surg-t">실시간 성격 조종</div>
-            <div class="surg-d" title="가중치 안 바꾸고 추론 중 활성화로 행동 조종 — Activation Steering">실시간 성격 조종</div>
-            <div class="surg-tag">실습 노트북 준비됨</div>
+            <div class="surg-t">성격 조종</div>
+            <div class="surg-tag" title="실습 노트북 준비됨">📓</div>
           </div>
         </div>
-        <div class="surg-foot">
-          📚 <b>연구 로드맵</b> — 논문 7편 + 실습
-          <button id="surgRoadmapBtn" class="lf-ghost">펼치기</button>
-        </div>
+        <div class="surg-foot">📚 <b>연구 로드맵</b> · 논문 7편<button id="surgRoadmapBtn" class="lf-ghost">펼치기</button></div>
         <div class="surg-roadmap hidden" id="surgRoadmap"></div>
-        <div class="muted small" style="margin-top:8px;color:#9fd9b0" title="검열 제거(abliteration)는 원리 이해·시각화까지만. 무삭제 모델 제작·배포는 하지 않습니다.">🔒 원리 이해·시각화까지만 (무삭제 모델 배포 X)</div>
+        <div class="muted small" style="margin-top:8px;color:#9fd9b0" title="검열 제거(abliteration)는 원리 이해·시각화까지만. 무삭제 모델 제작·배포는 하지 않습니다.">🔒 원리 이해·시각화까지만</div>
+        </details>
       </div>
     </div>
   </div>
