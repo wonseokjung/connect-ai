@@ -8,11 +8,12 @@ import { spawn, spawnSync } from 'child_process';
 
 // ── refactor/split-extension: 잎(leaf) 유틸을 core/* 모듈로 분리 (동작 보존 이동) ──
 import { gitExec, gitExecSafe, gitRun, isGitAvailable, validateGitRemoteUrl, classifyGitError, getRemoteDefaultBranch, ensureInitialCommit, ensureBrainGitignore, GitErrorKind } from './core/git';
-import { safeResolveInside, _resolveFlexiblePath, safeBasename } from './core/fs-safe';
+import { safeResolveInside, _resolveFlexiblePath, safeBasename, _safeReadText } from './core/fs-safe';
 import { _globMatch, _globToRegex, _grepFiles, _renderUnifiedDiff } from './core/search';
 import { _revealInOsExplorer, _openInDefaultApp, _pythonCmd, _detectPythonCmd, _invalidatePythonCmdCache, _isPythonMissing, _pythonMissingHint, runCommandCaptured } from './core/proc';
 import { MAX_HTTP_BODY, readRequestBody, _CONNECT_AI_VERSION, _versionLessThan, _probeExistingBridge, _killProcessesOnPort } from './core/bridge';
 import { getConfig, _isLMStudioEngine, _ensureBrainDir, EXCLUDED_DIRS, MAX_CONTEXT_SIZE, _loadPrompt, _loadToolSeed } from './config';
+import { runtime } from './runtime-state';
 
 // ============================================================
 // Security helpers
@@ -216,8 +217,8 @@ async function setCompanyDir(absPath: string) {
     const cfg = vscode.workspace.getConfiguration('connectAiLab');
     await cfg.update('localBrainPath', absPath, vscode.ConfigurationTarget.Global);
   } catch {
-    if (_extCtx) {
-      try { await _extCtx.globalState.update('localBrainPath', absPath); } catch {}
+    if (runtime.extCtx) {
+      try { await runtime.extCtx.globalState.update('localBrainPath', absPath); } catch {}
     }
   }
 }
@@ -280,8 +281,8 @@ function _migrateCompanyToBrain() {
 
     const cfg = vscode.workspace.getConfiguration('connectAiLab');
     let legacy = ((cfg.get('companyDir') as string | undefined) || '').trim();
-    if (!legacy && _extCtx) {
-      legacy = (_extCtx.globalState.get<string>('companyDir') || '').trim();
+    if (!legacy && runtime.extCtx) {
+      legacy = (runtime.extCtx.globalState.get<string>('companyDir') || '').trim();
     }
     if (legacy.startsWith('~/')) legacy = path.join(os.homedir(), legacy.slice(2));
     if (!legacy) legacy = path.join(brain, 'Company');
@@ -299,8 +300,8 @@ function _migrateCompanyToBrain() {
       try { fs.rmdirSync(legacy); } catch {}
     }
     try { cfg.update('companyDir', undefined, vscode.ConfigurationTarget.Global); } catch {}
-    if (_extCtx) {
-      try { _extCtx.globalState.update('companyDir', undefined); } catch {}
+    if (runtime.extCtx) {
+      try { runtime.extCtx.globalState.update('companyDir', undefined); } catch {}
     }
     console.log(`Connect AI: migrated ${legacy} → ${brain}`);
   } catch (e) {
@@ -2133,8 +2134,8 @@ function startReportScheduler() {
 function startTelegramPolling() {
     if (_telegramPollTimer) return;
     // Restore last known offset so we never replay messages after a restart
-    if (_extCtx) {
-        _telegramPollOffset = _extCtx.globalState.get<number>('telegramPollOffset', 0);
+    if (runtime.extCtx) {
+        _telegramPollOffset = runtime.extCtx.globalState.get<number>('telegramPollOffset', 0);
     }
     const tick = async () => {
         if (_telegramPolling) return;
@@ -2146,8 +2147,8 @@ function startTelegramPolling() {
            Antigravity 같은 fork에서 namespace가 다를 수 있어서, 진짜 공유는 파일 한 군데. */
         const fileOffset = _readTelegramOffset();
         if (fileOffset > _telegramPollOffset) _telegramPollOffset = fileOffset;
-        if (_extCtx) {
-            const stored = _extCtx.globalState.get<number>('telegramPollOffset', 0);
+        if (runtime.extCtx) {
+            const stored = runtime.extCtx.globalState.get<number>('telegramPollOffset', 0);
             if (stored > _telegramPollOffset) _telegramPollOffset = stored;
         }
         try {
@@ -2164,7 +2165,7 @@ function startTelegramPolling() {
             const updates = res.data?.result || [];
             for (const u of updates) {
                 _telegramPollOffset = (u.update_id || 0) + 1;
-                try { _extCtx?.globalState.update('telegramPollOffset', _telegramPollOffset); } catch {}
+                try { runtime.extCtx?.globalState.update('telegramPollOffset', _telegramPollOffset); } catch {}
                 /* v2.89.24 — 유저 레벨 파일에도 즉시 commit. 다른 창이 다음 tick에 이걸 읽어서
                    같은 update 두 번 처리하지 않게. */
                 _writeTelegramOffset(_telegramPollOffset);
@@ -2956,7 +2957,7 @@ async function _runDailyBriefingOnce(force = false): Promise<void> {
         const { token, chatId } = readTelegramConfig();
         if (!token || !chatId) return; // no channel
         const today = new Date().toISOString().slice(0, 10);
-        const lastSent = _extCtx?.globalState.get<string>(_DAILY_BRIEFING_KEY, '');
+        const lastSent = runtime.extCtx?.globalState.get<string>(_DAILY_BRIEFING_KEY, '');
         if (!force && lastSent === today) return; // already sent today
 
         /* Build the brief — kept text-only so the prompt stays small. */
@@ -3026,8 +3027,8 @@ async function _runDailyBriefingOnce(force = false): Promise<void> {
 
         const body = `🌅 *${company} — 아침 브리핑*\n_${dateStr}_\n${calBlock}${taskBlock}${revBlock}${yhBlock}\n_명령: \`/today\` 다시 보기 · \`/tools\` 도구 상태_`;
         await sendTelegramReport(body);
-        if (_extCtx) {
-            _extCtx.globalState.update(_DAILY_BRIEFING_KEY, today);
+        if (runtime.extCtx) {
+            runtime.extCtx.globalState.update(_DAILY_BRIEFING_KEY, today);
         }
         try { appendConversationLog({ speaker: '비서', emoji: '🌅', section: '데일리 브리핑', body: body.slice(0, 1000) }); } catch { /* ignore */ }
         /* v2.82: removed the system-note injection into chat. Daily briefing
@@ -3095,14 +3096,14 @@ async function _runRevenueWatcherOnce(): Promise<void> {
         const txs: any[] = Array.isArray(data?.transactions) ? data.transactions : [];
         if (txs.length === 0) return;
 
-        const lastSeenTs = Number(_extCtx?.globalState.get<number>(_REVENUE_LAST_SEEN_TS_KEY, 0) || 0);
-        const lastSeenId = String(_extCtx?.globalState.get<string>(_REVENUE_LAST_SEEN_KEY, '') || '');
+        const lastSeenTs = Number(runtime.extCtx?.globalState.get<number>(_REVENUE_LAST_SEEN_TS_KEY, 0) || 0);
+        const lastSeenId = String(runtime.extCtx?.globalState.get<string>(_REVENUE_LAST_SEEN_KEY, '') || '');
 
         /* 첫 실행 — 알림 보내지 말고 baseline 만 기록 (사용자 폭주 방지) */
         if (lastSeenTs === 0) {
             const newest = txs[0];
-            _extCtx?.globalState.update(_REVENUE_LAST_SEEN_TS_KEY, newest.ts_epoch);
-            _extCtx?.globalState.update(_REVENUE_LAST_SEEN_KEY, newest.id);
+            runtime.extCtx?.globalState.update(_REVENUE_LAST_SEEN_TS_KEY, newest.ts_epoch);
+            runtime.extCtx?.globalState.update(_REVENUE_LAST_SEEN_KEY, newest.id);
             return;
         }
 
@@ -3137,8 +3138,8 @@ async function _runRevenueWatcherOnce(): Promise<void> {
 
         /* baseline 업데이트 — 가장 최신 거래로 */
         const newest = fresh[fresh.length - 1];
-        _extCtx?.globalState.update(_REVENUE_LAST_SEEN_TS_KEY, newest.ts_epoch);
-        _extCtx?.globalState.update(_REVENUE_LAST_SEEN_KEY, newest.id);
+        runtime.extCtx?.globalState.update(_REVENUE_LAST_SEEN_TS_KEY, newest.ts_epoch);
+        runtime.extCtx?.globalState.update(_REVENUE_LAST_SEEN_KEY, newest.id);
     } catch (e: any) {
         console.warn('[Connect AI] revenue watcher tick 실패:', e?.message || e);
     }
@@ -4331,9 +4332,6 @@ function readAgentCustomPrompt(agentId: string): string {
   return extra;
 }
 
-function _safeReadText(p: string): string {
-  try { return fs.readFileSync(p, 'utf-8'); } catch { return ''; }
-}
 
 function ensureCompanyStructure(): string {
   const dir = getCompanyDir();
@@ -7028,7 +7026,6 @@ async function _safeGitAutoSyncCompany(commitMsg: string, provider: any = null) 
 // register externally-opened graph panels with the provider for thinking
 // event broadcasts.
 let _activeChatProvider: SidebarChatProvider | null = null;
-let _extCtx: vscode.ExtensionContext | null = null;
 
 // One-time recovery for users upgrading from <=2.22.5, where the first-run
 // auto-detect wrote the engine URL to a typo'd config key (`ollamaBase`) that
@@ -7122,7 +7119,7 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('🔥 Connect AI V2 활성화 완료!');
     console.log('Connect AI extension activated.');
 
-    _extCtx = context;
+    runtime.extCtx = context;
     /* v2.89.138 — extensionUri 즉시 세팅. 이전엔 "우리 회사 대시보드" 명령
        처음 열기 전엔 _dashboardExtensionUri=null 이라 ApiConnectionsPanel /
        RevenueDashboardPanel 가 _loadWebviewAsset() 으로 빈 CSS·JS 받음 →
@@ -12150,8 +12147,8 @@ class OfficePanel {
         if (explicit && fs.existsSync(explicit)) return explicit;
         // Dev mode: extension repo includes the LimeZu pack at
         // `assets/pixel/moderninteriors-win` (excluded from vsix via .vscodeignore).
-        if (_extCtx) {
-            const dev = path.join(_extCtx.extensionPath, 'assets', 'pixel', 'moderninteriors-win');
+        if (runtime.extCtx) {
+            const dev = path.join(runtime.extCtx.extensionPath, 'assets', 'pixel', 'moderninteriors-win');
             if (fs.existsSync(dev)) return dev;
         }
         return '';
@@ -16601,7 +16598,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     const model = (cfg.get<string>('defaultModel') || '').trim();
                     const brain = (cfg.get<string>('localBrainPath') || '').trim();
                     const repo = (cfg.get<string>('secondBrainRepo') || '').trim();
-                    const dismissed = !!_extCtx?.globalState.get('onboardingDismissed');
+                    const dismissed = !!runtime.extCtx?.globalState.get('onboardingDismissed');
                     let engineDetected = '';
                     try { await axios.get('http://127.0.0.1:1234/v1/models', { timeout: 1000 }); engineDetected = 'LM Studio'; }
                     catch { try { await axios.get('http://127.0.0.1:11434/api/tags', { timeout: 1000 }); engineDetected = 'Ollama'; } catch {} }
@@ -16670,7 +16667,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     break;
                 }
                 case 'dismissOnboarding': {
-                    try { await _extCtx?.globalState.update('onboardingDismissed', true); } catch {}
+                    try { await runtime.extCtx?.globalState.update('onboardingDismissed', true); } catch {}
                     break;
                 }
                 case 'corporateInit':

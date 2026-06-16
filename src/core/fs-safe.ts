@@ -3,8 +3,15 @@
  * 의존: path·os·process 뿐. */
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
 
 export const MAX_FILE_NAME_LEN = 200;
+
+/** 파일 텍스트 읽기 — 실패(미존재·권한 등) 시 조용히 빈 문자열. 회사/에이전트
+ *  메타데이터(identity.md·config.md·*.json)를 읽는 곳에서 광범위하게 쓰임. */
+export function _safeReadText(p: string): string {
+  try { return fs.readFileSync(p, 'utf-8'); } catch { return ''; }
+}
 
 /**
  * Resolve `relPath` against `root` and confirm the result stays within `root`.
