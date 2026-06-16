@@ -377,7 +377,7 @@
       <div class="ai-current" id="aiCurrent"></div>
       <div class="ai-sec">내 모델</div>
       <div class="local-models" id="localModels"></div>
-      <button class="surgery-entry" id="surgeryOpenBtn"><span class="se-ic">🔪</span><span class="se-tx"><b>AI 수술실</b><span>두 두뇌를 하나로 — 합치기</span></span><span class="se-arr">→</span></button>
+      <button class="surgery-entry" id="surgeryOpenBtn"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 합성소</b><span>두 두뇌를 하나로 — 합치기</span></span><span class="se-arr">→</span></button>
       <div class="ai-sec">검색</div>
       <div class="hf-search">
         <input id="hfQuery" placeholder="qwen, llama, gemma…" autocomplete="off" />
@@ -418,10 +418,10 @@
       </details>
     </div>
   </div>
-  <!-- 🔪 AI 수술실 — 두 모델을 GPU(HF Jobs)에서 합치기. 코랩 불필요. -->
+  <!-- 🔪 AI 합성소 — 두 모델을 GPU(HF Jobs)에서 합치기. 코랩 불필요. -->
   <div class="overlay hidden" id="surgeryPanel">
     <div class="overlay-card surgery-card">
-      <div class="overlay-head">🔪 AI 수술실 <span class="surg-beta">BETA</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
+      <div class="overlay-head">🔪 AI 합성소 <span class="surg-beta">BETA</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
       <div class="surg-body" id="surgBody"></div>
     </div>
   </div>
@@ -449,7 +449,7 @@
       <div class="manage-tabs">
         <button class="btab active" data-btab="short">⚡ 단기 기억</button>
         <button class="btab" data-btab="long">🧬 장기 기억 <span class="beta">BETA</span></button>
-        <button class="btab" data-btab="surgery">🔬 AI 수술 <span class="beta">BETA</span></button>
+        <button class="btab" data-btab="surgery">🧬 AI 합성 <span class="beta">BETA</span></button>
       </div>
       <!-- 단기 기억 = GitHub 동기화 -->
       <div class="bsec" id="bsec-short">
@@ -461,14 +461,14 @@
         <!-- 🔌 에제르 브릿지 상태 — 주입이 안 보이는 이유를 알려줌 -->
         <div class="bridge-row hidden" id="bridgeRow"></div>
         <!-- 🧠 제이 브레인 링크 — 멘토 두뇌를 비번으로 받기(구독자). 게시(대장)는 스크립트로 처리. -->
-        <div class="mentor-bar">
-          <div class="mentor-title">🧠 <b>제이 브레인 링크</b> <span class="muted">멘토 두뇌 가져오기</span></div>
+        <details class="mentor-bar">
+          <summary class="mentor-title">🧠 <b>제이 브레인 링크</b> <span class="muted">멘토 두뇌 가져오기</span></summary>
           <div class="mentor-form">
             <input id="mentorRepo" placeholder="멘토 레포 (예: wonseokjung/memory)" autocomplete="off" />
             <input id="mentorPw" type="password" placeholder="비밀번호" autocomplete="off" />
             <button id="mentorLinkBtn" class="oc-primary">📥 받기</button>
           </div>
-        </div>
+        </details>
         <div class="mem-status" id="mentorStatus"></div>
         <!-- 📊 분야별 두뇌 성장 — "어떻게 쌓이는지"가 눈에 보이는 곳 -->
         <div class="cat-growth" id="catGrowth"></div>
@@ -478,15 +478,15 @@
       </div>
       <!-- 장기 기억 = HuggingFace 학습 (단기 → 장기 변환 흐름) -->
       <div class="bsec hidden" id="bsec-long">
-        <div class="muted" style="font-size:12px;line-height:1.6">🧬 <b>단기(메모) → 장기(몸에 밴 지식).</b> 쌓인 단기 지식을 <b>데이터셋으로 바꿔 내 모델에 파인튜닝</b>합니다.</div>
+        <div class="muted" style="font-size:12px" title="쌓인 단기 지식을 데이터셋으로 바꿔 내 모델에 파인튜닝합니다">🧬 <b>단기 → 장기</b> · 쌓인 지식을 내 모델에 각인</div>
         <!-- 🎓 학습 방식 -->
         <div class="method-pick" id="methodPick"></div>
         <div class="method-card" id="methodCard"></div>
         <!-- 흐름: ①변환/생성 ②업로드 ③학습 (방식별 분기) -->
         <div id="sftFlow">
         <div class="long-flow">
-          <div class="lf-src">⚡ 단기 지식 <b id="longShortCount">0</b>개 <span class="muted">— 이걸 장기 기억으로 각인합니다</span></div>
-          <div class="lf-quick">💡 <b>바로 🚀 학습을 눌러도 돼요</b> — AI가 알아서 변환해 학습해요.</div>
+          <div class="lf-src">⚡ 단기 지식 <b id="longShortCount">0</b>개 <span class="muted">→ 장기 기억으로</span></div>
+          <div class="lf-quick">💡 <b>🚀 학습</b>만 눌러도 AI가 알아서 해요</div>
           <details class="lf-optional"><summary>🔧 데이터 직접 다듬기 — ①변환 ②업로드 <b>(선택·고급)</b></summary>
           <!-- ① 변환/생성 -->
           <div class="lf-step" id="lfStep1">
@@ -516,7 +516,7 @@
             <span class="lf-num">3</span>
             <div class="lf-body"><b>🧠 모델 이름 정하고 학습</b>
               <input id="modelNameInput" class="ds-name" placeholder="my-brain-v1" />
-              <div class="muted small" style="margin:-2px 0 6px;color:#ffb84d">⚠️ 모델 이름은 <b>영어·숫자·하이픈(-)</b>만 가능해요. 한글은 인식 안 돼요 (예: my-brain-v1)</div>
+              <div class="muted small" style="margin:-2px 0 6px;color:#ffb84d" title="한글은 인식 안 돼요. 영어·숫자·하이픈(-)만 가능">⚠️ 영어·숫자·하이픈만 (예: my-brain-v1)</div>
               <div class="train-set">
                 <div class="ts-row"><span class="ts-lab">학습 강도</span>
                   <div class="ts-presets">
@@ -548,13 +548,11 @@
                     <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
                 </details>
               </div>
-              <div class="muted small" style="margin-top:6px">내 모델 위에 누적 학습 → .gguf 모델</div>
               <div class="train-acts">
                 <input id="cloudCode" class="ws-input" style="width:130px;flex:0 0 auto" placeholder="비밀번호" maxlength="8" type="password" autocomplete="off"/>
                 <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버에서 학습 — HF토큰·코랩 불필요 (멤버 전용·월 1회 무료)"><span>🚀 서버에서 바로 학습</span><span class="beta-pill">무료·토큰 불필요</span></button>
                 <button id="hfTrainBtn" class="train-free" disabled title="②업로드를 하면 켜져요 — Colab이 HF에 올라간 데이터셋을 받아가야 해서요">🆓 Colab으로 직접 학습 <span class="tf-cond">②업로드 후</span></button>
               </div>
-              <div class="train-why muted small">🚀 <b>서버 학습</b> = 바로(서버가 다 해줌) · 🆓 <b>Colab</b> = 직접 돌리는 거라 <b>②업로드 먼저</b></div>
               <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
             </div>
           </div>
@@ -564,61 +562,61 @@
         <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 바탕화면 JSONL 보기</button></div>
       </div>
 
-      <!-- 🔬 AI 수술 = weight surgery (학습 없이 가중치 직접 조작) -->
+      <!-- 🧬 AI 합성 = weight surgery (학습 없이 가중치 직접 조작) -->
       <div class="bsec hidden" id="bsec-surgery">
-        <div class="muted" style="font-size:12px;line-height:1.6">🔬 <b>AI 수술 — 학습 없이 가중치를 직접 조작.</b> 파인튜닝(가르치기)과 다른 길. 능력을 <b>더하고·합치고·해부</b>한다.</div>
-        <button class="surgery-entry" id="surgeryOpenBtn2" style="margin:12px 0 6px"><span class="se-ic">🔪</span><span class="se-tx"><b>AI 수술실 — 두 모델 합치기</b><span>앱에서 바로 (HF GPU · 코랩 불필요)</span></span><span class="se-arr">→</span></button>
-        <div class="muted small" style="margin:4px 0 8px">아래는 <b>배우는 실습 노트북</b> (Colab) — 카드를 누르면 자료가 떠요</div>
+        <div class="muted" style="font-size:12px" title="파인튜닝(가르치기)과 다른 길 — 능력을 더하고·합치고·해부합니다">🧬 <b>합성·해부</b> · 학습 없이 가중치를 직접 다뤄요</div>
+        <button class="surgery-entry" id="surgeryOpenBtn2" style="margin:12px 0 6px"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 합성소 — 두 모델 합치기</b><span>앱에서 바로 (코랩 불필요)</span></span><span class="se-arr">→</span></button>
+        <div class="muted small" style="margin:4px 0 8px">📚 <b>실습 노트북</b> — 누르면 자료가 떠요</div>
         <div class="surg-grid">
           <div class="surg-card" data-nb="model_merging">
             <div class="surg-emoji">🧬</div>
             <div class="surg-t">모델 합치기</div>
-            <div class="surg-d">두 AI 가중치를 섞어 둘 다 잘하는 모델 (SLERP·mergekit)</div>
+            <div class="surg-d" title="두 AI 가중치를 섞어 둘 다 잘하는 모델 — SLERP·mergekit">두 AI를 섞어 둘 다 잘하게</div>
             <div class="surg-tag">실습 노트북 준비됨</div>
           </div>
           <div class="surg-card" data-nb="lora">
             <div class="surg-emoji">🎓</div>
             <div class="surg-t">내 데이터로 가르치기</div>
-            <div class="surg-d">작은 어댑터(LoRA)만 학습해 내 지식·말투 체득 — 장기기억의 원리</div>
+            <div class="surg-d" title="작은 어댑터(LoRA)만 학습해 내 지식·말투를 체득 — 장기기억의 원리">내 지식·말투 가르치기</div>
             <div class="surg-tag">실습 노트북 준비됨</div>
           </div>
           <div class="surg-card" data-nb="task_arithmetic">
             <div class="surg-emoji">➗</div>
             <div class="surg-t">능력 더하고 빼기</div>
-            <div class="surg-d">능력=벡터. 학습모델−원본으로 능력만 추출·이식 (Task Arithmetic)</div>
+            <div class="surg-d" title="능력=벡터. 학습모델−원본으로 능력만 추출·이식 — Task Arithmetic">능력만 추출해 이식</div>
             <div class="surg-tag">실습 노트북 준비됨</div>
           </div>
           <div class="surg-card" data-nb="interpret">
             <div class="surg-emoji">🔬</div>
             <div class="surg-t">AI 내부 들여다보기</div>
-            <div class="surg-d">생각이 레이어마다 또렷해지는 과정·주목 패턴 시각화 (transformer_lens)</div>
+            <div class="surg-d" title="생각이 레이어마다 또렷해지는 과정·주목 패턴 시각화 — transformer_lens">생각 흐름 시각화</div>
             <div class="surg-tag">실습 노트북 준비됨</div>
           </div>
           <div class="surg-card" data-nb="knowledge_edit">
             <div class="surg-emoji">📝</div>
             <div class="surg-t">기억 바꾸기</div>
-            <div class="surg-d">특정 사실이 저장된 가중치 위치를 찾아 직접 수정 (ROME·MEMIT)</div>
+            <div class="surg-d" title="특정 사실이 저장된 가중치 위치를 찾아 직접 수정 — ROME·MEMIT">기억 직접 수정</div>
             <div class="surg-tag">곧</div>
           </div>
           <div class="surg-card" data-nb="refusal">
             <div class="surg-emoji">🧭</div>
             <div class="surg-t">거부 방향 해부</div>
-            <div class="surg-d">AI가 왜 거절하는지 가중치 속 '거부 방향'을 찾아 시각화 (Arditi 2024)</div>
+            <div class="surg-d" title="AI가 왜 거절하는지 가중치 속 '거부 방향'을 찾아 시각화 — Arditi 2024">거부 이유 시각화</div>
             <div class="surg-tag">연구 재현 · 제거 X</div>
           </div>
           <div class="surg-card" data-nb="steering">
             <div class="surg-emoji">🎚️</div>
             <div class="surg-t">실시간 성격 조종</div>
-            <div class="surg-d">가중치 안 바꾸고 추론 중 활성화로 행동 조종 (Activation Steering)</div>
+            <div class="surg-d" title="가중치 안 바꾸고 추론 중 활성화로 행동 조종 — Activation Steering">실시간 성격 조종</div>
             <div class="surg-tag">실습 노트북 준비됨</div>
           </div>
         </div>
         <div class="surg-foot">
-          📚 <b>연구 로드맵</b>: 논문 7편 + 실습 노트북 시리즈로 "AI 해부·통제"를 정복.
-          <button id="surgRoadmapBtn" class="lf-ghost">📚 로드맵 펼치기</button>
+          📚 <b>연구 로드맵</b> — 논문 7편 + 실습
+          <button id="surgRoadmapBtn" class="lf-ghost">펼치기</button>
         </div>
         <div class="surg-roadmap hidden" id="surgRoadmap"></div>
-        <div class="muted small" style="margin-top:8px;color:#9fd9b0">🔒 원칙: 검열 제거(abliteration)는 <b>원리 이해·시각화까지만</b>. 무삭제 모델 제작·배포는 하지 않아요.</div>
+        <div class="muted small" style="margin-top:8px;color:#9fd9b0" title="검열 제거(abliteration)는 원리 이해·시각화까지만. 무삭제 모델 제작·배포는 하지 않습니다.">🔒 원리 이해·시각화까지만 (무삭제 모델 배포 X)</div>
       </div>
     </div>
   </div>

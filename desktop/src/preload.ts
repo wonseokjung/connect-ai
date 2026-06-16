@@ -78,7 +78,8 @@ contextBridge.exposeInMainWorld('connect', {
   trainCloudStatus: () => ipcRenderer.invoke('train:cloudStatus'),
   surgeryMerge: (a: string, b: string, method?: string, t?: string, outName?: string, password?: string) => ipcRenderer.invoke('surgery:merge', a, b, method || 'slerp', t || '0.5', outName || '', password || ''),   // 🔪 합치기 수술(HF Jobs)
   gpuUsage: (kind?: string) => ipcRenderer.invoke('gpu:usage', kind || 'train'),   // 🔒 GPU 월 사용량(학습/수술 각각)
-  hfMyModels: () => ipcRenderer.invoke('hf:myModels'),   // 🤗 내 HF 모델 목록(수술 합치기용)
+  hfMyModels: () => ipcRenderer.invoke('hf:myModels'),   // 🧬 내가 만든 AI(내 HF 모델)
+  hfSearchModels: (q: string) => ipcRenderer.invoke('hf:searchModels', q),   // 🔍 HF 모델 검색(gemma·llama 등)
   trainCloudInstall: () => ipcRenderer.invoke('train:cloudInstall'),
   authSignup: (email: string, pw: string, profile?: any) => ipcRenderer.invoke('auth:signup', email, pw, profile),   // 👤 회원(이름·전화·약관)
   authLogin: (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
@@ -177,6 +178,8 @@ contextBridge.exposeInMainWorld('connect', {
   plazaLabStop: () => ipcRenderer.invoke('plaza:labStop'),
   plazaLabPersonas: () => ipcRenderer.invoke('plaza:labPersonas'),
   plazaDbUrl: () => ipcRenderer.invoke('plaza:dburl'),
+  plazaProfile: (uid: string) => ipcRenderer.invoke('plaza:profile', uid),   // 🎒 캐릭터 보유 현황 조회
+  inventory: () => ipcRenderer.invoke('inventory:get'),                        // 🎒 내 AI 보유 현황(모델·데이터셋·합성·레벨)
   onPlazaPeer: (cb: (m: any) => void) => {
     const h = (_e: any, m: any) => cb(m);
     ipcRenderer.on('plaza:peer', h);

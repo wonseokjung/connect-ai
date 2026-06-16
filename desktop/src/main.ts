@@ -34,7 +34,7 @@ import { setApprovalFile, listApprovals, setApprovalStatus, pendingApprovals, ap
 import { spawnSync, spawn, ChildProcess } from 'child_process';
 import { agentPrompt } from './engine/persona';
 import { AGENTS, AGENT_ORDER } from './agents';
-import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, fetchPresence, saveArchive, fetchArchive, PlazaSession, PlazaMessage } from './plaza';
+import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, fetchMessages, fetchPresence, saveArchive, fetchArchive, putProfile, fetchProfile, PlazaSession, PlazaMessage } from './plaza';
 import { startRemote, remoteInfo } from './engine/remote';
 import { startRelay, relayPush, RelayDeps } from './engine/relay';
 
@@ -49,6 +49,7 @@ interface Config {
   autoSync: boolean; lastSyncCount: number; lastTrainHintCount: number;   // 🔄 자동 루프(GitHub 자동 커밋 + 학습 추천)
   lastCloudTrainAt?: number; cloudJob?: any; trainBaseModel?: string; brainModelName?: string;   // ☁️ 클라우드 학습(HF Jobs)
   gpuUsage?: { month: string; train: number; surgery: number };   // 🔒 GPU 기능 월 사용량 (학습·수술 각각 월 3회)
+  stats?: { trains: number; datasets: number; fusions: number };   // 🎒 누적 전적 — 학습(레벨업)·데이터셋·합성 횟수 (인벤토리/광장 프로필용)
   trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
@@ -409,7 +410,16 @@ ipcMain.handle('local:setOptions', async (_e, o: any) => {
 ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
 ipcMain.handle('hf:recommended', () => RECOMMENDED);
 ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
-// 🤗 내 허깅페이스 모델 목록 — 수술실(합치기)에서 내 모델을 골라 합치도록 (safetensors 모델, GGUF 아님)
+// 🔍 HF 모델 검색 — 수술실에서 합칠 모델(gemma·llama 등) 찾기 (전체 모델, GGUF 아님)
+ipcMain.handle('hf:searchModels', async (_e, q: string) => {
+  if (!q || q.trim().length < 2) return { ok: true, models: [] };
+  try {
+    const r: any = await axios.get(`https://huggingface.co/api/models?search=${encodeURIComponent(q.trim())}&limit=24&sort=downloads&direction=-1`, { timeout: 12000 });
+    const models = (r.data || []).map((m: any) => m.id || m.modelId).filter(Boolean);
+    return { ok: true, models };
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+// 🧬 내가 만든 인공지능 — 내 HF 계정의 모델(학습·수술 결과). 수술실에서 다시 합치기
 ipcMain.handle('hf:myModels', async () => {
   const h = connOf('huggingface');
   if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 토큰을 먼저 넣어주세요.' };
@@ -1735,6 +1745,44 @@ function gpuGate(password: string, kind: GpuKind): { ok: boolean; error?: string
 function gpuUse(kind: GpuKind) { const c = loadConfig(); const m = gpuMonth(); const u: any = (c.gpuUsage && (c.gpuUsage as any).month === m) ? c.gpuUsage : { month: m, train: 0, surgery: 0 }; saveConfig({ gpuUsage: { month: m, train: u.train || 0, surgery: u.surgery || 0, [kind]: (u[kind] || 0) + 1 } as any }); }
 ipcMain.handle('gpu:usage', (_e, kind: GpuKind = 'train') => { const used = gpuUsageOf(kind); return { used, limit: GPU_MONTHLY_LIMIT, left: Math.max(0, GPU_MONTHLY_LIMIT - used) }; });
 
+// 🎒 누적 전적 — 학습 1회 = 데이터셋 1개 + 레벨업, 합성 1회 = fusion. 인벤토리/광장 프로필의 원천.
+function bumpStat(kind: 'train' | 'fusion') {
+  const c = loadConfig(); const s = c.stats || { trains: 0, datasets: 0, fusions: 0 };
+  if (kind === 'train') saveConfig({ stats: { trains: (s.trains || 0) + 1, datasets: (s.datasets || 0) + 1, fusions: s.fusions || 0 } });
+  else saveConfig({ stats: { trains: s.trains || 0, datasets: s.datasets || 0, fusions: (s.fusions || 0) + 1 } });
+  if (plaza) void pushMyProfile(plaza.uid);   // 🎒 전적이 늘면 광장 프로필도 즉시 갱신
+}
+// 🎒 내 AI 보유 현황 — 로컬 모델 + 내 HF 모델 합산(보유), 누적 전적(데이터셋·합성·학습) 결합
+async function gatherInventory() {
+  const c = loadConfig();
+  const localList = (() => { try { return listLocalModels(modelsDir()); } catch { return []; } })();
+  let hfModels: string[] = [];
+  try {
+    const h = connOf('huggingface');
+    if (h.HF_TOKEN) {
+      const me = await hfUsername(h.HF_TOKEN);
+      if (me) { const r: any = await axios.get(`https://huggingface.co/api/models?author=${encodeURIComponent(me)}&limit=100&full=false`, { headers: { Authorization: `Bearer ${h.HF_TOKEN}` }, timeout: 12000 }); hfModels = (r.data || []).map((m: any) => m.id || m.modelId).filter(Boolean); }
+    }
+  } catch { /* HF 조회 실패해도 로컬 기준으로 표시 */ }
+  const s = c.stats || { trains: 0, datasets: 0, fusions: 0 };
+  const localCount = localList.length;
+  const models = localCount + hfModels.length;
+  const trains = s.trains || 0, datasets = s.datasets || 0, fusions = s.fusions || 0;
+  const topModel = (localList[0] as any)?.name || hfModels[0] || c.llmModel || '내 두뇌';
+  return { models, localModels: localCount, hfModels: hfModels.length, datasets, fusions, trains, totalLevel: trains + fusions, topModel };
+}
+ipcMain.handle('inventory:get', () => gatherInventory());
+
+// 🎒 광장 프로필 업로드 — 입장/전적 변동 시 내 인벤토리를 RTDB에 덮어쓰기(작은 객체 1개)
+async function pushMyProfile(uid: string) {
+  try {
+    const c = loadConfig(); const inv = await gatherInventory();
+    await putProfile({ uid, company: c.company || '1인 기업', emoji: c.plazaEmoji || '🖥️', models: inv.models, datasets: inv.datasets, fusions: inv.fusions, trains: inv.trains, totalLevel: inv.totalLevel, topModel: inv.topModel });
+  } catch { /* 프로필은 부가정보 — 실패해도 광장 동작엔 영향 없음 */ }
+}
+// 🎒 다른(또는 내) 캐릭터 클릭 시 그 회사의 보유 현황 조회
+ipcMain.handle('plaza:profile', (_e, uid: string) => fetchProfile(uid));
+
 ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   const gate = gpuGate(accessCode, 'train');   // 🔒 비번 0101 + 학습 월 3회
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
@@ -1751,7 +1799,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
       try {
         const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
         const d = r.data || {};
-        if (d.ok) { gpuUse('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
+        if (d.ok) { gpuUse('train'); bumpStat('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
       } catch (e: any) {
         const st = e?.response?.status;
@@ -1788,7 +1836,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
   const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
   const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
-  if (job.ok && job.jobId) { gpuUse('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
+  if (job.ok && job.jobId) { gpuUse('train'); bumpStat('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
   return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('train:cloudStatus', async () => {
@@ -1842,7 +1890,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
     datasetRepo: surgRepo, scriptFile: 'merge_uv.py', flavor: 'l4x1', timeout: '1h',
     env: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: String(t), OUTPUT_REPO: outRepo },   // ⚠️ 키 'T'는 HF Jobs가 거부 → MERGE_T
   });
-  if (job.ok && job.jobId) { gpuUse('surgery'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
+  if (job.ok && job.jobId) { gpuUse('surgery'); bumpStat('fusion'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('memstatus', async () => {
@@ -2300,7 +2348,9 @@ ipcMain.handle('plaza:enter', async () => {
   const uid = 'desk-' + Buffer.from(app.getPath('userData')).toString('base64').slice(0, 8).replace(/[^a-z0-9]/gi, '');
   const emoji = c.plazaEmoji || '🖥️';
   const speaker = c.agentName || '에이전트';
-  const me = { uid, company: c.company, emoji, agents: ['📺', '🎨', '💻', '📊', '✍️', '🔍'], source: 'connect-ai' as const };
+  const inv0 = await gatherInventory().catch(() => null);   // 🎒 보유 현황 요약을 명찰에 얹음(작은 숫자)
+  const me = { uid, company: c.company, emoji, agents: ['📺', '🎨', '💻', '📊', '✍️', '🔍'], source: 'connect-ai' as const, models: inv0?.models, level: inv0?.totalLevel };
+  void pushMyProfile(uid);   // 🎒 내 인벤토리 프로필을 광장에 올림(캐릭터 클릭 시 보임)
   const target = await detectTarget({ base: c.llmBase, model: c.llmModel });
   // 비서가 아니라 '학생'으로 토론 — 자기소개·"도와드릴게요" 멘트 방지
   const studentSys = `너는 'AI Agent University'의 똑똑한 학생 에이전트 '${speaker}'(소속: ${c.company})다. 토론에서 자기 생각을 당당하고 구체적으로 말한다. 너는 비서가 아니라 '학생'이다. 사장님 같은 표현, 자기소개, "도와드리겠습니다" 류 멘트는 절대 쓰지 않는다.`;

@@ -71,9 +71,14 @@ def main():
         lr_scheduler_type="linear", output_dir="outputs", report_to="none"))
     trainer.train()
 
-    # 3) 업로드 — LoRA + (앱 내장 엔진용) GGUF
-    model.push_to_hub(OUTPUT_REPO, token=HF_TOKEN)
-    tokenizer.push_to_hub(OUTPUT_REPO, token=HF_TOKEN)
+    # 3) 업로드 — 풀 병합 모델(safetensors, AI 수술 재합치기 가능) + (앱 엔진용) GGUF
+    try:
+        model.push_to_hub_merged(OUTPUT_REPO, tokenizer, save_method="merged_16bit", token=HF_TOKEN)
+        print(f"✅ 병합 모델 업로드 → {OUTPUT_REPO} (AI 수술실에서 다시 합칠 수 있어요)")
+    except Exception as e:
+        print(f"⚠️ 병합 업로드 실패, 어댑터로 폴백: {e}", file=sys.stderr)
+        model.push_to_hub(OUTPUT_REPO, token=HF_TOKEN)
+        tokenizer.push_to_hub(OUTPUT_REPO, token=HF_TOKEN)
     if EXPORT_GGUF:
         try:
             model.push_to_hub_gguf(OUTPUT_REPO, tokenizer, quantization_method=GGUF_QUANT, token=HF_TOKEN)

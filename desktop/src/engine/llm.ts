@@ -57,14 +57,20 @@ export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget
   if (pref?.model && /^gemini/i.test(pref.model) && pref?.key) {
     return { base: GEMINI_BASE, model: pref.model, engine: 'gemini', key: pref.key };
   }
+  const want = pref?.model || '';   // 저장된 모델 — 단, '실제로 존재할 때만' 쓴다(유령/삭제된 모델 고집 방지)
   const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434', 'http://127.0.0.1:1235'].filter(Boolean) as string[];
+  let firstUp: { base: string; p: NonNullable<Awaited<ReturnType<typeof probe>>> } | null = null;
   for (const base of candidates) {
     const p = await probe(base);
     if (!p) continue;
-    const ranked = rank(p.models);
-    const model = pref?.model || ranked[0]?.id || p.models[0]?.id;
-    if (model) return { base, model, engine: p.engine };
+    if (!firstUp) firstUp = { base, p };
+    // 저장된 모델이 이 엔드포인트에 실제로 있으면 그걸 사용
+    if (want && p.models.some(m => m.id === want)) return { base, model: want, engine: p.engine };
+    // 저장된 모델 지정이 없으면(자동) 응답한 첫 엔진의 최선 모델로 바로
+    if (!want) { const model = rank(p.models)[0]?.id || p.models[0]?.id; if (model) return { base, model, engine: p.engine }; }
   }
+  // 🩹 저장된 모델이 어디에도 없음(삭제됐거나 다른 모델만 깔림) → 유령 모델 고집 말고 가용한 최선 모델로 폴백
+  if (firstUp) { const model = rank(firstUp.p.models)[0]?.id || firstUp.p.models[0]?.id; if (model) return { base: firstUp.base, model, engine: firstUp.p.engine }; }
   return null;
 }
 
@@ -194,7 +200,7 @@ export function apiError(e: any): string {
   let hint = '';
   if (/model.*(required|not found|missing)|no model|모델.*(없|지정)/i.test(detail)) hint = ' — AI 두뇌(모델)가 지정되지 않았어요(🤖 내 AI 팀에서 모델을 켜고 골라주세요)';
   else if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 문자가 있었어요(자동 정리 후 다시 시도해 주세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
-  else if (status === 401 || status === 403) hint = ' — 접근이 거부됐어요(API 키·권한 확인. OAuth는 승인 대기일 수 있어요)';
+  else if (status === 401 || status === 403) hint = ' — 접근이 거부됐어요(🤖 내 AI에서 두뇌가 켜져 있는지 먼저 확인하세요. 클라우드면 API 키·권한, 백신/방화벽이 로컬 엔진 포트를 막았는지도 확인)';
   else if (status === 404) hint = ' — 모델/주소를 찾지 못함(모델 이름·LLM 주소 확인)';
   else if (status === 500 || status === 503) hint = /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 이모지/문자가 있었어요(자동 정리됨 — 다시 보내주세요)' : ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
   else if (/timeout|ETIMEDOUT|exceeded/i.test(detail + code)) hint = ' — 응답이 너무 오래 걸려요(저사양이면 더 작은 모델을 쓰거나 잠시 후 다시)';

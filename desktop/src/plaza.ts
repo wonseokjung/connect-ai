@@ -26,6 +26,24 @@ export interface PlazaPresence {
   agents: string[];
   source: 'web' | 'connect-ai';
   ts: number;
+  // 🎒 인벤토리 요약(있으면 광장에서 캐릭터 위/클릭 시 자랑용으로 표시) — 작은 숫자라 egress 부담 X
+  models?: number;
+  level?: number;
+}
+
+// 🎒 내 AI 인벤토리 프로필 — "여태 보유한 AI·데이터셋·합성 전적". 유저당 작은 객체 1개(누적 X).
+//    경로 /plaza/profiles/<uid> 에 put(덮어쓰기) → 메시지처럼 쌓이지 않아 비용 안전.
+export interface PlazaProfile {
+  uid: string;
+  company: string;
+  emoji: string;
+  models: number;     // 보유 AI 모델 수(로컬 + 내 HF)
+  datasets: number;   // 만든 데이터셋 수
+  fusions: number;    // 합성 성공 횟수
+  trains: number;     // 학습(레벨업) 횟수
+  totalLevel: number; // 키운 총 레벨 (= trains + fusions)
+  topModel?: string;  // 대표 모델 이름
+  updatedAt: number;
 }
 
 let _dbUrl = (process.env.PLAZA_DB_URL || '').replace(/\/$/, '');
@@ -101,6 +119,18 @@ export async function fetchArchive(limit = 50): Promise<PlazaArchive[]> {
   const r = await axios.get(`${_dbUrl}/plaza/archive.json?orderBy="ts"&limitToLast=${limit}`, { timeout: 8000 }).catch(() => null);
   return Object.values((r?.data as Record<string, PlazaArchive>) || {})
     .filter((x) => x && typeof x.ts === 'number').sort((a, b) => b.ts - a.ts);
+}
+
+// ─────────────────────────────────────── 🎒 인벤토리 프로필 (보유 AI 현황)
+//   put = 덮어쓰기(유저당 1개), 읽기는 캐릭터 클릭 때만. 비용 거의 0.
+export async function putProfile(p: Omit<PlazaProfile, 'updatedAt'>): Promise<void> {
+  if (!plazaConfigured()) return;
+  await axios.put(`${_dbUrl}/plaza/profiles/${p.uid}.json`, { ...p, updatedAt: Date.now() }, { timeout: 8000 }).catch(() => {});
+}
+export async function fetchProfile(uid: string): Promise<PlazaProfile | null> {
+  if (!plazaConfigured() || !uid) return null;
+  const r = await axios.get(`${_dbUrl}/plaza/profiles/${uid}.json`, { timeout: 8000 }).catch(() => null);
+  return (r?.data as PlazaProfile) || null;
 }
 
 // ─────────────────────────────────────── 폴링 루프

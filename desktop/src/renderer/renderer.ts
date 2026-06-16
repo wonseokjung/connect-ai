@@ -253,8 +253,11 @@ async function loadModels() {
   const info = await connect.listModels();
   if (!info || !info.models?.length) { MODELS_CACHE = []; return; }
   MODELS_CACHE = info.models; MODELS_LOADED = info.loaded || '';
-  const chosen = (cfg.llmModel && info.models.includes(cfg.llmModel)) ? cfg.llmModel : (info.loaded || info.models[0]);
-  cfg = await connect.setConfig({ llmBase: info.base, llmModel: chosen });
+  // 🩹 저장된 모델이 실제 목록에 없으면(삭제됐거나 다른 모델만 깔림) 자동으로 가용 모델로 교체 — '없는 모델 고집' 무한에러 방지
+  const stale = !!cfg.llmModel && !info.models.includes(cfg.llmModel);
+  const chosen = stale || !cfg.llmModel ? (info.loaded || info.models[0]) : cfg.llmModel;
+  if (chosen !== cfg.llmModel || info.base !== cfg.llmBase) cfg = await connect.setConfig({ llmBase: info.base, llmModel: chosen });
+  if (stale) hint(`이전 모델을 못 찾아 '${chosen}'(으)로 자동 전환했어요`);
 }
 
 // ── 📎 첨부 (파일·이미지 끌어다 놓기) ─────────────────────
@@ -1901,6 +1904,22 @@ async function openAgentDetail(id: string) {
   const allModels = Array.from(new Set<string>([...MODELS_CACHE, ...localNames]));
   const opts = ['<option value="">⚙️ 자동 (공용 두뇌)</option>']
     .concat(allModels.map(m => `<option value="${esc(m)}"${m === cur ? ' selected' : ''}>${esc(m)}${/^gemini/i.test(m) ? ' ☁️' : (m === MODELS_LOADED ? ' ● 로드됨' : '')}</option>`)).join('');
+  // ✨ 특징/성격 칩 — 전문분야를 잘게 쪼개 보여주고, persona 한 줄을 성격으로
+  const traitList = String((a as any).specialty || '').split(/[,·]/).map(s => s.trim()).filter(Boolean).slice(0, 4);
+  const personaLine = String((a as any).persona || '').split(/[.\n]/)[0].trim().slice(0, 64);
+  const brainNow = cur ? `🟢 ${esc(cur)}` : '⚙️ 공용 두뇌';
+  // 🎒 우리 회사 AI 보유 현황 (광장에도 올라가는 그 숫자)
+  const inv: any = await ((connect as any).inventory?.() as Promise<any>)?.catch(() => null) || null;
+  const invStrip = inv ? `
+    <div class="ag-inv">
+      <div class="ag-inv-t">🎒 우리 회사 AI 보유 현황 <span class="ag-inv-sub">광장에서도 보여요</span></div>
+      <div class="ag-inv-row">
+        <div class="ag-inv-cell"><b>${inv.models}</b><span>🧠 보유 AI</span></div>
+        <div class="ag-inv-cell"><b>${inv.datasets}</b><span>📄 데이터셋</span></div>
+        <div class="ag-inv-cell"><b>${inv.fusions}</b><span>🧬 합성</span></div>
+        <div class="ag-inv-cell lv"><b>Lv.${inv.totalLevel}</b><span>⭐ 총 레벨</span></div>
+      </div>
+    </div>` : '';
   $('agentBody').innerHTML = `
     <div class="ag-detail" style="--ag:${a.color}">
       <div class="ag-photo-wrap">
@@ -1910,10 +1929,15 @@ async function openAgentDetail(id: string) {
       </div>
       <div class="ag-meta">
         <input class="ag-name-edit" id="agNameEdit" value="${escAttr(agName(id))}" maxlength="20" placeholder="${escAttr(a.name)}" />
-        <div class="ag-role">${esc(a.role)}</div>
+        <div class="ag-role">${esc(a.role)} · <span class="ag-brain-now">${brainNow}</span></div>
         <div class="ag-spec">${esc((a as any).specialty || '')}</div>
       </div>
     </div>
+    <div class="ag-traits">
+      ${traitList.map(t => `<span class="ag-chip">${esc(t)}</span>`).join('')}
+      ${personaLine ? `<div class="ag-persona">💬 ${esc(personaLine)}</div>` : ''}
+    </div>
+    ${invStrip}
     <div class="ag-model">
       <label>🧠 ${escapeHtml(agName(id))}의 두뇌 (AI 모델)</label>
       <select id="agModelSel">${opts}</select>
@@ -1966,7 +1990,7 @@ $('mentorLinkBtn').addEventListener('click', async () => {
   const r = await connect.brainLinkBrain(repo, pw);
   if (!r.ok) { $('mentorStatus').textContent = `⚠️ ${r.error}`; return; }
   $('mentorStatus').textContent = `✅ 제이 브레인 ${r.added}개 연동 (총 ${r.total}개)`;
-  if (r.added) { playInjection('🧠 제이 브레인 링크', [`${r.added}개 지식 연동`], '#00e5ff'); await renderBrain(); }
+  if (r.added) { playInjection('🧠 제이 브레인 링크', [`${r.added}개 지식 연동`], '#00e5ff'); playCollect(r.added); await renderBrain(); }
 });
 // 단기(GitHub)/장기(HuggingFace) 연결 상태 표시
 async function refreshMem() {
@@ -1989,7 +2013,7 @@ document.querySelectorAll('.btab').forEach(b => b.addEventListener('click', () =
 }));
 // 🔬 AI 수술 — 실습 카드 클릭 → 노트북·자료 안내
 const SURG_INFO: Record<string, { title: string; nb?: string; url: string; msg: string }> = {
-  model_merging: { title: '모델 합치기', nb: '실험_AI두개합치기_model_merging.ipynb', url: 'https://github.com/arcee-ai/mergekit', msg: '🧬 노트북 실험_AI두개합치기_model_merging.ipynb 준비됨 · mergekit 문서를 엽니다. (앱 🔪 수술실에서 바로 합치기도 됩니다)' },
+  model_merging: { title: '모델 합치기', nb: '실험_AI두개합치기_model_merging.ipynb', url: 'https://github.com/arcee-ai/mergekit', msg: '🧬 노트북 실험_AI두개합치기_model_merging.ipynb 준비됨 · mergekit 문서를 엽니다. (앱 🧬 합성소에서 바로 합치기도 됩니다)' },
   task_arithmetic: { title: '능력 더하고 빼기', nb: '실험2_능력더하고빼기_task_arithmetic.ipynb', url: 'https://arxiv.org/abs/2212.04089', msg: '➗ 노트북 실험2_능력더하고빼기_task_arithmetic.ipynb 준비됨 · Task Arithmetic 논문(2212.04089)을 엽니다.' },
   lora: { title: '내 데이터로 가르치기 (LoRA)', nb: '실험4_내데이터로_가르치기_LoRA.ipynb', url: 'https://arxiv.org/abs/2106.09685', msg: '🎓 노트북 실험4_내데이터로_가르치기_LoRA.ipynb 준비됨 · LoRA 논문(2106.09685)을 엽니다. (이게 장기기억의 원리)' },
   interpret: { title: 'AI 내부 들여다보기', nb: '실험5_내부_들여다보기_transformer_lens.ipynb', url: 'https://github.com/TransformerLensOrg/TransformerLens', msg: '🔬 노트북 실험5_내부_들여다보기_transformer_lens.ipynb 준비됨 · transformer_lens를 엽니다.' },
@@ -2036,7 +2060,7 @@ $('ghPullBtn').addEventListener('click', async () => {
   const r = await connect.githubPull();
   if (r.ok) { const extra = r.scanned ? ` · 파일 ${r.scanned}개 스캔${r.skipped ? `, 잡파일 ${r.skipped}개 제외` : ''}${r.capped ? ' (상한 도달)' : ''}` : ''; $('ghStatus').textContent = `✅ ${r.added}개 새로 가져옴 (총 ${r.total}개)${extra}`; }
   else $('ghStatus').textContent = `⚠️ ${r.error}`;
-  if (r.ok && r.added) { playInjection('GitHub → 두뇌 동기화', [`${r.added}개 지식 주입`]); await renderBrain(); }
+  if (r.ok && r.added) { playInjection('GitHub → 두뇌 동기화', [`${r.added}개 지식 주입`]); playCollect(r.added); await renderBrain(); }
 });
 // 🧬 장기기억 만들기: ① 변환 → ② 업로드 → ③ 모델 이름·학습
 const LONG_FX = '#a78bfa';   // 장기기억 = 보라
@@ -2220,7 +2244,7 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
   let r: any = null;
   const code = (($('cloudCode') as HTMLInputElement)?.value || '').trim();
-  if (!code) { btn.disabled = false; cloudStat('🔒 비밀번호를 입력하세요. 학습·수술은 각각 한 달에 3번까지 쓸 수 있어요.'); ($('cloudCode') as HTMLInputElement)?.focus(); return; }
+  if (!code) { btn.disabled = false; cloudStat('🔒 비밀번호를 입력하세요. 학습·합성은 각각 한 달에 3번까지 쓸 수 있어요.'); ($('cloudCode') as HTMLInputElement)?.focus(); return; }
   try { r = await connect.trainCloud?.(code); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
   btn.disabled = false;
   if (!r) { cloudStat('⚠️ 응답이 없어요.'); return; }
@@ -2232,7 +2256,7 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
     if (cloudPoll) clearInterval(cloudPoll);
     cloudPoll = window.setInterval(async () => {
       const s = await connect.trainCloudStatus?.(); if (!s?.ok) return;
-      if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
+      if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); playLevelUp((($('modelNameInput') as HTMLInputElement)?.value || '내 두뇌')); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
       else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudStat(`⚠️ 학습 실패: ${escapeHtml(s.message || s.stage)} · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>`); }
       else cloudStat(`⏳ 학습 중… (${escapeHtml(s.stage)}) · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>`);
     }, 20000);
@@ -2260,7 +2284,11 @@ const MERGE_RECIPES = [
   { id: 'code', emoji: '💬+💻', name: '대화 + 코딩', a: 'Qwen/Qwen2.5-1.5B-Instruct', b: 'Qwen/Qwen2.5-Coder-1.5B-Instruct', desc: '잘 말하면서 코딩도 하는 두뇌' },
   { id: 'math', emoji: '💬+🧮', name: '대화 + 수학', a: 'Qwen/Qwen2.5-1.5B-Instruct', b: 'Qwen/Qwen2.5-Math-1.5B-Instruct', desc: '대화 + 수학 추론' },
 ];
-const _surg = { a: '', b: '', t: 0.5, recipe: 'code', running: false };
+const _surg = { a: '', b: '', t: 0.5, recipe: 'code', running: false, name: '' };
+function surgSuggestName() {
+  if (_surg.name) return _surg.name;
+  return _surg.recipe === 'code' ? 'chat-coder-fusion' : _surg.recipe === 'math' ? 'chat-math-fusion' : 'my-fusion-v1';
+}
 function surgRecipe() {
   if (_surg.recipe === 'custom') return { a: (($('surgA') as HTMLInputElement)?.value || '').trim(), b: (($('surgB') as HTMLInputElement)?.value || '').trim(), name: '직접 합치기' };
   const r = MERGE_RECIPES.find(x => x.id === _surg.recipe) || MERGE_RECIPES[0];
@@ -2276,10 +2304,14 @@ function renderSurgery() {
   body.innerHTML = `<div class="surg-intro">두 AI 두뇌를 <b>하나로 합쳐</b> 둘 다 잘하는 모델을 만들어요.<br><span class="muted small">🖥️ HF GPU가 합치고 → <b>결과 모델이 내 허깅페이스에 올라가</b> → '받기'로 앱에서 바로 써요 <span style="color:#74ffb4">(장기기억과 똑같이)</span>.</span><br><span class="surg-paper">📄 논문: <a id="surgPaper1">Model Soups (2203.05482)</a> · <a id="surgPaper2">TIES (2306.01708)</a> · <a id="surgPaper3">mergekit</a></span></div>
     <div class="surg-recipes">${recipes}</div>
     <div class="surg-custom" id="surgCustom"${_surg.recipe === 'custom' ? '' : ' hidden'}>
-      <div class="muted small">⚠️ 받은 모델(GGUF) 말고 <b>HF 모델 주소</b> 2개 — 같은 베이스·같은 크기여야 합쳐져요</div>
+      <div class="muted small">⚠️ 받은 모델(GGUF) 말고 <b>HF 모델</b> 2개 — Qwen·Gemma·Llama 등 <b>같은 베이스·같은 크기</b>여야 합쳐져요</div>
       <input id="surgA" placeholder="모델 A (예: Qwen/Qwen2.5-1.5B-Instruct)" value="${escAttr(_surg.a)}" autocomplete="off">
-      <input id="surgB" placeholder="모델 B (예: Qwen/Qwen2.5-Coder-1.5B-Instruct)" value="${escAttr(_surg.b)}" autocomplete="off">
-      <button class="lf-ghost" id="surgLoadMine">🤗 내 허깅페이스 모델 불러오기</button>
+      <input id="surgB" placeholder="모델 B (예: google/gemma-2-2b-it)" value="${escAttr(_surg.b)}" autocomplete="off">
+      <div class="surg-find">
+        <input id="surgSearch" placeholder="🔍 모델 검색 (gemma · llama · qwen…)" autocomplete="off">
+        <button class="lf-ghost" id="surgSearchBtn">검색</button>
+        <button class="lf-ghost" id="surgLoadMine">🧬 내가 만든 AI</button>
+      </div>
       <div class="surg-mine" id="surgMine"></div>
     </div>
     <div class="surg-blend">
@@ -2287,59 +2319,112 @@ function renderSurgery() {
       <input type="range" id="surgBlend" min="0" max="100" value="${Math.round(_surg.t * 100)}">
       <div class="sb-val" id="sbVal">${Math.round((1 - _surg.t) * 100)} : ${Math.round(_surg.t * 100)}</div>
     </div>
+    <div class="surg-name-row"><span class="sn-lab">🏷️ 새 AI 이름</span><input id="surgName" placeholder="my-fusion-v1" value="${escAttr(surgSuggestName())}" autocomplete="off"></div>
+    <div class="muted small" style="margin:-2px 0 2px">영어·숫자·하이픈(-)만 · 내 허깅페이스에 이 이름으로 올라가요</div>
     <div class="surg-gate"><input id="surgPw" type="password" placeholder="비밀번호" maxlength="8" autocomplete="off"><span class="surg-left" id="surgLeft"></span></div>
-    <button class="cyc-btn primary surg-go" id="surgGo">🔪 합치기 수술 시작</button>
+    <button class="cyc-btn primary surg-go" id="surgGo">🧬 합성 시작</button>
     <div class="surg-status" id="surgStatus"></div>`;
   wireSurgery();
-  connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.textContent = `이번 달 수술 ${u.left}/${u.limit}회 남음`; }).catch(() => {});
+  connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.textContent = `이번 달 합성 ${u.left}/${u.limit}회 남음`; }).catch(() => {});
 }
 function short(repo: string) { return (repo || '').split('/').pop()?.replace(/-Instruct$/i, '') || repo; }
+function surgChips(models: string[], label: string) {
+  const box = $('surgMine'); if (!box) return;
+  box.innerHTML = `<div class="muted small" style="margin-bottom:5px">${label}</div>` + models.map(m => `<button class="mine-chip" data-m="${escAttr(m)}" title="${escAttr(m)}">${escapeHtml(m.split('/').pop() || m)}</button>`).join('');
+  box.querySelectorAll('.mine-chip').forEach(c => c.addEventListener('click', () => {
+    const m = (c as HTMLElement).dataset.m!;
+    if (!_surg.a) { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; }
+    else if (!_surg.b) { _surg.b = m; ($('surgB') as HTMLInputElement).value = m; }
+    else { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; _surg.b = ''; ($('surgB') as HTMLInputElement).value = ''; }
+    hint(`선택: ${m.split('/').pop()}`);
+  }));
+}
 function wireSurgery() {
   document.querySelectorAll('.surg-recipe').forEach(b => b.addEventListener('click', () => { _surg.recipe = (b as HTMLElement).dataset.r!; renderSurgery(); }));
   const bl = $('surgBlend') as HTMLInputElement;
   if (bl) bl.oninput = () => { _surg.t = (+bl.value) / 100; const v = $('sbVal'); if (v) v.textContent = `${100 - +bl.value} : ${bl.value}`; };
   const a = $('surgA') as HTMLInputElement, b2 = $('surgB') as HTMLInputElement;
   if (a) a.oninput = () => { _surg.a = a.value; }; if (b2) b2.oninput = () => { _surg.b = b2.value; };
+  const nm = $('surgName') as HTMLInputElement; if (nm) nm.oninput = () => { _surg.name = nm.value; };
   $('surgLoadMine')?.addEventListener('click', async () => {
-    const box = $('surgMine'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 내 모델 불러오는 중…';
+    const box = $('surgMine'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 내가 만든 AI 불러오는 중…';
     const r: any = await connect.hfMyModels?.();
     if (!r?.ok) { if (box) box.innerHTML = `<span class="muted small">⚠️ ${escapeHtml(r?.error || '불러오기 실패')}</span>`; return; }
-    if (!r.models.length) { if (box) box.innerHTML = '<span class="muted small">내 HF 모델이 아직 없어요 (장기기억 학습으로 만들면 여기 떠요).</span>'; return; }
-    if (box) box.innerHTML = `<div class="muted small" style="margin-bottom:5px">탭하면 A→B 순서로 채워져요:</div>` + r.models.map((m: string) => `<button class="mine-chip" data-m="${escAttr(m)}">${escapeHtml(m.split('/').pop() || m)}</button>`).join('');
-    box?.querySelectorAll('.mine-chip').forEach(c => c.addEventListener('click', () => {
-      const m = (c as HTMLElement).dataset.m!;
-      if (!_surg.a) { _surg.a = m; (($('surgA') as HTMLInputElement)).value = m; }
-      else if (!_surg.b) { _surg.b = m; (($('surgB') as HTMLInputElement)).value = m; }
-      else { _surg.a = m; (($('surgA') as HTMLInputElement)).value = m; _surg.b = ''; (($('surgB') as HTMLInputElement)).value = ''; }
-      hint(`선택: ${m.split('/').pop()}`);
-    }));
+    if (!r.models.length) { if (box) box.innerHTML = '<span class="muted small">아직 내가 만든 AI가 없어요 — 🧬 장기기억 학습으로 만들면 여기 떠요.</span>'; return; }
+    surgChips(r.models, '🧬 내가 만든 AI — 탭하면 A→B로 채워져요:');
   });
+  const doSearch = async () => {
+    const q = (($('surgSearch') as HTMLInputElement)?.value || '').trim();
+    if (q.length < 2) { hint('2글자 이상 입력하세요'); return; }
+    const box = $('surgMine'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 검색 중…';
+    const r: any = await connect.hfSearchModels?.(q);
+    if (!r?.ok || !r.models.length) { if (box) box.innerHTML = `<span class="muted small">${escapeHtml(r?.error || '결과 없음')}</span>`; return; }
+    surgChips(r.models, `🔍 "${escapeHtml(q)}" 결과 — 탭하면 A→B로 채워져요:`);
+  };
+  $('surgSearchBtn')?.addEventListener('click', doSearch);
+  $('surgSearch')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') doSearch(); });
   $('surgGo')?.addEventListener('click', surgeryGo);
   $('surgPaper1')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2203.05482'));
   $('surgPaper2')?.addEventListener('click', () => connect.openExternal?.('https://arxiv.org/abs/2306.01708'));
   $('surgPaper3')?.addEventListener('click', () => connect.openExternal?.('https://github.com/arcee-ai/mergekit'));
 }
+// 🎮 합성 게임 연출 — 융합 서클 → 궤도 충전(진행 중 루프) → 완료 시 빛기둥+카드+★
+let _fuseName = 'my-fusion';
+function surgFusion(aName: string, bName: string, newName: string) {
+  _fuseName = newName;
+  const body = $('surgBody'); if (!body) return;
+  body.innerHTML = `<div class="gf-stage" id="gfStage">
+      <div class="gf-circle r1"></div><div class="gf-circle r2"></div><div class="gf-circle r3"></div>
+      <div class="gf-glow"></div>
+      <div class="gf-orbit a"><div class="gf-orb a"><span class="go-c">🧠</span><span class="go-n">${escapeHtml(aName)}</span></div></div>
+      <div class="gf-orbit b"><div class="gf-orb b"><span class="go-c">🧠</span><span class="go-n">${escapeHtml(bName)}</span></div></div>
+      <div class="gf-pillar"></div>
+      <div class="gf-card"><span class="gc-core">🧬</span><span class="gc-name">${escapeHtml(newName)}</span><div class="gf-stars" id="gfStars"></div></div>
+    </div>
+    <div class="surg-status" id="surgStatus"></div>`;
+  for (let i = 0; i < 5; i++) gfParticle();   // 살짝 입자
+}
+function gfParticle() {
+  const st = $('gfStage'); if (!st) return;
+  const p = document.createElement('div'); p.className = 'gf-particle'; st.appendChild(p);
+  const ang = Math.random() * 6.28, d = 90 + Math.random() * 40;
+  p.animate([{ transform: `translate(${Math.cos(ang) * d}px,${Math.sin(ang) * d}px) scale(1)`, opacity: 1 }, { transform: 'translate(-50%,-50%) scale(.2)', opacity: 0 }], { duration: 700, easing: 'cubic-bezier(.4,0,.2,1)' }).onfinish = () => p.remove();
+}
+// 완료 — 빛기둥 폭발 + 카드 등장 + ★★★
+function surgFusionDone() {
+  const st = $('gfStage'); if (!st) { return; }
+  st.classList.add('gf-blast');
+  for (let i = 0; i < 20; i++) gfParticle();
+  setTimeout(() => {
+    const card = st.querySelector('.gf-card'); card?.classList.add('reveal');
+    const stars = $('gfStars'); if (stars) { [0, 1, 2].forEach(i => setTimeout(() => { const s = document.createElement('span'); s.className = 'gf-star on'; s.textContent = '⭐'; stars.appendChild(s); }, 300 + i * 220)); }
+  }, 450);
+}
 async function surgeryGo() {
   const r = surgRecipe();
   if (!r.a || !r.b) { surgStat('⚠️ 합칠 두 모델을 모두 골라주세요.'); return; }
   if (r.a === r.b) { surgStat('⚠️ 서로 다른 두 모델이어야 해요.'); return; }
+  const nameRaw = (($('surgName') as HTMLInputElement)?.value || '').trim() || surgSuggestName();
+  const nameErr = validModelName(nameRaw);
+  if (nameErr) { surgStat('🏷️ ' + nameErr); ($('surgName') as HTMLInputElement)?.focus(); return; }
   const pw = (($('surgPw') as HTMLInputElement)?.value || '').trim();
   if (!pw) { surgStat('🔒 비밀번호를 입력하세요.'); return; }
   const btn = $('surgGo') as HTMLButtonElement; btn.disabled = true; btn.classList.add('surg-cut');
-  surgStat('<span class="cyc-spin"></span> 수술 준비 · 스크립트 업로드 · GPU 작업 요청 중…');
+  surgStat('<span class="cyc-spin"></span> 합성 준비 · 스크립트 업로드 · GPU 작업 요청 중…');
   let res: any = null;
-  try { res = await connect.surgeryMerge?.(r.a, r.b, 'slerp', String(_surg.t), '', pw); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
+  try { res = await connect.surgeryMerge?.(r.a, r.b, 'slerp', String(_surg.t), nameRaw, pw); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
   btn.classList.remove('surg-cut');
   const cmd = res?.command ? `<div class="cmd-box">${escapeHtml(res.command)}</div>` : '';
   if (!res) { surgStat('⚠️ 응답이 없어요.'); btn.disabled = false; return; }
   if (res.needsPro) { surgStat(`💳 ${escapeHtml(res.error || 'HF Pro/크레딧이 필요해요')}${cmd}`); btn.disabled = false; return; }
   if (!res.ok) { surgStat(`⚠️ ${escapeHtml(res.error || '시작 실패')}${cmd}`); btn.disabled = false; return; }
-  surgStat(`🔪 수술 시작! <a href="${escAttr(res.url || res.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 받기 버튼이 떠요. (보통 5~20분)</span>`);
+  surgFusion(short(r.a), short(r.b), nameRaw);   // 🎮 합성 게임 연출 시작
+  surgStat(`🔪 두 두뇌를 합치는 중… <a href="${escAttr(res.url || res.modelRepo)}" target="_blank">진행상황</a><br><span class="muted small">완료되면 받기 버튼이 떠요 (보통 5~20분)</span>`);
   const poll = window.setInterval(async () => {
     const s: any = await connect.trainCloudStatus?.(); if (!s?.ok) return;
-    if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(poll); surgStat(`✅ 수술 완료! <button id="surgInstall" class="oc-primary">⬇️ 합쳐진 모델 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
-    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(poll); surgStat(`⚠️ 수술 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); btn.disabled = false; }
-    else surgStat(`⏳ 수술 중… (${escapeHtml(s.stage || '진행')})${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>` : ''}`);
+    if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(poll); surgFusionDone(); surgStat(`✅ 합성 성공! <button id="surgInstall" class="oc-primary">⬇️ 새 AI 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
+    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(poll); surgStat(`⚠️ 합성 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); btn.disabled = false; }
+    else surgStat(`⏳ 합성 중… (${escapeHtml(s.stage || '진행')})${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>` : ''}`);
   }, 12000);
 }
 async function surgInstall() {
@@ -2380,6 +2465,24 @@ function selectMethod(id: string) {
 let injectRaf = 0;
 const hexToRgb = (h: string) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); const n = m ? parseInt(m[1], 16) : 0x00ff41; return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
 const PROTOCOL = ['> 인젝션 프로토콜 시작…', '> 페이로드 직렬화…', '> 신경망 채널 동기화…', '> 두뇌 가중치 전송…', '> ✓ 주입 완료'];
+// 🧬 장기기억 = 레벨업/진화 연출
+function playLevelUp(name: string) {
+  const o = document.createElement('div'); o.className = 'levelup-fx';
+  o.innerHTML = `<span class="lu-flash"></span><span class="lu-core">🧬</span><span class="lu-txt">LEVEL UP! ✨</span><span class="lu-name">${escapeHtml(name || '내 두뇌')}</span><span class="lu-stars">⭐⭐⭐</span>`;
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('on'));
+  setTimeout(() => o.remove(), 2600);
+}
+// ⚡ 단기기억 = 지식 수집 연출 (🧠 버튼으로 +N 카드 팝)
+function playCollect(n = 1) {
+  const t = $('brainBtn'); const r = t?.getBoundingClientRect();
+  const o = document.createElement('div'); o.className = 'collect-fx'; o.textContent = `📄 +${n} 지식`;
+  if (r) { o.style.left = `${r.left + r.width / 2}px`; o.style.top = `${r.top + r.height + 6}px`; }
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('on'));
+  setTimeout(() => o.remove(), 1300);
+  t?.classList.add('brain-pulse'); setTimeout(() => t?.classList.remove('brain-pulse'), 700);
+}
 function playInjection(label: string, lines: string[] = [], color = '#00ff41') {
   const fx = $('injectFx'); const canvas = $('injectRain') as HTMLCanvasElement;
   fx.classList.remove('hidden', 'out');
@@ -2759,6 +2862,38 @@ function pwToast(world: HTMLElement, text: string) {
   const t = document.createElement('div'); t.className = 'pw-toast'; t.textContent = text; world.appendChild(t);
   setTimeout(() => { try { t.remove(); } catch { /* */ } }, 2700);
 }
+// 🎒 광장 캐릭터 클릭 → 그 회사 보유 현황 카드 (RTDB /plaza/profiles/<uid>)
+let _pwProfBusy = false;
+async function pwShowProfile(p: any) {
+  if (_pwProfBusy) return; _pwProfBusy = true;
+  document.querySelector('.pw-prof')?.remove();
+  const isMine = p.uid === myPlazaUid();
+  const card = document.createElement('div'); card.className = 'pw-prof';
+  // presence에 있는 요약(models·level)으로 먼저 그리고, 상세는 비동기로 채움
+  const head = `<div class="pp-head"><span class="pp-emoji">${p.emoji || '🤖'}</span>
+      <div><div class="pp-co">${escapeHtml(p.company || '익명')}${isMine ? ' <b class="pp-me">나</b>' : ''}</div>
+      <div class="pp-agents">${(p.agents || []).join(' ') || '🤖'}</div></div>
+      <button class="pp-x" title="닫기">✕</button></div>`;
+  card.innerHTML = head + `<div class="pp-body"><div class="pp-loading">🎒 보유 현황 불러오는 중…</div></div>`;
+  document.body.appendChild(card);
+  requestAnimationFrame(() => card.classList.add('on'));
+  card.querySelector('.pp-x')?.addEventListener('click', () => card.remove());
+  card.addEventListener('click', (e) => { if (e.target === card) card.remove(); });
+  let prof: any = null;
+  try { prof = await (connect as any).plazaProfile?.(p.uid); } catch { /* */ }
+  const inv = prof || { models: p.models ?? '–', datasets: '–', fusions: '–', totalLevel: p.level ?? '–', topModel: '' };
+  const body = card.querySelector('.pp-body'); if (!body) { _pwProfBusy = false; return; }
+  body.innerHTML = `
+    <div class="pp-grid">
+      <div class="pp-cell"><b>${inv.models}</b><span>🧠 보유 AI</span></div>
+      <div class="pp-cell"><b>${inv.datasets}</b><span>📄 데이터셋</span></div>
+      <div class="pp-cell"><b>${inv.fusions}</b><span>🧬 합성</span></div>
+      <div class="pp-cell lv"><b>Lv.${inv.totalLevel}</b><span>⭐ 총 레벨</span></div>
+    </div>
+    ${inv.topModel ? `<div class="pp-top">🏆 대표 모델 · <b>${escapeHtml(inv.topModel)}</b></div>` : ''}
+    ${prof ? '' : '<div class="pp-note">아직 보유 현황을 공유하지 않은 회사예요</div>'}`;
+  _pwProfBusy = false;
+}
 function pwMeetFx(a: PwActor) {
   if (!a.el) return; const m = document.createElement('div'); m.className = 'pw-meet'; m.textContent = '❗'; m.style.left = '50%'; m.style.top = '0'; a.el.appendChild(m);
   setTimeout(() => { try { m.remove(); } catch { /* */ } }, 900);
@@ -2802,7 +2937,7 @@ function renderDesks() {
         `<div class="pw-name">${isReal && !isMine ? '⭐ ' : ''}${p.emoji || ''} ${escapeHtml(p.company || '익명')}${isMine ? ' <b>(나)</b>' : ''}</div>`;
       frag.appendChild(el); a.el = el; a.charEl = el.querySelector('.pw-char') as HTMLElement;
       el.classList.add('pw-spawn'); setTimeout(() => el.classList.remove('pw-spawn'), 900);
-      el.addEventListener('click', () => { pwBubble(a!, `안녕! 우리는 ${p.company}예요 ${(p.agents || []).join('') || '🤖'}`); });
+      el.addEventListener('click', () => { pwBubble(a!, `안녕! 우리는 ${p.company}예요 ${(p.agents || []).join('') || '🤖'}`); void pwShowProfile(p); });
       if (isMine) { (window as any)._mineActor = a; const w2 = $('plazaWorld'); if (w2) pwToast(w2, '✨ 광장에 입장했어요!'); }
       else if (isReal) { const w2 = $('plazaWorld'); if (w2) pwToast(w2, `🌍 실제 유저 등장! ${p.emoji || ''} ${p.company}`); }   // 진짜 사람 = 특별 강조
     }

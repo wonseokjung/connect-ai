@@ -86,6 +86,12 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
   if (!force) _autoRestart = 0;                      // 사용자가 직접 켜면 자동복구 카운터 리셋
   const seq = ++_startSeq;
   const useNgl = ngl ?? 999;                         // 999=가능한 GPU 전부 / 0=CPU 전용(폴백)
+  // 🚦 사전 점검 — 모델이 이 PC RAM보다 명백히 크면, 폴백으로 2분 헛고생하기 전에 바로 알려준다.
+  //    (유튜브 다수 제보: 24GB 맥에 27B, 저사양에 큰 모델 → "모델을 못 켰어요"만 반복)
+  if (ngl === undefined && ctxOverride === undefined) {   // 최초 시도에서만(폴백 재귀 땐 skip)
+    const pf = preflightTooBig(modelPath);
+    if (pf) { _loading = false; _error = pf; emitStatus(); throw new Error(pf); }
+  }
   // 🧮 이 PC 메모리에 맞게 컨텍스트를 안전하게 — 모델이 RAM 대비 크거나 저사양이면 줄여서 OOM 크래시 예방
   const useCtx = ctxOverride ?? safeCtx(modelPath, _opts.ctxSize);
   _loading = true; _ready = false; _error = '';
@@ -157,7 +163,13 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
         _loadMsg = '🧮 메모리가 빠듯해서 컨텍스트를 줄여 다시 켜는 중…'; emitStatus();
         return startLocalEngine(modelPath, true, 0, 2048);
       }
-      throw new Error(_error || `모델을 못 켰어요 — 메모리가 부족하거나 모델이 커요. 더 가벼운 모델(예: Gemma 4 E2B)을 받아보세요. ${tailErr(log)}`);
+      // 원인 분기: 작은 모델인데도 실패 = 메모리가 아니라 '엔진 실행 자체'가 막힌 것(드라이버·런타임·손상된 파일)
+      let sz = 0; try { sz = fs.statSync(modelPath).size; } catch { /* */ }
+      const smallGb = sz && sz < 4e9;   // 4GB 미만(E2B·E4B급)인데도 못 켜짐
+      const tip = smallGb
+        ? `엔진 실행 자체가 막혔어요(메모리 문제 아님). ① 앱을 완전히 끄고 다시 켜기 ② 컴퓨터 재시작 ③ 모델 파일이 손상됐을 수 있으니 다시 받기${process.platform === 'win32' ? ' ④ 그래도면 백신/방화벽이 엔진을 막았는지 확인' : ''}`
+        : `메모리가 부족하거나 모델이 너무 커요. 더 가벼운 모델(예: Gemma 4 E2B)을 받아보세요`;
+      throw new Error(_error || `모델을 못 켰어요 — ${tip}. ${tailErr(log)}`);
     }
 
     _modelPath = modelPath;
@@ -197,6 +209,22 @@ function tailErr(log: string): string {
   return lines.slice(-2).join(' | ').slice(0, 300);
 }
 
+// 🚦 모델이 이 PC RAM보다 명백히 큰가? — 그렇다면 켜기 전에 친절히 막는다(헛고생 방지).
+//    null = 시도해도 됨 / 문자열 = 너무 커서 막음(사용자에게 보여줄 안내).
+function preflightTooBig(modelPath: string): string | null {
+  try {
+    const total = os.totalmem();
+    const sz = fs.statSync(modelPath).size;
+    if (!sz || !total) return null;
+    // 가중치 파일이 전체 RAM의 90%를 넘으면 OS·앱 메모리까지 합쳐 사실상 못 켬(맥 통합메모리 감안해 보수적으로).
+    if (sz > total * 0.9) {
+      const mGb = (sz / 1e9).toFixed(1), tGb = (total / 1e9).toFixed(0);
+      return `이 모델(${mGb}GB)이 이 컴퓨터 메모리(${tGb}GB)보다 커서 못 켜요. 더 가벼운 모델을 받아주세요 — 추천: Gemma 4 E2B(작고 빠름) 또는 E4B.`;
+    }
+  } catch { /* 파일 못 읽으면 그냥 시도 */ }
+  return null;
+}
+
 // 🧮 이 PC 메모리에 맞춰 안전한 컨텍스트 크기 — 모델이 RAM 대비 크거나 저사양이면 줄인다(OOM 크래시 예방).
 function safeCtx(modelPath: string, want: number): number {
   let ctx = want;
@@ -214,7 +242,10 @@ function safeCtx(modelPath: string, want: number): number {
 // 종료 코드를 사람이 이해할 원인으로 — "code 1"만 보고 막막하던 문제 해결.
 function diagCode(code: number | null): string {
   if (code == null) return '';
-  if (code === 3221225781 || code === -1073741819) return 'GPU 드라이버나 메모리 문제일 수 있어요(가벼운 모델을 권해요)';
+  // 0xC0000005 (액세스 위반) — 구형 CPU가 엔진의 최신 명령어(AVX 등) 미지원 → 실행 즉시 죽음. 같은 바이너리라 CPU 폴백도 소용없음.
+  if (code === 3221225477 || code === -1073741819) return '이 PC의 CPU가 엔진과 호환되지 않을 수 있어요(구형 CPU·AVX 명령어 미지원). 호환 엔진으로 업데이트가 필요해요 — 최신 버전을 받아보세요';
+  // 0xC0000135 (DLL 없음) — 필수 런타임 누락
+  if (code === 3221225781 || code === -1073741515) return '필수 시스템 파일(DLL)이 없어요 — 컴퓨터 재시작 후에도 안 되면 Visual C++ 재배포 패키지를 설치해 보세요';
   if (code === 137 || code === 134 || code === 132 || code === -9) return '메모리가 부족해요(모델이 너무 큼 — 더 가벼운 모델 권장)';
   if (code === 1) return 'GPU 가속이 안 되거나 메모리가 빠듯해요';
   return '';
