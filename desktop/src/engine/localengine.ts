@@ -240,7 +240,7 @@ function safeCtx(modelPath: string, want: number): number {
 }
 
 // 종료 코드를 사람이 이해할 원인으로 — "code 1"만 보고 막막하던 문제 해결.
-function diagCode(code: number | null): string {
+export function diagCode(code: number | null): string {
   if (code == null) return '';
   // 0xC0000005 (액세스 위반) — 구형 CPU가 엔진의 최신 명령어(AVX 등) 미지원 → 실행 즉시 죽음. 같은 바이너리라 CPU 폴백도 소용없음.
   if (code === 3221225477 || code === -1073741819) return '이 PC의 CPU가 엔진과 호환되지 않을 수 있어요(구형 CPU·AVX 명령어 미지원). 호환 엔진으로 업데이트가 필요해요 — 최신 버전을 받아보세요';

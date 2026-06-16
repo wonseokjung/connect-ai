@@ -51,6 +51,15 @@ function rank(models: ModelInfo[]): ModelInfo[] {
   return models.filter(m => m.chat).sort((a, b) => (b.loaded ? 1 : 0) - (a.loaded ? 1 : 0));
 }
 
+// 🩹 저장된 모델은 '실제로 존재할 때만' 사용, 없으면 켜진 모델 우선으로 폴백(유령/삭제 모델 고집 방지).
+//    순수 함수로 분리해 시뮬레이션으로 회귀를 잡는다. (@지크리프트S·@ilovey7 제보)
+export function chooseModel(want: string, models: ModelInfo[]): string | null {
+  if (!models.length) return null;
+  if (want && models.some(m => m.id === want)) return want;   // 저장 모델이 실제로 있으면 그대로
+  const ranked = rank(models);
+  return ranked[0]?.id || models[0]?.id || null;              // 없으면 채팅가능·로드된 모델 우선
+}
+
 // 엔진 자동 감지 → 로드된 채팅 모델 우선 선택. 사용자가 base/model 지정 시 우선.
 export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget | null> {
   // ☁️ Gemini 고성능 두뇌 — 모델이 gemini* 이고 키가 있으면 클라우드(OpenAI 호환)로
@@ -67,10 +76,10 @@ export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget
     // 저장된 모델이 이 엔드포인트에 실제로 있으면 그걸 사용
     if (want && p.models.some(m => m.id === want)) return { base, model: want, engine: p.engine };
     // 저장된 모델 지정이 없으면(자동) 응답한 첫 엔진의 최선 모델로 바로
-    if (!want) { const model = rank(p.models)[0]?.id || p.models[0]?.id; if (model) return { base, model, engine: p.engine }; }
+    if (!want) { const model = chooseModel('', p.models); if (model) return { base, model, engine: p.engine }; }
   }
   // 🩹 저장된 모델이 어디에도 없음(삭제됐거나 다른 모델만 깔림) → 유령 모델 고집 말고 가용한 최선 모델로 폴백
-  if (firstUp) { const model = rank(firstUp.p.models)[0]?.id || firstUp.p.models[0]?.id; if (model) return { base: firstUp.base, model, engine: firstUp.p.engine }; }
+  if (firstUp) { const model = chooseModel(want, firstUp.p.models); if (model) return { base: firstUp.base, model, engine: firstUp.p.engine }; }
   return null;
 }
 
@@ -140,7 +149,7 @@ const isTemplateErr = (e: any) => { const m = String(e?.response?.data?.error?.m
 //    llama-server의 JSON 파서가 lone surrogate를 만나면
 //    "[json.exception.parse_error.101] invalid string: surrogate U+D800..U+DBFF must be followed by U+DC00..U+DFFF"
 //    로 HTTP 500을 내고 대화 전체가 죽는다. (유튜브 댓글 다수 제보 — 에이전트 이름/성격/입력에 깨진 이모지가 섞일 때)
-function sanitizeContent(s: any): any {
+export function sanitizeContent(s: any): any {
   if (typeof s !== 'string') return s;
   return s
     .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/g, '')   // 뒤에 low surrogate가 없는 high surrogate
