@@ -519,32 +519,31 @@
           <span class="gp-arr">→</span>
           <div class="gp-step"><span class="gp-ic">🌳</span><span class="gp-t">내 AI</span></div>
         </div>
-        <!-- 핵심: 이름 + 비번 + 학습 (항상 보임) -->
+        <!-- 핵심 (논리 순서: ① 이름 → ② 방법 → ③ 강도 → ④ 학습) -->
         <div class="grow-do" id="lfStep3">
           <input id="modelNameInput" class="fuse-in" placeholder="🏷️ 새 AI 이름 (my-brain-v1)" title="⚠️ 한글 X · 영어·숫자·하이픈(-)만" autocomplete="off" />
-          <div class="grow-acts">
-            <input id="cloudCode" class="surg-pw" placeholder="🔒" maxlength="8" type="password" autocomplete="off" title="비밀번호" />
-            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버(우리 GPU)에서 버튼 한 번 — 멤버십·월3회">💎 멤버십·원클릭</button>
-            <button id="hfTrainBtn" class="train-free" title="내 무료 Colab GPU로 직접 — 누르면 바로 코랩 (비번 불필요)">🆓 무료·Colab</button>
-          </div>
-          <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
-        </div>
-        <!-- ⚙️ 학습 설정 — 전부 접어둠 (기본값으로도 학습됨) -->
-        <details class="tab-tools" id="longTools">
-          <summary>⚙️ 학습 방법 · 강도 · 전문가 설정</summary>
-        <div id="sftFlow">
-        <div class="method-h">🎓 학습 방법 <span class="muted small">하나 골라요</span></div>
-        <div class="method-pick" id="methodPick"></div>
-        <div class="method-card" id="methodCard"></div>
-        <div class="train-set">
-          <div class="ts-row"><span class="ts-lab">💪 강도</span>
+          <div class="grow-row"><span class="grow-lab">🎓 방법</span><div class="method-pick" id="methodPick"></div></div>
+          <div class="method-card" id="methodCard"></div>
+          <div class="grow-row"><span class="grow-lab">💪 강도</span>
             <div class="ts-presets">
               <button class="ts-preset" data-preset="safe">🛡️ 안전</button>
               <button class="ts-preset on" data-preset="balanced">⚖️ 기본</button>
               <button class="ts-preset" data-preset="strong">🔥 강하게</button>
             </div>
           </div>
-          <div class="ts-hint" id="tsHint">⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)</div>
+          <div class="ts-hint" id="tsHint">⚖️ 기본 — 권장</div>
+          <div class="grow-acts">
+            <input id="cloudCode" class="surg-pw" placeholder="🔒" maxlength="8" type="password" autocomplete="off" title="비밀번호 (멤버십만 필요)" />
+            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버(우리 GPU)에서 버튼 한 번 — 멤버십·월3회">💎 멤버십·원클릭</button>
+            <button id="hfTrainBtn" class="train-free" title="내 무료 Colab GPU로 직접 — 누르면 바로 코랩 (비번 불필요)">🆓 무료·Colab</button>
+          </div>
+          <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
+        </div>
+        <!-- ⚙️ 고급만 접어둠 -->
+        <details class="tab-tools" id="longTools">
+          <summary>⚙️ 고급 — 전문가 파라미터 · 데이터 다듬기 <b>(선택)</b></summary>
+        <div id="sftFlow">
+        <div class="train-set">
           <details class="ts-adv">
             <summary>🎓 전문가 파라미터</summary>
             <div class="ts-f"><span class="ts-k">LoRA rank (r)<i>학습 용량. 클수록 많이 외움(메모리↑). 페르소나엔 8~16 충분</i></span>

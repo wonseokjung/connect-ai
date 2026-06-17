@@ -2244,9 +2244,9 @@ $('hfUploadBtn').addEventListener('click', async () => {
 });
 // 학습 강도 프리셋 (lr·epochs 묶음) — 한 번에 최적값
 const TS_PRESET: Record<string, { lr: number; epochs: number; hint: string }> = {
-  safe: { lr: 2e-4, epochs: 6, hint: '🛡️ 안전 — 과적합 방지 우선 (lr 2e-4, 적게 학습)' },
-  balanced: { lr: 3e-4, epochs: 8, hint: '⚖️ 기본 — 학습·과적합 균형 (권장 · lr 3e-4)' },
-  strong: { lr: 5e-4, epochs: 10, hint: '🔥 강하게 — 확실히 외움 (lr 5e-4 · 과적합 주의)' },
+  safe: { lr: 2e-4, epochs: 6, hint: '🛡️ 안전 — 살살 (과적합 방지)' },
+  balanced: { lr: 3e-4, epochs: 8, hint: '⚖️ 기본 — 권장' },
+  strong: { lr: 5e-4, epochs: 10, hint: '🔥 강하게 — 확실히 외움' },
 };
 let tsPreset = 'balanced';
 document.querySelectorAll('.ts-preset').forEach(b => b.addEventListener('click', () => {
@@ -2670,8 +2670,8 @@ function selectMethod(id: string) {
   const m = methodList.find(x => x.id === id); if (!m) return;
   document.querySelectorAll('.m-chip').forEach(c => c.classList.toggle('on', (c as HTMLElement).dataset.m === id));
   // 한 줄 + 상세는 툴팁(ⓘ)으로 — 텍스트 최소화
-  const mcTip = `언제: ${m.when}\n데이터: ${m.data}${m.note ? `\n💡 ${m.note}` : ''}`;
-  $('methodCard').innerHTML = `<div class="mc-what" title="${escAttr(mcTip)}">${m.emoji} <b>${escapeHtml(m.label)}</b> <span class="mc-full">${escapeHtml(m.full || '')}${m.paper ? ` · ${escapeHtml(m.paper)}` : ''}</span><br><span class="muted small">${escapeHtml(m.what)} ⓘ</span></div>`;
+  const mcTip = `${m.what}\n언제: ${m.when}\n데이터: ${m.data}${m.note ? `\n💡 ${m.note}` : ''}`;   // 자세한 건 툴팁으로 (텍스트 다이어트)
+  $('methodCard').innerHTML = `<div class="mc-what" title="${escAttr(mcTip)}">${m.emoji} <b>${escapeHtml(m.label)}</b> <span class="mc-full">${escapeHtml(m.full || '')}${m.paper ? ` · ${escapeHtml(m.paper)}` : ''}</span> <span class="muted small">ⓘ</span></div>`;
   const isDpo = id === 'dpo';
   $('step1Title').textContent = isDpo ? '⚖️ DPO 선호쌍 생성' : '📦 SFT 데이터로 변환';
   $('step1Sub').textContent = isDpo ? 'AI가 좋은답 ✅ vs 나쁜답 ❌ 을 스스로 생성 (사람 클릭 0)' : '지식 → AI가 Q&A 문제로 자동 출제';

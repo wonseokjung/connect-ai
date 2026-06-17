@@ -826,7 +826,11 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 .gp-step b { font-size: 15px; color: #74ffb4; font-family: var(--mono); }
 .gp-t { font-size: 10.5px; color: var(--text-dim); font-weight: 700; }
 .gp-arr { font-size: 18px; color: var(--text-dim); opacity: .6; }
-.grow-do { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+.grow-do { display: flex; flex-direction: column; gap: 7px; margin: 6px 0 4px; }
+.grow-row { display: flex; align-items: center; gap: 8px; }
+.grow-lab { font-size: 12px; font-weight: 800; color: var(--text-bright); flex: 0 0 auto; min-width: 40px; }
+.grow-row .method-pick, .grow-row .ts-presets { margin: 0; flex: 1; }
+.grow-do .ts-hint { margin: -2px 0 2px 48px; }
 .grow-acts { display: flex; align-items: center; gap: 8px; }
 .grow-acts .train-cloud, .grow-acts .train-free { flex: 1 1 0; }
 .method-h { font-size: 12.5px; font-weight: 800; color: var(--text-bright); margin: 12px 0 2px; }
