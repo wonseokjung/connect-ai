@@ -21,6 +21,7 @@ import { _safeGitAutoSync, _safeGitAutoSyncCompany } from './git-sync';
 import { BrainGraph, buildKnowledgeGraph, _RENDER_GRAPH_HTML } from './panels/brain-network';
 import { TaskPriority, TrackerTask, TASK_PRIORITY_ORDER, TASK_PRIORITY_LABEL, _coercePriority, readTracker, writeTracker, addTrackerTask, updateTrackerTask, listOpenTrackerTasks, trackerToMarkdown, onTrackerChanged, setTrackerCalendarHooks } from './tracker';
 import { TaskTreeItem, TaskTreeProvider, _formatDueLabel } from './panels/task-tree';
+import { DeskPos, WorldZone, BuildingDef, DecorDef, AgentDeskRef, WORLD_LAYOUT, CUSTOM_MAP_DESKS, buildWorldDeskPositions } from './world-layout';
 
 // ============================================================
 // Security helpers
@@ -59,120 +60,6 @@ import { AgentDef, AGENTS, AGENT_ORDER, SPECIALIST_IDS } from './agents';
 import { joinPlaza, postPlazaMessage, setPlazaDbUrl, plazaConfigured, PlazaSession, PlazaMessage } from './plaza';
 let _plazaSession: PlazaSession | null = null; // 🏛️ 광장 입장 세션(토글)
 
-// ───────────────────────────────────────────────────────────────────────────
-// Connected campus world (Phase B-1 — multi-zone layout).
-//
-// One big virtual campus: Office building + Cafe + outdoor Garden, all on
-// a single coord space so characters walk freely between zones. Each
-// "building" is a pre-built bg PNG/GIF placed at a fixed pixel position in
-// the world. Decorations (trees, flowers, benches) are scattered tiles on
-// the garden grass.
-// ───────────────────────────────────────────────────────────────────────────
-interface DeskPos { x: number; y: number; }
-interface WorldZone { id: string; name: string; emoji: string; x: number; y: number; }
-interface BuildingDef {
-  id: string;
-  layer1: string;
-  layer2?: string;
-  x: number; y: number;       // world pixel position (top-left)
-  width: number; height: number;
-}
-interface DecorDef {
-  file: string;               // path under assets/pixel/office/garden/
-  x: number; y: number;       // world % (anchor at bottom-center for natural layering)
-  w?: number;                 // optional % width override (defaults to 48px)
-}
-interface AgentDeskRef {
-  building: string;
-  localX: number;             // % of building width
-  localY: number;             // % of building height
-}
-
-const WORLD_LAYOUT = {
-  // World canvas — characters use % of these dims as their coordinate space.
-  worldWidth: 1400,
-  worldHeight: 700,
-
-  // Pre-built scene PNGs/GIFs anchored at fixed world pixel positions.
-  // Single office building — cafe + garden were rolled back. User will add
-  // back / build new maps themselves.
-  buildings: [
-    {
-      id: 'office', layer1: 'Office_Design_2.gif',
-      x: 560, y: 90, width: 512, height: 544,
-    },
-  ] as BuildingDef[],
-
-  // Walkways — empty for now. Add back once buildings are placed and paths make sense.
-  paths: [],
-
-  // Garden decorations — empty (rolled back).
-  decorations: [] as DecorDef[],
-
-  // Each agent's primary desk — building-local % coords.
-  // Top cubicle row chairs at office y≈30%; agents stand in aisle at y=38%.
-  // Middle row chairs at y≈47%; agents stand at y=58%.
-  // CEO's private office has a baked-in character at the desk — our CEO
-  // stands in the open area of the room (right side, not overlapping).
-  agents: {
-    youtube:   { building: 'office', localX: 28, localY: 38 },
-    instagram: { building: 'office', localX: 46, localY: 38 },
-    designer:  { building: 'office', localX: 64, localY: 38 },
-    business:  { building: 'office', localX: 82, localY: 38 },
-    developer: { building: 'office', localX: 28, localY: 58 },
-    secretary: { building: 'office', localX: 82, localY: 58 },
-    ceo:       { building: 'office', localX: 88, localY: 88 },
-    editor:    { building: 'office', localX: 18, localY: 78 },
-    writer:    { building: 'office', localX: 50, localY: 78 },
-    researcher:{ building: 'office', localX: 70, localY: 78 },
-  } as Record<string, AgentDeskRef>,
-
-  // Visit-zones for idle wandering / autonomous behavior. Office-only.
-  // Cafe + garden zones were rolled back along with their assets.
-  zones: [
-    { id: 'office-meeting', name: '회의실',  emoji: '📊',  x: 49, y: 78 },  // office bottom-left meeting room
-    { id: 'office-copier',  name: '복사실',  emoji: '🖨️', x: 70, y: 18 },  // office top printer
-  ] as WorldZone[],
-};
-
-/** Hand-tuned agent positions for the user's AI-generated office map at
- *  `assets/map.jpeg`. Coordinates are % of the world canvas — each places the
- *  agent at a real desk/seat in their room, avoiding walls and furniture.
- *  The y values anchor agent FEET (sprite is 96px tall, feet at bottom). */
-const CUSTOM_MAP_DESKS: Record<string, DeskPos> = {
-  // Top-left CEO solo office (glass-walled, "Connect AI" sign on wall)
-  ceo:        { x: 8,  y: 22 },
-  // Front desk just outside CEO's office — Secretary station
-  secretary:  { x: 18, y: 33 },
-  // Top-right twin workstation pairs
-  youtube:    { x: 87, y: 18 },
-  instagram:  { x: 87, y: 32 },
-  // Mid-left small glass meeting pod (used as Designer's focused space)
-  designer:   { x: 13, y: 47 },
-  // Center cubicle cluster (6 desks, agents at 4 of them)
-  developer:  { x: 41, y: 53 },
-  business:   { x: 51, y: 53 },
-  editor:     { x: 41, y: 63 },
-  writer:     { x: 51, y: 63 },
-  // Bottom-center small admin desks — Researcher
-  researcher: { x: 33, y: 82 },
-};
-
-/** Convert each agent's building-local desk into world % coords. */
-function buildWorldDeskPositions(): Record<string, DeskPos> {
-  const out: Record<string, DeskPos> = {};
-  for (const [id, ref] of Object.entries(WORLD_LAYOUT.agents)) {
-    const b = WORLD_LAYOUT.buildings.find(bb => bb.id === ref.building);
-    if (!b) continue;
-    const worldPxX = b.x + (ref.localX / 100) * b.width;
-    const worldPxY = b.y + (ref.localY / 100) * b.height;
-    out[id] = {
-      x: (worldPxX / WORLD_LAYOUT.worldWidth) * 100,
-      y: (worldPxY / WORLD_LAYOUT.worldHeight) * 100,
-    };
-  }
-  return out;
-}
 
 // Two layouts supported:
 //   1) Nested (default, v2.58): company at `<brain>/_company/`. Same git
