@@ -2149,7 +2149,7 @@ $('dsConvertBtn').addEventListener('click', async () => {
     $('dsCnt').textContent = `✅ Q&A ${r.pairs}쌍 생성 (지식 ${r.notes}개${r.augment ? ' · 🔬증강' : ''} · ${r.llm ? 'AI 질문생성' : '템플릿'})`;
     $('dsPreview').innerHTML = (r.sample || []).map((s: any) => `<div class="ds-q">❓ ${escapeHtml(s.q)}<div class="ds-a">→ ${escapeHtml(s.a)}…</div></div>`).join('');
   }
-  playInjection(isDpo ? '⚖️ AI 자동 피드백 생성' : '📦 학습 데이터로 변환', [`${r.pairs}개`], LONG_FX);
+  playInjection(isDpo ? '⚖️ DPO 선호쌍 생성' : '📦 SFT 데이터 변환', [`${r.pairs}개`], LONG_FX);
   $('lfStep1').classList.add('lf-done');
   $('lfStep2').classList.remove('lf-locked'); ($('hfUploadBtn') as HTMLButtonElement).disabled = false;
   // 🚀 서버 학습은 HF 토큰 불필요 — 변환만 끝나면 ②(개인 HF 업로드) 없이 바로 학습 가능하게 ③을 풀어준다
@@ -2602,9 +2602,9 @@ function selectMethod(id: string) {
   document.querySelectorAll('.m-chip').forEach(c => c.classList.toggle('on', (c as HTMLElement).dataset.m === id));
   // 한 줄 + 상세는 툴팁(ⓘ)으로 — 텍스트 최소화
   const mcTip = `언제: ${m.when}\n데이터: ${m.data}${m.note ? `\n💡 ${m.note}` : ''}`;
-  $('methodCard').innerHTML = `<div class="mc-what" title="${escAttr(mcTip)}">${m.emoji} <b>${escapeHtml(m.label)}</b> — ${escapeHtml(m.what)} <span class="muted small">ⓘ</span></div>`;
+  $('methodCard').innerHTML = `<div class="mc-what" title="${escAttr(mcTip)}">${m.emoji} <b>${escapeHtml(m.label)}</b> <span class="mc-full">${escapeHtml(m.full || '')}${m.paper ? ` · ${escapeHtml(m.paper)}` : ''}</span><br><span class="muted small">${escapeHtml(m.what)} ⓘ</span></div>`;
   const isDpo = id === 'dpo';
-  $('step1Title').textContent = isDpo ? '⚖️ AI 자동 피드백 생성' : '📦 학습 데이터로 변환';
+  $('step1Title').textContent = isDpo ? '⚖️ DPO 선호쌍 생성' : '📦 SFT 데이터로 변환';
   $('step1Sub').textContent = isDpo ? 'AI가 좋은답 ✅ vs 나쁜답 ❌ 을 스스로 생성 (사람 클릭 0)' : '지식 → AI가 Q&A 문제로 자동 출제';
   ($('dsConvertBtn') as HTMLButtonElement).textContent = isDpo ? '생성' : '변환';
   ($('augToggle') as HTMLElement).style.display = isDpo ? 'none' : '';

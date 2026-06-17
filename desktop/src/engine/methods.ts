@@ -4,17 +4,22 @@ import { buildNotebook, TrainOpts } from './train';
 
 export interface MethodMeta {
   id: string; label: string; emoji: string; level: '기본' | '중급' | '고급';
-  what: string;        // 한 줄 정의
+  full: string;        // 연구(이론) 풀네임
+  paper?: string;      // arXiv 등
+  what: string;        // 한 줄 정의(한국어 뜻)
   when: string;        // 언제 쓰나
   data: string;        // 필요한 데이터 형태
   note?: string;       // 주의/팁
 }
 
+// 모든 학습 방법은 연구(이론) 이름으로 — 합성소의 Task Arithmetic·SLERP 과 톤 통일.
 export const METHODS: MethodMeta[] = [
   { id: 'sft', label: 'SFT', emoji: '📝', level: '기본',
-    what: '질문→모범답안 "정답지"로 학습', when: '정체성·페르소나·핵심 지식 주입', data: '질문-답변 쌍 (🔬증강으로 다양하게)', note: '가장 기본. 여기서 시작.' },
-  { id: 'dpo', label: 'AI 자동 피드백', emoji: '⚖️', level: '중급',
-    what: 'AI가 좋은답/나쁜답을 스스로 만들어 품질 학습', when: '답변 품질·톤 다듬기 (SFT 다음 단계)', data: 'AI 자동 생성 (RLAIF·DPO · 사람 클릭 0)', note: '검증된 사람이 가끔 보강하면 더 좋음.' },
+    full: 'Supervised Fine-Tuning', paper: 'LoRA 2106.09685',
+    what: '질문→모범답안 "정답지"로 지도학습 (LoRA 어댑터로 가볍게)', when: '정체성·페르소나·핵심 지식 주입', data: '질문-답변 쌍 (🔬증강으로 다양하게)', note: '가장 기본. 여기서 시작. 엔진=LoRA(Low-Rank Adaptation).' },
+  { id: 'dpo', label: 'DPO', emoji: '⚖️', level: '중급',
+    full: 'Direct Preference Optimization', paper: '2305.18290',
+    what: '좋은답/나쁜답 선호쌍으로 품질 학습 (AI 자동 피드백·RLAIF)', when: '답변 품질·톤 다듬기 (SFT 다음 단계)', data: 'AI 자동 생성 선호쌍 (사람 클릭 0)', note: 'RLHF의 쉽고 안정적인 대체재.' },
 ];
 
 const md = (lines: string[]) => ({ cell_type: 'markdown', metadata: {}, source: lines });
