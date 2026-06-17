@@ -78,3 +78,62 @@ export function buildMethodNotebook(method: string, datasetRepo: string, base: s
     default: return buildNotebook(datasetRepo, base, outRepo, dataCount, opts);
   }
 }
+
+// ── 🧬 AI 합성소 (무료 Colab) — 능력 더하기/빼기·섞기를 직접. mergekit 없이 torch 텐서연산 → 모든 구조 OK ──
+//    멤버십은 앱에서 원클릭(우리 GPU), 비멤버는 이 노트북으로 무료 Colab GPU에서 직접 = "누구나 AI 소유".
+export function buildSurgeryNotebook(method: string, modelA: string, modelB: string, scale: number, outRepo: string): string {
+  const isSub = method === 'task_sub';
+  const isBlend = !method.startsWith('task');   // slerp/blend 등
+  const title = isBlend ? '🔀 두 AI 섞기 (Blend)' : isSub ? '➖ 능력 빼기 (Task Arithmetic · Negation)' : '➕ 능력 더하기 (Task Arithmetic · Addition)';
+  const concept = isBlend
+    ? ['## 🔀 두 AI를 섞어 새 AI 만들기\n', '`결과 = 원본 + 강도×(상대 − 원본)` — 두 모델 가중치를 섞습니다.\n']
+    : isSub
+      ? ['## ➖ 능력 빼기 — Task Arithmetic (Negation)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 능력모델 − 강도×τ` → 그 능력만 지워 원본 쪽으로.\n']
+      : ['## ➕ 능력 더하기 — Task Arithmetic (Addition)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 원본 + 강도×τ` → 원본이 그 능력을 획득.\n'];
+  const cells = [
+    md(['# ', title, ' — 무료 Colab\n', '\n',
+        '비개발자도 **런타임 → 모두 실행**만 누르면 돼요. 결과가 내 HuggingFace에 올라가고, Connect AI 앱에서 "받기"로 바로 씁니다.\n', '\n',
+        '> 💎 멤버십은 앱에서 버튼 하나(우리 GPU). 여기선 **무료 Colab GPU**로 직접 — 누구나 AI를 *소유*.\n']),
+    md(concept),
+    code(['%%capture\n', '!pip install -q torch transformers huggingface_hub peft accelerate safetensors\n']),
+    md(['## 🔑 HuggingFace 로그인\n', 'write 토큰을 붙여넣으세요(결과 업로드용).\n']),
+    code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
+    md(['## ⚙️ 설정 — 이 4개만 보면 돼요\n', '`MODEL_A`=원본 · `MODEL_B`=상대(능력) · `METHOD` · `SCALE`(강도)\n']),
+    code([
+      'import torch\n',
+      'from transformers import AutoModelForCausalLM, AutoTokenizer\n',
+      'from huggingface_hub import HfApi\n', '\n',
+      'MODEL_A = "' + modelA + '"   # 원본\n',
+      'MODEL_B = "' + modelB + '"   # 상대(능력) 모델\n',
+      'METHOD  = "' + method + '"   # task_add | task_sub | blend\n',
+      'SCALE   = ' + (Number.isFinite(scale) ? scale : 1.0) + '       # 강도(λ). 1.0 권장\n',
+      'OUTPUT  = "' + outRepo + '"  # 결과가 올라갈 내 HF repo\n', '\n',
+      'def load(repo):\n',
+      '    files = HfApi().list_repo_files(repo)\n',
+      '    full = any(f.endswith(".safetensors") and not f.startswith("adapter") for f in files)\n',
+      '    if (not full) and ("adapter_config.json" in files):\n',
+      '        from peft import AutoPeftModelForCausalLM\n',
+      '        print("🔧 LoRA 어댑터 → 원본에 자동 병합:", repo)\n',
+      '        return AutoPeftModelForCausalLM.from_pretrained(repo, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True).merge_and_unload()\n',
+      '    return AutoModelForCausalLM.from_pretrained(repo, torch_dtype=torch.bfloat16, low_cpu_mem_usage=True)\n', '\n',
+      '# 방식에 따라 기준(base)·상대(other) 정하기 — 빼기는 능력모델(B)이 기준\n',
+      'base_id, other_id = (MODEL_B, MODEL_A) if METHOD == "task_sub" else (MODEL_A, MODEL_B)\n',
+      'print("📥 두 모델 로딩…")\n',
+      'base = load(base_id); other = load(other_id)\n', '\n',
+      '# 핵심: 결과 = base + SCALE×(other − base)  (Task Arithmetic / 블렌드 공통, 구조 무관)\n',
+      'o = dict(other.named_parameters()); applied = 0\n',
+      'with torch.no_grad():\n',
+      '    for n, p in base.named_parameters():\n',
+      '        q = o.get(n)\n',
+      '        if q is not None and q.shape == p.shape:\n',
+      '            p.add_((q.data.to(p.dtype) - p.data) * float(SCALE)); applied += 1\n',
+      'print(f"✅ {applied}개 가중치에 적용 (방식={METHOD}, 강도={SCALE})")\n', '\n',
+      '# 결과를 내 HuggingFace에 업로드\n',
+      'base.push_to_hub(OUTPUT)\n',
+      'AutoTokenizer.from_pretrained(base_id).push_to_hub(OUTPUT)\n',
+      'print(f"🎉 완료 → https://huggingface.co/{OUTPUT}")\n',
+      'print("👉 Connect AI 앱 → 🤖 내 AI 에서 받아서 바로 쓰세요!")\n']),
+    md(['## 🎉 끝!\n', '결과가 **내 HuggingFace**에 올라갔어요. Connect AI 앱에서 받아 쓰면 됩니다.\n', '더 쉽게 하려면 → 💎 멤버십(앱에서 버튼 하나).\n']),
+  ];
+  return wrap(cells);
+}

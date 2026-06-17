@@ -20,7 +20,7 @@ import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits
 import { encryptPack, decryptPack } from './engine/cryptopack';
 import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus } from './engine/hf';
 import { buildNotebook } from './engine/train';
-import { METHODS, buildMethodNotebook } from './engine/methods';
+import { METHODS, buildMethodNotebook, buildSurgeryNotebook } from './engine/methods';
 import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
 import { sendEmail, fetchUnseen } from './engine/email';
 import { fetchChannel, ytAccessToken, fetchAnalytics } from './engine/youtube';
@@ -1897,6 +1897,24 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   });
   if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
+});
+// 🆓 무료 합성 — 비멤버용. 같은 합성을 Colab 무료 GPU에서 직접(노트북 생성→깃→Colab 원클릭). 비번·GPU 게이트 없음.
+ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method = 'task_add', scale = 1.0, outName = '') => {
+  if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요.' };
+  const g = connOf('github'), h = connOf('huggingface');
+  const me = h.HF_TOKEN ? await hfUsername(h.HF_TOKEN) : '';
+  const owner = me || 'my-hf-id';
+  const safe = (outName || `fusion-${Date.now().toString(36)}`).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'my-fusion';
+  const outRepo = safe.includes('/') ? safe : `${owner}/${safe}`;
+  const nb = buildSurgeryNotebook(method, modelA, modelB, Number(scale) || 1.0, outRepo);
+  const fileName = `connect-ai/surgery-${method}.ipynb`;
+  if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
+    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 합성 노트북 (${method})`);
+    if (r.ok && r.url) return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, outRepo };
+  }
+  const out = path.join(os.homedir(), 'Desktop', `connect-ai-surgery-${method}.ipynb`);
+  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', outRepo, note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
+  catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');

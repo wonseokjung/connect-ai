@@ -2377,6 +2377,22 @@ function surgFail(html: string) {
   surgStat(`${html}<div style="margin-top:8px"><button id="surgRetry" class="lf-ghost">← 다시 입력</button></div>`);
   $('surgRetry')?.addEventListener('click', () => renderSurgery());
 }
+// 🆓 무료 합성 — 비멤버용. 같은 합성을 무료 Colab 노트북으로(비번·GPU게이트 없음).
+async function surgeryFree() {
+  try {
+    const r = surgRecipe();
+    if (!r.a || !r.b) { surgStat('⚠️ 합칠 AI 2개를 골라주세요 (위 🅰·🅱 칸).'); ($(!r.a ? 'surgA' : 'surgB') as HTMLInputElement)?.focus(); return; }
+    if (r.a === r.b) { surgStat('⚠️ 서로 다른 두 AI여야 해요.'); return; }
+    const nameRaw = (($('surgName') as HTMLInputElement)?.value || '').trim() || surgSuggestName();
+    const nameErr = validModelName(nameRaw); if (nameErr) { surgStat('🏷️ ' + nameErr); ($('surgName') as HTMLInputElement)?.focus(); return; }
+    surgStat('<span class="cyc-spin"></span> 🆓 무료 Colab 노트북 만드는 중…');
+    const res: any = await connect.surgeryNotebook?.(r.a, r.b, _surg.method, _surg.t, nameRaw);
+    if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
+    if (res.colab) connect.openExternal?.(res.colab);
+    surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요${res.note ? ` · ${escapeHtml(res.note)}` : ''}</span>`);
+    hint('🆓 무료 Colab 노트북이 열렸어요 — "런타임 → 모두 실행"');
+  } catch (e: any) { reportErr('무료합성', e); surgFail(`⚠️ ${escapeHtml(String(e?.message || e))}`); }
+}
 function renderSurgery() {
   const body = $('surgBody'); if (!body) return;
   const isTask = _surg.scope === 'task';
@@ -2425,7 +2441,8 @@ function renderSurgery() {
       <input id="surgPw" class="surg-pw" type="password" placeholder="🔒" maxlength="8" title="비밀번호" autocomplete="off">
       <span class="surg-left" id="surgLeft" title="이번 달 남은 합성 횟수"></span>
     </div>
-    <button class="cyc-btn primary surg-go" id="surgGo">🧬 합성 시작</button>
+    <button class="cyc-btn primary surg-go" id="surgGo">💎 합성 시작 <span class="muted small">멤버십·원클릭</span></button>
+    <button class="surg-free-btn" id="surgFreeBtn">🆓 무료로 직접 하기 <span class="sfb-sub">Colab·비번 없이</span></button>
     <div class="surg-status" id="surgStatus"></div>`;
   wireSurgery();
   connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.textContent = `🎟️ ${u.left}/${u.limit}`; }).catch(() => {});
@@ -2472,6 +2489,7 @@ function wireSurgery() {
   $('surgSearchBtn')?.addEventListener('click', doSearch);
   $('surgSearch')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') doSearch(); });
   $('surgGo')?.addEventListener('click', surgeryGo);
+  $('surgFreeBtn')?.addEventListener('click', surgeryFree);
 }
 // 🎮 합성 게임 연출 — 융합 서클 → 궤도 충전(진행 중 루프) → 완료 시 빛기둥+카드+★
 let _fuseName = 'my-fusion';
