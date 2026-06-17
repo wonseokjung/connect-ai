@@ -524,8 +524,8 @@
           <input id="modelNameInput" class="fuse-in" placeholder="🏷️ 새 AI 이름 (my-brain-v1)" title="⚠️ 한글 X · 영어·숫자·하이픈(-)만" autocomplete="off" />
           <div class="grow-acts">
             <input id="cloudCode" class="surg-pw" placeholder="🔒" maxlength="8" type="password" autocomplete="off" title="비밀번호" />
-            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버 학습 — 버튼 한 번 (멤버십·월3회)">💎 유료</button>
-            <button id="hfTrainBtn" class="train-free" title="내 Colab/HF로 직접 학습 (무료) — 먼저 ⚙️ 안에서 ①변환 ②업로드가 필요해요">🆓 무료</button>
+            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버(우리 GPU)에서 버튼 한 번 — 멤버십·월3회">💎 멤버십·원클릭</button>
+            <button id="hfTrainBtn" class="train-free" title="내 무료 Colab GPU로 직접 — 누르면 바로 코랩 (비번 불필요)">🆓 무료·Colab</button>
           </div>
           <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
         </div>
@@ -567,10 +567,11 @@
               <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
           </details>
         </div>
-        <details class="lf-optional"><summary>🔧 데이터 직접 다듬기 — ①변환 ②업로드 <b>(선택·고급)</b></summary>
+        <details class="lf-optional"><summary>🔧 데이터 미리보기·다듬기 <b>(선택 · 안 해도 자동으로 됩니다)</b></summary>
+          <div class="muted small" style="margin:4px 0 6px">💡 유료·무료 둘 다 <b>지식을 알아서 데이터로</b> 만들어요. 여기는 <b>더 좋은 품질(AI Q&amp;A·증강)</b>을 원할 때만.</div>
           <div class="lf-step" id="lfStep1">
             <span class="lf-num">1</span>
-            <div class="lf-body"><b id="step1Title">📦 학습 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → AI가 Q&amp;A 문제로 자동 출제</div>
+            <div class="lf-body"><b id="step1Title">📦 SFT 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → AI가 Q&amp;A 문제로 자동 출제</div>
               <label class="aug-toggle" id="augToggle"><input type="checkbox" id="augChk" /> 🔬 다양하게 (증강 · echo 방지)</label>
             </div>
             <button id="dsConvertBtn" class="oc-primary">변환</button>
@@ -580,10 +581,11 @@
             <div class="ds-cnt" id="dsCnt"></div>
             <div class="ds-preview" id="dsPreview"></div>
           </div>
-          <div class="lf-arrow">↓</div>
-          <div class="lf-step lf-locked" id="lfStep2">
+          <!-- ②업로드는 이제 불필요(유료=자동변환·무료=노트북에 직접심음) — DOM은 두되 숨김(JS 참조 안전) -->
+          <div class="lf-arrow" hidden>↓</div>
+          <div class="lf-step lf-locked" id="lfStep2" hidden>
             <span class="lf-num">2</span>
-            <div class="lf-body"><b>🤗 HuggingFace 업로드 <span class="beta" style="background:rgba(150,150,150,.22)">선택</span></b><div class="muted small">내 HF 계정에 데이터셋 보관용 <span class="mem-repo" id="hfRepo">미연결</span> · <b style="color:#74ffb4">💎 유료 학습은 이 단계 없이 바로</b></div></div>
+            <div class="lf-body"><b>🤗 HuggingFace 업로드 <span class="beta">선택</span></b><div class="muted small">내 HF 계정에 데이터셋 보관 <span class="mem-repo" id="hfRepo">미연결</span></div></div>
             <button id="hfUploadBtn" class="oc-primary" disabled>업로드</button>
           </div>
         </details>
