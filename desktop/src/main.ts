@@ -18,7 +18,7 @@ import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, 
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
-import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus } from './engine/hf';
+import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus, cancelJob } from './engine/hf';
 import { buildNotebook } from './engine/train';
 import { METHODS, buildMethodNotebook, buildSurgeryNotebook } from './engine/methods';
 import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
@@ -1915,6 +1915,14 @@ ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method =
   const out = path.join(os.homedir(), 'Desktop', `connect-ai-surgery-${method}.ipynb`);
   try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', outRepo, note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+// 🚫 진행 중(또는 멈춘) 클라우드 작업 취소 — 학습·합성 공용(cloudJob 하나 공유)
+ipcMain.handle('cloud:cancel', async () => {
+  const c: any = loadConfig(); const j = c.cloudJob; const h = connOf('huggingface');
+  let cancelled = false;
+  if (j?.id && j?.namespace && h.HF_TOKEN) { try { cancelled = await cancelJob(h.HF_TOKEN, j.namespace, j.id); } catch { /* */ } }
+  saveConfig({ cloudJob: null } as any);
+  return { ok: true, cancelled };
 });
 ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');

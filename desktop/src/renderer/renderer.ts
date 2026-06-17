@@ -2357,6 +2357,7 @@ function wireCloudInstall() {
 // 🧬 논문별 합성 — scope 'merge'(Model Merging/SLERP) | 'task'(Editing Models with Task Arithmetic)
 // Task Arithmetic 안에서만 더하기/빼기(➕/➖) 두 연산을 아이콘 토글로 고른다.
 const _surg = { a: '', b: '', t: 0.5, running: false, name: '', method: 'slerp', scope: 'merge' };
+let surgPoll = 0;   // 진행 폴링 핸들(취소용)
 // 💾 입력값 자동 저장/복원 — 실수로 닫아도 처음부터 다시 안 하게 (비번은 보안상 저장 안 함)
 try { const s = JSON.parse(localStorage.getItem('surgDraft') || '{}'); if (s && typeof s === 'object') { _surg.a = s.a || ''; _surg.b = s.b || ''; _surg.t = typeof s.t === 'number' ? s.t : 0.5; _surg.name = s.name || ''; _surg.method = s.method || 'slerp'; _surg.scope = s.scope || 'merge'; } } catch { /* */ }
 function saveSurg() { try { localStorage.setItem('surgDraft', JSON.stringify({ a: _surg.a, b: _surg.b, t: _surg.t, name: _surg.name, method: _surg.method, scope: _surg.scope })); } catch { /* */ } }
@@ -2375,6 +2376,19 @@ function surgStat(html: string) { const el = $('surgStatus'); if (el) { el.inner
 // 실패 시: 메시지 + '← 다시' 버튼(폼 복원). 연출이 폼을 덮었어도 처음부터 다시 안 해도 됨(_surg 유지)
 function surgFail(html: string) {
   surgStat(`${html}<div style="margin-top:8px"><button id="surgRetry" class="lf-ghost">← 다시 입력</button></div>`);
+  $('surgRetry')?.addEventListener('click', () => renderSurgery());
+}
+// 진행 중 상태 + ✕ 취소 버튼(매 틱 재생성되므로 매번 재연결)
+function surgRunning(html: string) {
+  surgStat(`${html}<div style="margin-top:10px"><button id="surgCancelBtn" class="surg-cancel">✕ 합성 취소</button></div>`);
+  $('surgCancelBtn')?.addEventListener('click', surgCancel);
+}
+// 🚫 합성 취소 — 폴링 중단 + HF 작업 취소(best-effort) + 폼 복원
+async function surgCancel() {
+  if (surgPoll) { clearInterval(surgPoll); surgPoll = 0; }
+  surgStat('<span class="cyc-spin"></span> 취소하는 중…');
+  try { await connect.cloudCancel?.(); } catch { /* */ }
+  surgStat('🚫 합성을 취소했어요. <button id="surgRetry" class="lf-ghost">← 처음으로</button>');
   $('surgRetry')?.addEventListener('click', () => renderSurgery());
 }
 // 🆓 무료 합성 — 비멤버용. 같은 합성을 무료 Colab 노트북으로(비번·GPU게이트 없음).
@@ -2544,16 +2558,20 @@ async function surgeryGo() {
   if (res.needsPro) return surgFail(`💳 ${escapeHtml(res.error || 'HF Pro/크레딧이 필요해요')}${cmd}`);
   if (!res.ok) return surgFail(`⚠️ ${escapeHtml(res.error || '시작 실패')}${cmd}`);
   let secs = 0;
-  surgStat(`🔪 합치는 중… <a href="${escAttr(res.url || res.modelRepo)}" target="_blank">진행상황 ↗</a><br><span class="muted small">GPU에서 진행돼요 · 보통 5~20분 (완료되면 '받기' 버튼)</span>`);
-  const poll = window.setInterval(async () => {
+  const url = escAttr(res.url || res.modelRepo);
+  surgRunning(`🔪 합치는 중… <a href="${url}" target="_blank">진행상황 ↗</a><br><span class="muted small">GPU에서 진행돼요 · 보통 5~20분 (완료되면 '받기' 버튼)</span>`);
+  if (surgPoll) clearInterval(surgPoll);
+  surgPoll = window.setInterval(async () => {
    try {
     secs += 12;
+    if (secs > 4200) { clearInterval(surgPoll); surgPoll = 0; surgFail('⏱️ 작업이 너무 오래 걸려요(응답 없음). 취소하고 다시 시도해주세요.'); return; }   // 70분=작업 타임아웃(1h)+여유 → 무한폴링 차단
     const s: any = await connect.trainCloudStatus?.();
-    if (!s?.ok) { surgStat(`<span class="cyc-spin"></span> 합치는 중… <b>${Math.floor(secs / 60)}분 ${secs % 60}초</b> 경과 <a href="${escAttr(res.url || res.modelRepo)}" target="_blank">진행상황 ↗</a>`); return; }
-    if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(poll); surgFusionDone(); surgStat(`✅ 합성 성공! <button id="surgInstall" class="oc-primary">⬇️ 새 AI 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
-    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(poll); surgFail(`⚠️ 합성 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); }
-    else surgStat(`<span class="cyc-spin"></span> 합치는 중… (${escapeHtml(s.stage || '진행')}) · <b>${Math.floor(secs / 60)}분</b> 경과${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황 ↗</a>` : ''}`);
-   } catch (e: any) { clearInterval(poll); surgFail(`⚠️ 진행 확인 중 오류: ${escapeHtml(String(e?.message || e))}`); }
+    const mm = `<b>${Math.floor(secs / 60)}분 ${secs % 60}초</b> 경과`;
+    if (!s?.ok) { surgRunning(`<span class="cyc-spin"></span> 합치는 중… ${mm} <a href="${url}" target="_blank">진행상황 ↗</a>`); return; }
+    if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(surgPoll); surgPoll = 0; surgFusionDone(); surgStat(`✅ 합성 성공! <button id="surgInstall" class="oc-primary">⬇️ 새 AI 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
+    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(surgPoll); surgPoll = 0; surgFail(`⚠️ 합성 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); }
+    else surgRunning(`<span class="cyc-spin"></span> 합치는 중… (${escapeHtml(s.stage || '진행')}) · ${mm}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황 ↗</a>` : ''}`);
+   } catch (e: any) { clearInterval(surgPoll); surgPoll = 0; surgFail(`⚠️ 진행 확인 중 오류: ${escapeHtml(String(e?.message || e))}`); }
   }, 12000);
  } catch (e: any) {
   // 예상 못 한 오류도 조용히 죽지 말고 화면에 — "안 돌아가면 안 돌아간다고"

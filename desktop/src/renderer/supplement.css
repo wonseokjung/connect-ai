@@ -1611,6 +1611,8 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 .surg-free-btn { width: 100%; margin-top: 8px; padding: 11px; border-radius: 11px; border: 1px solid var(--accent, #39ff14); background: rgba(57,255,20,.1); color: var(--accent, #39ff14); font-weight: 800; font-size: 13px; cursor: pointer; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 7px; }
 .surg-free-btn:hover { background: rgba(57,255,20,.2); }
 .sfb-sub { font-size: 10.5px; font-weight: 600; opacity: .75; }
+.surg-cancel { padding: 7px 14px; border-radius: 9px; border: 1px solid rgba(255,77,77,.5); background: rgba(255,77,77,.12); color: #ff6b6b; font-weight: 800; font-size: 12px; cursor: pointer; font-family: inherit; }
+.surg-cancel:hover { background: rgba(255,77,77,.22); }
 .surg-go.surg-cut { animation: surgCut .5s ease infinite; }
 @keyframes surgCut { 0%,100% { box-shadow: 0 0 18px rgba(57,255,20,.4); } 50% { box-shadow: 0 0 30px rgba(255,77,77,.6); } }
 .surg-status { margin-top: 14px; font-size: 13px; line-height: 1.6; color: #c7ffd8; text-align: center; }

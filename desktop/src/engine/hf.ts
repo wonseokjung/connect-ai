@@ -50,6 +50,12 @@ export async function jobStatus(token: string, namespace: string, jobId: string)
   } catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
 }
 
+// 🚫 HF Job 취소 (best-effort) — 멈춘/오래 걸리는 작업 중단
+export async function cancelJob(token: string, namespace: string, jobId: string): Promise<boolean> {
+  try { await axios.post(`https://huggingface.co/api/jobs/${namespace}/${jobId}/cancel`, {}, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 }); return true; }
+  catch { return false; }
+}
+
 export async function uploadDataset(token: string, repo: string, jsonl: string, filename = 'connect-ai-knowledge.jsonl'): Promise<{ ok: boolean; url?: string; error?: string }> {
   if (!token) return { ok: false, error: '허깅페이스 토큰을 🗂️ 연동에서 먼저 입력하세요. (write 권한)' };
   // 전체 URL·datasets/ 접두어 제거. "이름"만 적었으면 토큰 주인 아이디를 자동으로 앞에 붙인다.
