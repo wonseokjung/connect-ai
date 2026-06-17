@@ -50,6 +50,7 @@ interface Config {
   lastCloudTrainAt?: number; cloudJob?: any; trainBaseModel?: string; brainModelName?: string;   // ☁️ 클라우드 학습(HF Jobs)
   gpuUsage?: { month: string; train: number; surgery: number };   // 🔒 GPU 기능 월 사용량 (학습·수술 각각 월 3회)
   stats?: { trains: number; datasets: number; fusions: number };   // 🎒 누적 전적 — 학습(레벨업)·데이터셋·합성 횟수 (인벤토리/광장 프로필용)
+  createdModels?: Record<string, { id: string; name?: string; avatar?: string; personality?: string; method?: 'train' | 'fusion'; baseModel?: string; createdAt?: number }>;   // 🧬 내 AI 팀 — 학습·합성으로 만든 모델 캐릭터(이름·얼굴·성격)
   trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
@@ -1777,6 +1778,34 @@ async function gatherInventory() {
   return { models, localModels: localCount, hfModels: hfModels.length, datasets, fusions, trains, totalLevel: trains + fusions, topModel };
 }
 ipcMain.handle('inventory:get', () => gatherInventory());
+// 🧬 내 AI 팀 — 학습/합성으로 만든 모델을 캐릭터로 기록
+function recordCreatedModel(method: 'train' | 'fusion', id: string, name?: string, baseModel?: string) {
+  if (!id) return;
+  const c = loadConfig(); const cm = { ...(c.createdModels || {}) };
+  const prev = cm[id] || { id, createdAt: Date.now() };
+  cm[id] = { ...prev, id, method, baseModel: baseModel || prev.baseModel, name: prev.name || name || id.split('/').pop() };
+  saveConfig({ createdModels: cm });
+}
+// 내 AI 팀 목록 — 내 HF 모델 + 기록된 캐릭터 메타 합쳐서 반환
+ipcMain.handle('created:list', async () => {
+  const c = loadConfig(); const created = c.createdModels || {};
+  let hfModels: string[] = [];
+  try {
+    const h = connOf('huggingface');
+    if (h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) { const r: any = await axios.get(`https://huggingface.co/api/models?author=${encodeURIComponent(me)}&limit=100&full=false`, { headers: { Authorization: `Bearer ${h.HF_TOKEN}` }, timeout: 12000 }); hfModels = (r.data || []).map((m: any) => m.id || m.modelId).filter(Boolean); } }
+  } catch { /* HF 실패해도 기록된 것만 표시 */ }
+  const ids = Array.from(new Set([...hfModels, ...Object.keys(created)]));
+  const items = ids.map(id => ({ name: id.split('/').pop(), ...(created[id] || {}), id }));
+  return { ok: true, items };
+});
+// 내 AI 캐릭터 편집(이름·이모지/얼굴·성격) 저장
+ipcMain.handle('created:save', (_e, id: string, patch: any) => {
+  if (!id) return { ok: false };
+  const c = loadConfig(); const cm = { ...(c.createdModels || {}) };
+  cm[id] = { ...(cm[id] || { id, createdAt: Date.now() }), ...(patch || {}), id };
+  saveConfig({ createdModels: cm });
+  return { ok: true };
+});
 
 // 🎒 광장 프로필 업로드 — 입장/전적 변동 시 내 인벤토리를 RTDB에 덮어쓰기(작은 객체 1개)
 async function pushMyProfile(uid: string) {
@@ -1804,7 +1833,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
       try {
         const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
         const d = r.data || {};
-        if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
+        if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', d.outputRepo || '', '', c.trainBaseModel); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
       } catch (e: any) {
         const st = e?.response?.status;
@@ -1841,7 +1870,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
   const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
   const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
-  if (job.ok && job.jobId) { gpuUse('train', accessCode); bumpStat('train'); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
+  if (job.ok && job.jobId) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', outRepo, '', guessBase(loadConfig().llmModel)); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
   return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('train:cloudStatus', async () => {
@@ -1895,7 +1924,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
     datasetRepo: surgRepo, scriptFile: 'merge_uv.py', flavor: 'l4x1', timeout: '1h',
     env: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: String(t), OUTPUT_REPO: outRepo },   // ⚠️ 키 'T'는 HF Jobs가 거부 → MERGE_T
   });
-  if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
+  if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', outRepo, outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 // 🆓 무료 합성 — 비멤버용. 같은 합성을 Colab 무료 GPU에서 직접(노트북 생성→깃→Colab 원클릭). 비번·GPU 게이트 없음.

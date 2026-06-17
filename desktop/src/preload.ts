@@ -79,6 +79,8 @@ contextBridge.exposeInMainWorld('connect', {
   surgeryMerge: (a: string, b: string, method?: string, t?: string, outName?: string, password?: string) => ipcRenderer.invoke('surgery:merge', a, b, method || 'slerp', t || '0.5', outName || '', password || ''),   // 🔪 합치기 수술(HF Jobs)
   surgeryNotebook: (a: string, b: string, method?: string, scale?: number, outName?: string) => ipcRenderer.invoke('surgery:notebook', a, b, method || 'task_add', scale ?? 1.0, outName || ''),   // 🆓 무료 합성(Colab)
   cloudCancel: () => ipcRenderer.invoke('cloud:cancel'),   // 🚫 진행/멈춘 클라우드 작업 취소
+  createdList: () => ipcRenderer.invoke('created:list'),   // 🧬 내 AI 팀 목록
+  createdSave: (id: string, patch: any) => ipcRenderer.invoke('created:save', id, patch),   // 🧬 캐릭터 편집 저장
   gpuUsage: (kind?: string) => ipcRenderer.invoke('gpu:usage', kind || 'train'),   // 🔒 GPU 월 사용량(학습/수술 각각)
   hfMyModels: () => ipcRenderer.invoke('hf:myModels'),   // 🧬 내가 만든 AI(내 HF 모델)
   hfSearchModels: (q: string) => ipcRenderer.invoke('hf:searchModels', q),   // 🔍 HF 모델 검색(gemma·llama 등)

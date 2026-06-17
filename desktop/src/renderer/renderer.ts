@@ -364,7 +364,51 @@ function switchMtab(tab: string) {
 // 🤖 AI 선택 패널
 const LOCAL_BASE = 'http://127.0.0.1:1235';
 $('aiBtn').addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
-async function loadAiPanel() { renderOfficePreview(); renderTeamRoster(); await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams()]); }
+async function loadAiPanel() { renderOfficePreview(); renderTeamRoster(); await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams(), renderCreatedModels()]); }
+// 🧬 내 AI 팀 — 학습/합성으로 만든 모델을 캐릭터(이모지·이름·성격)로. id 해시로 안정적 이모지 배정.
+const CM_EMOJI = ['🤖', '🧠', '🦾', '👾', '🐱', '🦊', '🐻', '🦁', '🐯', '🐲', '🦉', '🦄', '🐙', '🤠', '🥷', '🧙', '🦸', '🐧', '🐸', '🦅'];
+function cmEmoji(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return CM_EMOJI[h % CM_EMOJI.length]; }
+let _createdCache: any[] = [];
+async function renderCreatedModels() {
+  const el = $('createdModels'); if (!el) return;
+  el.innerHTML = '<span class="cyc-spin"></span> <span class="muted small">내가 만든 AI 불러오는 중…</span>';
+  const r: any = await connect.createdList?.().catch(() => null);
+  const items: any[] = (r?.ok && r.items) ? r.items : [];
+  _createdCache = items;
+  if (!items.length) { el.innerHTML = '<div class="muted small" style="padding:6px 2px">🌱 장기기억으로 학습하거나 🧬 합성하면 여기 <b>캐릭터로</b> 모여요.</div>'; return; }
+  el.innerHTML = items.map(m => {
+    const av = m.avatar || cmEmoji(m.id);
+    const avh = av.startsWith('data:') ? `<div class="cm-av" style="background-image:url('${escAttr(av)}')"></div>` : `<div class="cm-av cm-emoji">${av}</div>`;
+    const badge = m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '🤖 내 모델';
+    const nm = m.name || (m.id.split('/').pop());
+    return `<div class="cm-card" data-id="${escAttr(m.id)}" title="${escAttr(m.id)} — 클릭해서 꾸미기">${avh}
+      <div class="cm-info"><div class="cm-name">${escapeHtml(nm)}</div><div class="cm-type">${badge}</div>${m.personality ? `<div class="cm-personality">${escapeHtml(m.personality)}</div>` : ''}</div></div>`;
+  }).join('');
+  el.querySelectorAll('.cm-card').forEach(c => c.addEventListener('click', () => openCreatedDetail((c as HTMLElement).dataset.id!)));
+}
+function openCreatedDetail(id: string) {
+  const m = _createdCache.find(x => x.id === id) || { id }; const cur = m.avatar || cmEmoji(id);
+  const picks = CM_EMOJI.map(e => `<button class="cm-pick${e === cur ? ' on' : ''}" data-e="${e}">${e}</button>`).join('');
+  const body = $('createdModels'); if (!body) return;
+  const back = body.innerHTML;
+  body.innerHTML = `<div class="cm-detail">
+    <button class="lf-ghost" id="cmBack">← 내 AI 팀</button>
+    <div class="cm-big">${cur.startsWith('data:') ? `<img src="${escAttr(cur)}"/>` : cur}</div>
+    <input id="cmName" class="fuse-in" maxlength="24" value="${escAttr(m.name || id.split('/').pop() || '')}" placeholder="🏷️ 이름"/>
+    <input id="cmPers" class="fuse-in" maxlength="50" value="${escAttr(m.personality || '')}" placeholder="😎 성격·특징 (예: 데이터 중심·직설적)"/>
+    <div class="cm-picks">${picks}</div>
+    <div class="muted small" style="margin-top:2px">🤖 ${escapeHtml(id)} · ${m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '내 모델'}</div>
+    <button class="oc-primary" id="cmSave" style="width:100%;margin-top:8px">💾 저장</button></div>`;
+  $('cmBack')?.addEventListener('click', () => { body.innerHTML = back; body.querySelectorAll('.cm-card').forEach(c => c.addEventListener('click', () => openCreatedDetail((c as HTMLElement).dataset.id!))); });
+  let pick = cur;
+  body.querySelectorAll('.cm-pick').forEach(b => b.addEventListener('click', () => { pick = (b as HTMLElement).dataset.e!; body.querySelectorAll('.cm-pick').forEach(x => x.classList.toggle('on', x === b)); const big = body.querySelector('.cm-big'); if (big) big.textContent = pick; }));
+  $('cmSave')?.addEventListener('click', async () => {
+    const name = ($('cmName') as HTMLInputElement)?.value.trim();
+    const personality = ($('cmPers') as HTMLInputElement)?.value.trim();
+    await connect.createdSave?.(id, { name, personality, avatar: pick });
+    hint('💾 저장했어요'); await renderCreatedModels();
+  });
+}
 // 🏢 작은 사무실 미리보기 — 팀 아바타가 둥실둥실, 누르면 큰 사무실 창. [[project_my_ai_team_vision]]
 function renderOfficePreview() {
   const el = $('officePreview'); if (!el) return;

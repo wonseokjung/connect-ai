@@ -1101,6 +1101,24 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 .tr-name { font-size: 12.5px; font-weight: 700; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr-brain { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
 .tr-card.has-brain .tr-brain { color: var(--ag); }
+/* 🧬 내 AI 팀 — 만든 모델 캐릭터 카드 */
+.created-models { display: grid; grid-template-columns: repeat(2, 1fr); gap: 7px; margin-bottom: 12px; }
+.cm-card { display: flex; align-items: center; gap: 9px; padding: 8px 9px; background: linear-gradient(135deg, rgba(167,139,250,.08), rgba(167,139,250,.02)); border: 1px solid rgba(167,139,250,.28); border-left: 3px solid #a78bfa; border-radius: 11px; cursor: pointer; transition: .15s; min-width: 0; }
+.cm-card:hover { transform: translateY(-1px); border-color: #a78bfa; box-shadow: 0 4px 14px rgba(167,139,250,.25); }
+.cm-av { width: 38px; height: 38px; border-radius: 10px; background-size: cover; background-position: center; border: 1.5px solid #a78bfa; flex-shrink: 0; }
+.cm-emoji { display: flex; align-items: center; justify-content: center; font-size: 22px; background: rgba(167,139,250,.14); }
+.cm-info { min-width: 0; flex: 1; }
+.cm-name { font-size: 12.5px; font-weight: 800; color: var(--text-bright); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cm-type { font-size: 10px; font-weight: 700; color: #c4b5fd; margin-top: 1px; }
+.cm-personality { font-size: 10px; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+/* 캐릭터 꾸미기 */
+.cm-detail { display: flex; flex-direction: column; gap: 8px; align-items: stretch; }
+.cm-big { font-size: 56px; text-align: center; line-height: 1; }
+.cm-big img { width: 88px; height: 88px; border-radius: 16px; object-fit: cover; border: 2px solid #a78bfa; }
+.cm-picks { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; }
+.cm-pick { font-size: 18px; padding: 5px 0; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface); cursor: pointer; }
+.cm-pick.on { border-color: #a78bfa; background: rgba(167,139,250,.2); }
+.cm-pick:hover { border-color: #a78bfa; }
 .ai-current { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 14px 16px; margin-bottom: 20px; }
 .ai-current.on { border-color: var(--accent3); box-shadow: 0 0 20px rgba(0,255,160,.14); }
 .aic-icon { font-size: 26px; line-height: 1; }
