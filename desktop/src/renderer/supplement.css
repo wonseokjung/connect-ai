@@ -1119,6 +1119,11 @@ body.office-only .voffice, body.office-only .office-stage { flex: 1; min-height:
 .cm-pick { font-size: 18px; padding: 5px 0; border-radius: 8px; border: 1px solid var(--border2); background: var(--surface); cursor: pointer; }
 .cm-pick.on { border-color: #a78bfa; background: rgba(167,139,250,.2); }
 .cm-pick:hover { border-color: #a78bfa; }
+.cm-head { grid-column: 1 / -1; font-size: 12.5px; font-weight: 800; color: var(--text-bright); padding: 4px 2px 2px; }
+.cm-head b { color: #c4b5fd; }
+.cm-acts { display: flex; gap: 7px; margin-top: 8px; }
+.cm-act { flex: 1; padding: 9px; border-radius: 10px; border: 1px solid #a78bfa; background: rgba(167,139,250,.12); color: #c4b5fd; font-weight: 800; font-size: 12px; cursor: pointer; font-family: inherit; }
+.cm-act:hover { background: rgba(167,139,250,.22); }
 .ai-current { display: flex; align-items: center; gap: 14px; background: var(--surface); border: 1px solid var(--border2); border-radius: 14px; padding: 14px 16px; margin-bottom: 20px; }
 .ai-current.on { border-color: var(--accent3); box-shadow: 0 0 20px rgba(0,255,160,.14); }
 .aic-icon { font-size: 26px; line-height: 1; }

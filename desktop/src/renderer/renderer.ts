@@ -376,7 +376,9 @@ async function renderCreatedModels() {
   const items: any[] = (r?.ok && r.items) ? r.items : [];
   _createdCache = items;
   if (!items.length) { el.innerHTML = '<div class="muted small" style="padding:6px 2px">🌱 장기기억으로 학습하거나 🧬 합성하면 여기 <b>캐릭터로</b> 모여요.</div>'; return; }
-  el.innerHTML = items.map(m => {
+  const inv: any = await connect.inventory?.().catch(() => null);
+  const head = inv ? `<div class="cm-head">🧬 <b>${items.length}</b>마리 · <b>Lv.${inv.totalLevel || 0}</b> <span class="muted small">🌱 학습 ${inv.trains || 0} · 🧬 합성 ${inv.fusions || 0}</span></div>` : '';
+  el.innerHTML = head + items.map(m => {
     const av = m.avatar || cmEmoji(m.id);
     const avh = av.startsWith('data:') ? `<div class="cm-av" style="background-image:url('${escAttr(av)}')"></div>` : `<div class="cm-av cm-emoji">${av}</div>`;
     const badge = m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '🤖 내 모델';
@@ -393,21 +395,47 @@ function openCreatedDetail(id: string) {
   const back = body.innerHTML;
   body.innerHTML = `<div class="cm-detail">
     <button class="lf-ghost" id="cmBack">← 내 AI 팀</button>
-    <div class="cm-big">${cur.startsWith('data:') ? `<img src="${escAttr(cur)}"/>` : cur}</div>
+    <div class="cm-big" id="cmBig">${cur.startsWith('data:') ? `<img src="${escAttr(cur)}"/>` : cur}</div>
+    <button class="lf-ghost" id="cmPhoto">📷 사진 올리기</button><input type="file" id="cmPhotoFile" accept="image/*" hidden/>
     <input id="cmName" class="fuse-in" maxlength="24" value="${escAttr(m.name || id.split('/').pop() || '')}" placeholder="🏷️ 이름"/>
     <input id="cmPers" class="fuse-in" maxlength="50" value="${escAttr(m.personality || '')}" placeholder="😎 성격·특징 (예: 데이터 중심·직설적)"/>
     <div class="cm-picks">${picks}</div>
     <div class="muted small" style="margin-top:2px">🤖 ${escapeHtml(id)} · ${m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '내 모델'}</div>
-    <button class="oc-primary" id="cmSave" style="width:100%;margin-top:8px">💾 저장</button></div>`;
-  $('cmBack')?.addEventListener('click', () => { body.innerHTML = back; body.querySelectorAll('.cm-card').forEach(c => c.addEventListener('click', () => openCreatedDetail((c as HTMLElement).dataset.id!))); });
+    <button class="oc-primary" id="cmSave" style="width:100%;margin-top:6px">💾 저장</button>
+    <div class="cm-acts">
+      <button class="cm-act" id="cmUse">💬 이 AI로 일하기</button>
+      <button class="cm-act" id="cmFuse">🧬 합성에 넣기</button>
+    </div>
+    <div class="mem-status" id="cmStatus" style="margin-top:6px"></div></div>`;
   let pick = cur;
-  body.querySelectorAll('.cm-pick').forEach(b => b.addEventListener('click', () => { pick = (b as HTMLElement).dataset.e!; body.querySelectorAll('.cm-pick').forEach(x => x.classList.toggle('on', x === b)); const big = body.querySelector('.cm-big'); if (big) big.textContent = pick; }));
+  $('cmBack')?.addEventListener('click', () => { body.innerHTML = back; body.querySelectorAll('.cm-card').forEach(c => c.addEventListener('click', () => openCreatedDetail((c as HTMLElement).dataset.id!))); });
+  body.querySelectorAll('.cm-pick').forEach(b => b.addEventListener('click', () => { pick = (b as HTMLElement).dataset.e!; body.querySelectorAll('.cm-pick').forEach(x => x.classList.toggle('on', x === b)); const big = $('cmBig'); if (big) big.textContent = pick; }));
+  $('cmPhoto')?.addEventListener('click', () => $('cmPhotoFile')?.click());
+  $('cmPhotoFile')?.addEventListener('change', async (e: any) => {
+    const f = e.target.files?.[0]; if (!f) return;
+    try { pick = await downscaleImage(f); const big = $('cmBig'); if (big) big.innerHTML = `<img src="${escAttr(pick)}"/>`; body.querySelectorAll('.cm-pick').forEach(x => x.classList.remove('on')); hint('📷 사진 올림 — 💾 저장하세요'); } catch { hint('사진 처리 실패'); }
+  });
   $('cmSave')?.addEventListener('click', async () => {
-    const name = ($('cmName') as HTMLInputElement)?.value.trim();
-    const personality = ($('cmPers') as HTMLInputElement)?.value.trim();
-    await connect.createdSave?.(id, { name, personality, avatar: pick });
+    await connect.createdSave?.(id, { name: ($('cmName') as HTMLInputElement)?.value.trim(), personality: ($('cmPers') as HTMLInputElement)?.value.trim(), avatar: pick });
     hint('💾 저장했어요'); await renderCreatedModels();
   });
+  $('cmFuse')?.addEventListener('click', () => { _surg.a = id; _surg.b = ''; saveSurg(); closeOverlay('aiPanel'); openSurgery('merge'); hint('🧬 합성소에 🅰로 넣었어요 — 🅱를 골라 합성!'); });
+  $('cmUse')?.addEventListener('click', () => useCreatedModel(id));
+}
+// 💬 이 캐릭터로 일하기 — 모델의 GGUF를 받아 두뇌로 켠다
+async function useCreatedModel(id: string) {
+  const st = $('cmStatus'); const set = (h: string) => { if (st) st.innerHTML = h; };
+  set('<span class="cyc-spin"></span> GGUF 파일 찾는 중…');
+  const r: any = await connect.hfFiles?.(id).catch(() => null);
+  const files: any[] = r?.ok ? (r.files || []) : [];
+  if (!files.length) { set('⚠️ 이 모델엔 켤 수 있는 GGUF가 없어요. (학습·합성 결과엔 GGUF 포함 — 그걸로 해보세요)'); return; }
+  const pickF = files.find((f: any) => /q4_k_m/i.test(f.path || f.quant)) || files[0];
+  set(`<span class="cyc-spin"></span> ${escapeHtml(pickF.quant || 'GGUF')} 받는 중… (큰 파일이라 몇 분)`);
+  const d: any = await connect.hfDownload?.(id, pickF.path).catch((e: any) => ({ ok: false, error: String(e?.message || e) }));
+  if (!d?.ok) { set(`⚠️ 받기 실패: ${escapeHtml(d?.error || '')}`); return; }
+  set('✅ 받았어요! 이 AI를 두뇌로 켜는 중…');
+  await loadLocalAI();
+  set(`🎉 <b>${escapeHtml(id.split('/').pop() || '')}</b> 가 이제 내 AI 두뇌예요! 🤖 내 모델에서 켜서 대화해보세요.`);
 }
 // 🏢 작은 사무실 미리보기 — 팀 아바타가 둥실둥실, 누르면 큰 사무실 창. [[project_my_ai_team_vision]]
 function renderOfficePreview() {
