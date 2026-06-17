@@ -6,7 +6,9 @@ const md = (lines: string[]) => ({ cell_type: 'markdown', metadata: {}, source: 
 const code = (lines: string[]) => ({ cell_type: 'code', metadata: {}, execution_count: null, outputs: [], source: lines });
 
 export interface TrainOpts { rank?: number; alpha?: number; dropout?: number; learningRate?: number; maxSteps?: number; epochs?: number; warmup?: number; maxSeq?: number; scheduler?: string; quant?: string; }
-export function buildNotebook(datasetRepo: string, baseModel: string, outModelRepo: string, dataCount = 30, opts: TrainOpts = {}): string {
+export function buildNotebook(datasetRepo: string, baseModel: string, outModelRepo: string, dataCount = 30, opts: TrainOpts = {}, inlineJsonl = ''): string {
+  // inlineJsonl 있으면 데이터를 노트북에 직접 심는다(HF 업로드 불필요) — 🆓 무료 = 바로 코랩
+  const b64 = inlineJsonl ? Buffer.from(inlineJsonl, 'utf8').toString('base64') : '';
   const base = baseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';   // 검증된 기본(존재·로딩 확인). gemma-4 등은 사용자가 명시할 때만
   const rank = opts.rank || 16;
   const alpha = opts.alpha || rank * 2;
@@ -54,8 +56,22 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         '    finetune_mlp_modules=True, finetune_vision_layers=False,\n',
         '    r = ' + rank + ', lora_alpha = ' + alpha + ', lora_dropout = ' + dropout + ', bias = "none", random_state = 3407,\n', ')\n',
       ]),
-      md(['## 📦 단기 지식 데이터셋 불러오기 (conversations Q&A)\n', 'Connect AI 앱이 업로드한 데이터셋. 각 행 = `{conversations:[{user},{assistant}]}`\n']),
-      code([
+      md(['## 📦 단기 지식 데이터셋 (conversations Q&A)\n', b64 ? '내 지식이 **이 노트북에 직접 포함**돼 있어요 (업로드 불필요). 각 행 = `{conversations:[{user},{assistant}]}`\n' : 'Connect AI 앱이 업로드한 데이터셋. 각 행 = `{conversations:[{user},{assistant}]}`\n']),
+      code(b64 ? [
+        'import base64\n',
+        'from datasets import load_dataset\n',
+        'from unsloth.chat_templates import get_chat_template\n',
+        '# 내 지식(노트북에 포함) — base64로 안전하게 심어둠\n',
+        '_B64 = "' + b64 + '"\n',
+        'open("brain.jsonl", "w").write(base64.b64decode(_B64).decode("utf-8"))\n',
+        'ds = load_dataset("json", data_files="brain.jsonl", split="train")\n',
+        'tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")\n',
+        'def fmt(ex):\n',
+        '    texts = [tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=False).removeprefix("<bos>") for c in ex["conversations"]]\n',
+        '    return {"text": texts}\n',
+        'ds = ds.map(fmt, batched=True)\n',
+        'print("데이터 개수:", len(ds)); print(ds[0]["text"][:400])\n',
+      ] : [
         'from datasets import load_dataset\n',
         'from unsloth.chat_templates import get_chat_template\n',
         'ds = load_dataset("' + datasetRepo + '", data_files="connect-ai-brain.jsonl", split="train", token=True)\n',

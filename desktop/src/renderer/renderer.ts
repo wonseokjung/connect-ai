@@ -2269,8 +2269,8 @@ $('modelNameInput')?.addEventListener('input', (e: any) => {
 // ③ 모델 이름 정하고 학습
 $('hfTrainBtn').addEventListener('click', async () => {
   const name = ($('modelNameInput') as HTMLInputElement).value.trim();
-  const nameErr = validModelName(name);
-  if (nameErr) { hint(nameErr); ($('modelNameInput') as HTMLInputElement).focus(); return; }
+  if (name) { const nameErr = validModelName(name); if (nameErr) { hint(nameErr); ($('modelNameInput') as HTMLInputElement).focus(); return; } }   // 이름은 선택(없으면 자동)
+  hint('🆓 무료 Colab 노트북 만드는 중…');
   const p = TS_PRESET[tsPreset];
   const sv = (id: string) => ($(id) as HTMLSelectElement).value;
   const steps = parseInt(($('tsSteps') as HTMLInputElement).value, 10) || 0;
@@ -2282,20 +2282,17 @@ $('hfTrainBtn').addEventListener('click', async () => {
     maxSeq: +sv('tsSeq'), scheduler: sv('tsSched'), quant: sv('tsQuant'),
     maxSteps: steps > 0 ? steps : undefined,
   };
-  $('hfStatus').textContent = '🚀 학습 노트북 만드는 중…';
+  $('hfStatus').textContent = '🚀 무료 Colab 노트북 만드는 중…';
   const r = await connect.trainNotebook(name, opts);
   if (!r.ok) {
-    $('hfStatus').textContent = `⚠️ ${r.error}`;
-    // 무료 학습은 ①변환 ②업로드가 먼저 필요 — 접힌 ⚙️·데이터 섹션을 펼쳐 안내(토스트로 보이게)
-    const lt = $('longTools') as HTMLDetailsElement | null; if (lt) lt.open = true;
-    document.querySelectorAll('#bsec-long .lf-optional').forEach(d => (d as HTMLDetailsElement).open = true);
-    setTimeout(() => ($('dsConvertBtn') as HTMLElement)?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 120);
-    hint(`🆓 무료 학습은 먼저 ①변환 ②업로드가 필요해요 — 펼쳐뒀어요`);
+    $('hfStatus').textContent = `⚠️ ${r.error}`; hint(`⚠️ ${r.error}`);
+    if (/지식/.test(r.error || '')) (document.querySelector('.btab[data-btab="short"]') as HTMLElement)?.click();   // 지식 없으면 단기 탭으로
     return;
   }
   $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
   $('colabLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.colab); });
   if (r.colab) connect.openExternal(r.colab);
+  hint('🆓 무료 Colab 노트북이 열렸어요 — "런타임 → 모두 실행"');
   playInjection('🧠 장기기억 각인 시작', [name || '내 두뇌'], LONG_FX);
   hint('🆓 Colab 학습 노트북을 열었어요 — "런타임 → 모두 실행"');
   $('lfStep3').classList.add('lf-done');

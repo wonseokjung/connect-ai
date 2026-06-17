@@ -1729,6 +1729,8 @@ const DEFAULT_TRAIN_BACKEND = 'https://api-xozdhcl4ya-uc.a.run.app';   // ☁️
 const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
+// 무료 노트북에 직접 심을 conversations 형식 — ① 변환 없이도 지식 그대로(AI 호출 X)
+function brainToConversationsJsonl(): string { return allNotes().map(n => (n.text || '').trim() ? JSON.stringify({ conversations: [{ role: 'user', content: '다음 내용에 대해 알려줘.' }, { role: 'assistant', content: (n.text || '').slice(0, 1200) }] }) : '').filter(Boolean).join('\n'); }
 
 // 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
 //    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
@@ -2066,18 +2068,20 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
   let dataset = h.HF_REPO || '';
   if (dataset && !dataset.includes('/') && h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) dataset = `${me}/${dataset}`; }   // 이름만 입력 → 아이디 자동 보충
   const method = (opts?.method || 'sft') as string;
-  // SFT만 내 데이터셋 필요. DPO는 배움용(노트북에 샘플 포함)이라 없이도 생성.
+  // 🆓 무료 = 바로 코랩. SFT는 데이터를 노트북에 직접 심어(업로드 불필요) — 지식만 있으면 됨.
+  let inlineJsonl = '';
   if (method === 'sft') {
-    if (!dataset.includes('/')) return { ok: false, error: '먼저 🗂️ 연동에서 HuggingFace 데이터셋 레포를 설정하고 ② 업로드 하세요.' };
-    if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 단기 기억에 쌓고 변환·업로드하세요.' };
+    if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 ⚡ 단기 기억에 지식을 쌓으세요.' };
+    inlineJsonl = lastBrainJsonl || brainToConversationsJsonl();   // ① 변환 했으면 그걸, 안 했으면 지식 그대로
+    if (!inlineJsonl) return { ok: false, error: '학습할 내용이 너무 짧아요 — 문장 단위로 좀 더 쌓아주세요.' };
   }
-  const owner = dataset.split('/')[0] || 'my-hf-id';
+  const owner = dataset.includes('/') ? dataset.split('/')[0] : '';
   const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || nextModelName(c.brainModelName);   // HF repo 영어만 (한글 제거)
   const trainOpts = { rank: opts?.rank, alpha: opts?.alpha, dropout: opts?.dropout, learningRate: opts?.learningRate, maxSteps: opts?.maxSteps, epochs: opts?.epochs, warmup: opts?.warmup, maxSeq: opts?.maxSeq, scheduler: opts?.scheduler, quant: opts?.quant };
   saveConfig({ brainModelName: name, trainOpts, trainMethod: method } as any);
-  const outRepo = name.includes('/') ? name : `${owner}/${name}`;
+  const outRepo = name.includes('/') ? name : (owner ? `${owner}/${name}` : name);   // owner 없으면 Colab 로그인 계정으로 push_to_hub
   const base = guessBase(c.llmModel);                          // 내가 로드한 모델 위에 누적 학습
-  const nb = buildMethodNotebook(method, dataset, base, outRepo, lastBrainPairs || noteCount(), trainOpts);
+  const nb = buildMethodNotebook(method, dataset, base, outRepo, lastBrainPairs || noteCount(), trainOpts, inlineJsonl);
   const fileName = `connect-ai/train-${method}.ipynb`;
   // GitHub 연결돼 있으면 커밋 → Colab 원클릭
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {

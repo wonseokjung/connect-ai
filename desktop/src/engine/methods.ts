@@ -75,12 +75,12 @@ function nbDPO(datasetRepo: string, base: string, out: string, rank: number, qua
 }
 
 // 방법론 id → 노트북 생성. sft 는 기존 정식 노트북(buildNotebook) 사용.
-export function buildMethodNotebook(method: string, datasetRepo: string, base: string, outRepo: string, dataCount: number, opts: TrainOpts): string {
+export function buildMethodNotebook(method: string, datasetRepo: string, base: string, outRepo: string, dataCount: number, opts: TrainOpts, inlineJsonl = ''): string {
   const rank = opts.rank || 16, quant = opts.quant || 'q4_k_m';
   switch (method) {
     case 'dpo': return nbDPO(datasetRepo, base, outRepo, rank, quant);
     case 'sft':
-    default: return buildNotebook(datasetRepo, base, outRepo, dataCount, opts);
+    default: return buildNotebook(datasetRepo, base, outRepo, dataCount, opts, inlineJsonl);
   }
 }
 
