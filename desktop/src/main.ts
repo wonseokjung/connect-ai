@@ -16,7 +16,7 @@ import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions, onEngineStatus } from './engine/localengine';
 import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED } from './engine/hfmodels';
 import { autoUpdater } from 'electron-updater';
-import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits } from './engine/github';
+import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits, getRepoFile } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
 import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus, cancelJob } from './engine/hf';
 import { buildNotebook } from './engine/train';
@@ -58,6 +58,7 @@ interface Config {
   officeVoice?: boolean;  // 🎭 사무실 에이전트 음성 대화 (자비스처럼 서로 말함)
   monitorOn?: boolean;    // 🛰️ 상시 자산 감시 (구독·매출·커밋·메일 변화 → 폰 보고)
   onboarded?: boolean;    // 🚀 첫 실행 온보딩 완료 여부
+  openOfficeOnLaunch?: boolean;   // 🏢 앱 켤 때 가상 사무실 창도 같이 띄우기 (기본 켜짐)
   remotePair?: string;    // 🌍 외부 리모컨 페어링 코드 (RTDB 릴레이 경로)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
   ttsLocalUrl: string;    // 🖥️ 로컬 Qwen3-TTS 서버 주소 (완전 로컬·무료)
@@ -77,6 +78,7 @@ const DEFAULTS: Config = {
   apiConn: {},
   briefingOn: true, briefingHour: 9, briefingMin: 0, lastBriefing: '', trainNotebookUrl: '',
   autoSync: true, lastSyncCount: 0, lastTrainHintCount: 0, mcpConfig: {}, voiceQuality: 'browser', qwenVoice: 'Sohee', ttsLocalUrl: '',
+  openOfficeOnLaunch: true,
   localModelPath: '', localAuto: true, localFlashAttn: true, localCtxSize: 8192, localTemp: 0.7,
   localMaxTokens: 1024, localTopP: 0.9, localTopK: 40, localMinP: 0.05, localRepeatPenalty: 1.1,
   localFreqPenalty: 0, localPresPenalty: 0, localRepeatLastN: 64,
@@ -85,11 +87,23 @@ const defaultWorkspace = () => path.join(os.homedir(), 'Desktop');
 
 let cfgPath = '';
 function loadConfig(): Config {
-  try { return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(cfgPath, 'utf8')) }; } catch { return { ...DEFAULTS }; }
+  try { return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(cfgPath, 'utf8')) }; }
+  catch {
+    // 🛟 본 설정 손상 시 직전 백업에서 복구 시도 — 토큰·연동·키 전체가 조용히 사라지는 것 방지
+    try { return { ...DEFAULTS, ...JSON.parse(fs.readFileSync(cfgPath + '.bak', 'utf8')) }; } catch { return { ...DEFAULTS }; }
+  }
 }
 function saveConfig(patch: Partial<Config>): Config {
   const next = { ...loadConfig(), ...patch };
-  try { fs.writeFileSync(cfgPath, JSON.stringify(next, null, 2)); } catch { /* ignore */ }
+  try {
+    const json = JSON.stringify(next, null, 2);
+    if (json.length > 5_000_000) return next;   // 🛡️ 비정상적으로 큰 설정(손상/폭주)은 기록 거부 — 디스크/로드 폭주 방지
+    // 원자적 쓰기: tmp 에 먼저 쓰고 rename (중간 크래시로 인한 반쪽 파일 방지). 직전 정상본은 .bak 로 보존.
+    const tmp = cfgPath + '.tmp';
+    fs.writeFileSync(tmp, json);
+    try { const cur = fs.readFileSync(cfgPath, 'utf8'); JSON.parse(cur); fs.writeFileSync(cfgPath + '.bak', cur); } catch { /* 현재본 없음/손상 → 백업 갱신 생략 */ }
+    fs.renameSync(tmp, cfgPath);
+  } catch { /* ignore */ }
   return next;
 }
 
@@ -168,10 +182,12 @@ const cleanLine = (s: string) => {
 //   · 기다리는 사이 다른 에이전트가 먼저 말하면 60% 확률로 양보 (도배 방지)
 //   · 내 개인 쿨다운 15s (한 명 독점 방지). 한 주제(📢)당 maxTurns 턴.
 function startAutoChat(opts: { uid: string; target: any; sys: string; makePrompt: (convo: string, topic: string) => string; post: (t: string) => Promise<any>; maxTurns?: number; recall?: boolean }): () => void {
-  let replying = false, turns = 0, seenTopic = '', lastSpokeAt = 0;
+  let replying = false, turns = 0, seenTopic = '', lastSpokeAt = 0, totalTurns = 0;
   const max = opts.maxTurns ?? 12;
+  const HARD_CAP = 200;   // 🔒 토픽이 바뀌어도 리셋되지 않는 세션 전체 상한 — 자동대화(LLM+RTDB) 폭주·비용 방지([[feedback_gcp_cost_incident]])
   const iv = setInterval(async () => {
     if (replying || !opts.target) return;
+    if (totalTurns >= HARD_CAP) return;   // 전체 상한 도달 → 정지(사람이 다시 입장/시작하면 새 세션으로 리셋)
     let msgs: any[]; try { msgs = await fetchMessages(); } catch { return; }
     if (!msgs.length) return;
     const topic = [...msgs].reverse().find((m: any) => /^📢/.test(m.text || ''));
@@ -205,7 +221,7 @@ function startAutoChat(opts: { uid: string; target: any; sys: string; makePrompt
       const angles = ['구체적인 실제 사례를 들어', '앞 사람 주장에 반론을 제기하며', '실생활·비즈니스 적용 관점에서', '다른 분야(과학·역사·예술)와 연결해', '핵심을 찌르는 질문을 던지며', '정반대 입장에서'];
       const prompt = `${opts.makePrompt(convo, topicText)}${recalled}\n\n[이번 발언 지시] ${angles[turns % angles.length]} 말하라. 앞에 이미 나온 문장을 절대 그대로 반복하지 말 것.`;
       const t = cleanLine(await chat(opts.target, opts.sys, prompt, { temperature: 0.9, frequencyPenalty: 0.6, presencePenalty: 0.5 }));
-      if (t) { await opts.post(t); lastSpokeAt = Date.now(); turns++; }
+      if (t) { await opts.post(t); lastSpokeAt = Date.now(); turns++; totalTurns++; }
     } catch { /* */ } finally { replying = false; }
   }, 5000);
   return () => clearInterval(iv);
@@ -226,7 +242,11 @@ function createWindow() {
       nodeIntegration: false,
     },
   });
-  win.once('ready-to-show', () => { try { win?.show(); } catch { /* */ } });
+  win.once('ready-to-show', () => {
+    try { win?.show(); } catch { /* */ }
+    // 🏢 앱 켜면 가상 사무실 창도 옆에 같이 — 끄려면 트레이 메뉴(기본 켜짐)
+    try { if (loadConfig().openOfficeOnLaunch !== false) setTimeout(() => { try { openOfficeWindow(); } catch { /* */ } }, 700); } catch { /* */ }
+  });
   // 안전장치: ready-to-show 가 안 떠도 4초 뒤 강제로 보여줌 (영영 흰 화면/숨김 방지)
   setTimeout(() => { try { if (win && !win.isDestroyed() && !win.isVisible()) win.show(); } catch { /* */ } }, 4000);
   win.webContents.on('did-fail-load', (_e, code, desc, url) => { logDiag(`did-fail-load: ${code} ${desc} ${url}`); try { win?.show(); } catch { /* */ } });
@@ -234,10 +254,10 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { shell.openExternal(url); return { action: 'deny' }; });
   // 닫으면 종료가 아니라 트레이로 숨김 (자는 동안 도는 회사 — 상주)
-  win.on('close', (e) => { if (!quitting) { e.preventDefault(); win?.hide(); if (process.platform === 'darwin') app.dock?.hide(); } });
+  win.on('close', (e) => { if (!quitting) { e.preventDefault(); win?.hide(); try { if (officeWin && !officeWin.isDestroyed()) officeWin.hide(); } catch { /* */ } if (process.platform === 'darwin') app.dock?.hide(); } });   // 🏢 사무실 창도 같이 숨김(혼자 떠있지 않게)
   if (SAFE_MODE) logDiag('실행: 안전 모드(GPU 끄기)');
 }
-function showWindow() { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } if (process.platform === 'darwin') app.dock?.show(); }
+function showWindow() { if (!win || win.isDestroyed()) createWindow(); else { win.show(); win.focus(); } try { if (officeWin && !officeWin.isDestroyed()) officeWin.show(); } catch { /* */ } if (process.platform === 'darwin') app.dock?.show(); }   // 🏢 숨겼던 사무실 창도 같이 복귀
 
 // ─────────────────────────── 🖥️ 트레이 (상주) + 📋 아침 브리핑(능동성)
 let tray: Tray | null = null;
@@ -256,8 +276,12 @@ function buildTray() {
   tray.setToolTip('Connect AI — 1인 기업 AI 비서');
   const menu = Menu.buildFromTemplate([
     { label: '🏢 Connect AI 열기', click: () => showWindow() },
+    { label: '🪟 가상 사무실 창 열기', click: () => { try { openOfficeWindow(); } catch { /* */ } } },
     { label: '📋 오늘 브리핑 받기', click: () => runBriefing(true) },
     { label: '➕ 새 대화', click: () => { showWindow(); win?.webContents.send('tray:newchat'); } },
+    { type: 'separator' },
+    { label: '켤 때 사무실 창 같이 열기', type: 'checkbox', checked: loadConfig().openOfficeOnLaunch !== false,
+      click: (item) => { saveConfig({ openOfficeOnLaunch: item.checked }); } },
     { type: 'separator' },
     { label: '종료', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -375,7 +399,7 @@ const modelsDir = () => {
   if (o) { try { fs.mkdirSync(o, { recursive: true }); return o; } catch { /* 권한·경로 문제면 기본으로 폴백 */ } }
   return path.join(app.getPath('userData'), 'models');
 };
-const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } };
+const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('local:status', s); } catch { /* */ } };   // 🏢 사무실 창 'Brain' 배지도 갱신되게
 onEngineStatus((s) => sendLocal(s));   // 🔁 GPU→CPU 폴백 등 엔진 진행 상황을 실시간으로 화면에 표시
 async function bootLocalEngine(modelPath: string) {
   const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN });
@@ -1185,7 +1209,7 @@ function startServer(rawCmd: string, ws: string): Promise<string> {
 }
 const servicesInfo = (c: Config) => {
   const svc = c.services.length
-    ? `\n\n## ${c.company}의 서비스/사업 (사장님 것 — 인지하고 적극 활용)\n` + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n')
+    ? `\n\n## ${c.company}의 서비스/사업 (사장님 것 — 인지하고 적극 활용)\n` + c.services.map(s => `- ${s.name}${s.url ? ` (${s.url})` : ''}${s.repo ? ` [깃헙:${s.repo} — read_repo_file/edit_repo_file로 코드 수정 가능]` : ''}${s.desc ? `: ${s.desc}` : ''}`).join('\n')
     : '';
   const open = openTasks();
   const tk = open.length
@@ -1266,6 +1290,13 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     if (!r?.ok || !r.commits?.length) return `(커밋을 못 읽었어요: ${(r as any)?.error || '레포 확인 필요'})`;
     return `[레포 ${g.GITHUB_DEFAULT_REPO} — 최근 커밋 ${r.commits.length}개]\n` + r.commits.map(c => `- ${c.date?.slice(0, 10)} ${c.msg.split('\n')[0].slice(0, 70)} (${c.author})`).join('\n');
   };
+  // 💻 서비스 레포 파일 읽기 — 에이전트가 코드를 고치기 전 현재 내용 확인 (공개 레포는 토큰 없이도)
+  const readRepoFile = async (repo: string, path: string): Promise<string> => {
+    const cc = loadConfig(); const g = (cc.apiConn || {}).github || {};
+    if (!repo) return '⚠️ 레포를 지정하세요 (서비스에 등록한 owner/repo).';
+    const r = await getRepoFile(g.GITHUB_TOKEN || '', repo, path).catch((e: any) => ({ ok: false, error: String(e?.message || e) } as any));
+    return r.ok ? (r.text || '(빈 파일)') : `⚠️ ${r.error}`;
+  };
   // 📥 받은 메일함 — 비서 에이전트가 안 읽은 메일을 직접 확인
   const checkEmail = async (): Promise<string> => {
     const cc = loadConfig(); const e = (cc.apiConn || {}).email || {};
@@ -1282,7 +1313,7 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     try { await tgPost(tok, chat, msg); return '✅ 텔레그램으로 보냈어요.'; }
     catch (e: any) { return `텔레그램 전송 실패: ${e?.response?.data?.description || e?.message}`; }
   };
-  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, getGithub, checkEmail, captureScreen, readClipboard, openPath, openApp, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {},
+  return { company: c.company, agentName: c.agentName, workspace: c.workspace || defaultWorkspace(), servicesInfo: servicesInfo(c), target: { base: c.llmBase, model: c.llmModel, key: geminiKey() }, signal, realtimeFor, getRevenue, getYoutube, sendTelegram, getGithub, readRepoFile, checkEmail, captureScreen, readClipboard, openPath, openApp, startServer: (cmd: string) => startServer(cmd, c.workspace || defaultWorkspace()), attachImages, userTitle: c.userTitle || '사장님', agentModels: c.agentModels || {},
     // ⌨️ 에이전트 명령 → 앱 터미널에 실시간 표시 (처음 쓸 때 터미널 자동 펼침)
     onTerminal: (kind: 'cmd' | 'out' | 'exit', text: string) => { termSend(kind === 'out' ? 'data' : kind, text + '\n'); if (kind === 'cmd') { try { win?.webContents.send('term:show'); } catch { /* */ } } } };
 }
@@ -1422,7 +1453,7 @@ ipcMain.handle('services:intel', async () => {
     const type = /youtube\.com|youtu\.be/i.test(s.url) ? 'youtube' : (s.url ? 'web' : 'none');
     let snapshot = '';
     if (s.url) { try { snapshot = (await fetchUrl(s.url)).replace(/\s+/g, ' ').slice(0, 380); } catch { snapshot = '(읽지 못함)'; } }
-    return { id: s.id, name: s.name, url: s.url, desc: s.desc, type, snapshot };
+    return { id: s.id, name: s.name, url: s.url, desc: s.desc, repo: s.repo || '', type, snapshot };
   }));
 });
 
@@ -1730,7 +1761,17 @@ const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BAC
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
 // 무료 노트북에 직접 심을 conversations 형식 — ① 변환 없이도 지식 그대로(AI 호출 X)
-function brainToConversationsJsonl(): string { return allNotes().map(n => (n.text || '').trim() ? JSON.stringify({ conversations: [{ role: 'user', content: '다음 내용에 대해 알려줘.' }, { role: 'assistant', content: (n.text || '').slice(0, 1200) }] }) : '').filter(Boolean).join('\n'); }
+function brainToConversationsJsonl(): string {
+  // 🎯 질문을 지식별로 다양화 — 모든 예시에 같은 질문("다음 내용에 대해…")을 붙이면 모델이
+  //    "아무 질문에나 노트를 덤프"하도록 학습돼 출력이 망가진다. 키워드 앵커 + 템플릿 회전으로 신호를 살린다.
+  const QS = ['{k}에 대해 알려줘.', '{k} 관련해서 설명해줘.', '{k}이(가) 뭔지 알려줄래?', '{k}에 대해 네가 아는 걸 말해줘.', '{k}을(를) 정리해서 설명해줘.', '{k}에 대해 자세히 알려줘.'];
+  return allNotes().map((n, i) => {
+    const text = (n.text || '').trim(); if (!text) return '';
+    const k = (Array.isArray((n as any).tags) && (n as any).tags[0]) || text.replace(/^[🏛️💡#\s]+/, '').split(/[\s.,·\n]/).filter(Boolean)[0] || '이것';
+    const q = QS[i % QS.length].replace(/\{k\}/g, k);
+    return JSON.stringify({ conversations: [{ role: 'user', content: q }, { role: 'assistant', content: text.slice(0, 1200) }] });
+  }).filter(Boolean).join('\n');
+}
 
 // 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
 //    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
@@ -1911,7 +1952,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   const gate = gpuGate(password, 'surgery');   // 🔒 비번 0101 + 월 3회 (학습과 공유)
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   const h = connOf('huggingface');
-  if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 write 토큰을 먼저 넣으세요. (HF Jobs는 Pro/크레딧 필요 — 장기기억과 동일)' };
+  if (!h.HF_TOKEN) return { ok: false, error: '💎 서버 합성은 본인 HuggingFace Pro 토큰이 필요해요(🗂️ 연동 → HuggingFace). 결제 없이 하려면 아래 🆓 무료로 직접 하기(Colab)로 바로 합성하세요.' };
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요 (같은 베이스·같은 크기여야 합쳐져요).' };
   const me = await hfUsername(h.HF_TOKEN);
   if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
@@ -2068,12 +2109,35 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
   let dataset = h.HF_REPO || '';
   if (dataset && !dataset.includes('/') && h.HF_TOKEN) { const me = await hfUsername(h.HF_TOKEN); if (me) dataset = `${me}/${dataset}`; }   // 이름만 입력 → 아이디 자동 보충
   const method = (opts?.method || 'sft') as string;
-  // 🆓 무료 = 바로 코랩. SFT는 데이터를 노트북에 직접 심어(업로드 불필요) — 지식만 있으면 됨.
+  // 🗂️ 정석 파이프라인: 지식 → 변환 → HF 데이터셋 업로드 → 코랩이 load_dataset 으로 가져와 학습.
+  //    (HF 미연결이면 노트북에 데이터 인라인으로 심어 폴백 — 끊기지 않게)
   let inlineJsonl = '';
+  let uploadedDs = '';
   if (method === 'sft') {
     if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 ⚡ 단기 기억에 지식을 쌓으세요.' };
-    inlineJsonl = lastBrainJsonl || brainToConversationsJsonl();   // ① 변환 했으면 그걸, 안 했으면 지식 그대로
-    if (!inlineJsonl) return { ok: false, error: '학습할 내용이 너무 짧아요 — 문장 단위로 좀 더 쌓아주세요.' };
+    const jsonl = lastBrainJsonl || brainToConversationsJsonl();   // ① 변환 했으면 그걸, 안 했으면 지식 그대로
+    if (!jsonl) return { ok: false, error: '학습할 내용이 너무 짧아요 — 문장 단위로 좀 더 쌓아주세요.' };
+    if (h.HF_TOKEN) {
+      const me = await hfUsername(h.HF_TOKEN);
+      if (me) {
+        if (!dataset) dataset = `${me}/connect-ai-data`;
+        else if (!dataset.includes('/')) dataset = `${me}/${dataset}`;
+        const up = await uploadDataset(h.HF_TOKEN, dataset, jsonl, 'connect-ai-brain.jsonl');
+        if (up.ok) uploadedDs = dataset;        // ✅ 업로드 성공 → inlineJsonl 비움 → 노트북이 load_dataset 사용
+        else inlineJsonl = jsonl;               // 업로드 실패 → 인라인 폴백
+      } else inlineJsonl = jsonl;               // 토큰 이상 → 인라인 폴백
+    } else inlineJsonl = jsonl;                 // HF 미연결 → 인라인 폴백
+  } else if (method === 'dpo') {
+    // DPO 선호쌍은 LLM으로 생성해야 해서 즉석 불가 — 미리 만든 게 있으면 HF에 올려 코랩이 load_dataset 으로 받음.
+    if (!lastDpoJsonl) return { ok: false, error: 'DPO는 먼저 ④ 데이터 → "변환(AI 피드백 생성)"으로 선호쌍을 만든 뒤 학습하세요.' };
+    if (!h.HF_TOKEN) return { ok: false, error: 'DPO 무료 학습은 🗂️ 연동에서 HuggingFace write 토큰이 필요해요 (선호쌍 데이터셋을 올려 코랩이 받아갑니다).' };
+    const me = await hfUsername(h.HF_TOKEN);
+    if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
+    if (!dataset) dataset = `${me}/connect-ai-data`;
+    else if (!dataset.includes('/')) dataset = `${me}/${dataset}`;
+    const up = await uploadDataset(h.HF_TOKEN, dataset, lastDpoJsonl, 'connect-ai-dpo.jsonl');
+    if (!up.ok) return { ok: false, error: 'DPO 선호쌍 업로드 실패: ' + up.error };
+    uploadedDs = dataset;   // nbDPO 가 load_dataset(dataset, "connect-ai-dpo.jsonl") 으로 사용
   }
   const owner = dataset.includes('/') ? dataset.split('/')[0] : '';
   const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || nextModelName(c.brainModelName);   // HF repo 영어만 (한글 제거)
@@ -2087,11 +2151,11 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
     const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🚀 Connect AI 학습 노트북 (${method.toUpperCase()})`);
     // r.url 은 이미 정규화된 github blob 주소 → 그걸 그대로 colab 주소로 변환(전체 URL·.git 입력해도 안전)
-    if (r.ok && r.url) { return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url }; }
+    if (r.ok && r.url) { return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, dataset: uploadedDs || undefined }; }
   }
   // 폴백: 바탕화면 저장 + Colab 업로드 페이지
   const out = path.join(os.homedir(), 'Desktop', `connect-ai-train-${method}.ipynb`);
-  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
+  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.', dataset: uploadedDs || undefined }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
@@ -2122,12 +2186,13 @@ async function executeAction(action: ApprovalAction): Promise<string> {
       return r.ok ? `📧 이메일 전송 완료 → ${to}` : `⚠️ ${r.error}`;
     }
     if (action.kind === 'github') {
-      // 📤 콘텐츠 실제 발행 — 깃허브 레포에 푸시 (GitHub Pages면 곧바로 라이브)
+      // 📤 콘텐츠 실제 발행/코드 수정 — 깃허브 레포에 푸시 (GitHub Pages면 곧바로 라이브)
       const g = (c.apiConn || {}).github || {};
-      if (!g.GITHUB_TOKEN || !g.GITHUB_DEFAULT_REPO) return '⚠️ 깃허브 미연결 (🗂️ 연동 → GitHub 토큰·레포 먼저)';
+      const repo = (action.repo || g.GITHUB_DEFAULT_REPO || '').trim();   // 서비스별 레포 지정 시 그리로, 아니면 기본 레포
+      if (!g.GITHUB_TOKEN || !repo) return '⚠️ 깃허브 미연결 (🗂️ 연동 → GitHub 토큰·레포 먼저, 또는 서비스에 레포 등록)';
       const filePath = action.path || `posts/post_${Date.now()}.md`;
-      const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, filePath, action.payload || '', `발행: ${filePath}`);
-      return r.ok ? `📤 발행 완료 → ${g.GITHUB_DEFAULT_REPO}/${filePath}${r.url ? `\n${r.url}` : ''}` : `⚠️ 발행 실패: ${r.error}`;
+      const r = await pushFile(g.GITHUB_TOKEN, repo, filePath, action.payload || '', `수정: ${filePath}`);
+      return r.ok ? `📤 적용 완료 → ${repo}/${filePath}${r.url ? `\n${r.url}` : ''}` : `⚠️ 적용 실패: ${r.error}`;
     }
     if (action.kind === 'ytmeta') {
       // 📺 유튜브 영상 제목·설명 실제 수정 (OAuth 필요 — 🗂️ 연동 → YouTube 로그인)

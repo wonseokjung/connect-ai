@@ -7,3 +7,9 @@ preview.html
 releases/
 .env
 *.bak.*
+# 🛡️ 빌드 산출물·대용량 바이너리 — 실수로 커밋되면 4GB+ 사고
+desktop/release-upload/
+desktop/ci-artifacts/
+desktop/release/
+**/__pycache__/
+*-preview.html

@@ -40,8 +40,19 @@ const normCat = (c?: string): Category => (c && (CATEGORY_IDS as string[]).inclu
 
 let _file = '';
 export function setBrainFile(p: string) { _file = p; }
-function load(): Note[] { try { return JSON.parse(fs.readFileSync(_file, 'utf8')); } catch { return []; } }
-function persist(n: Note[]) { try { fs.mkdirSync(path.dirname(_file), { recursive: true }); fs.writeFileSync(_file, JSON.stringify(n)); } catch { /* */ } }
+function load(): Note[] {
+  try { return JSON.parse(fs.readFileSync(_file, 'utf8')); }
+  catch { try { return JSON.parse(fs.readFileSync(_file + '.bak', 'utf8')); } catch { return []; } }   // 🛟 본 파일 손상 → 백업 복구(지식 통째 소실 방지)
+}
+function persist(n: Note[]) {
+  try {
+    fs.mkdirSync(path.dirname(_file), { recursive: true });
+    const tmp = _file + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(n));   // 원자적: tmp → rename (반쪽 파일 방지)
+    try { const cur = fs.readFileSync(_file, 'utf8'); JSON.parse(cur); fs.writeFileSync(_file + '.bak', cur); } catch { /* 직전본 없음/손상 → 백업 생략 */ }
+    fs.renameSync(tmp, _file);
+  } catch { /* */ }
+}
 
 const STOP = new Set('그 이 저 것 수 등 및 더 좀 잘 안 못 의 가 이 은 는 을 를 에 와 과 도 로 으로 에서 the a an of to and or is are for in on with that this 합니다 입니다 있다 없다 하는 한 할 함'.split(/\s+/));
 function keywords(text: string): string[] {

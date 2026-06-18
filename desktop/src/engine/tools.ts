@@ -16,6 +16,26 @@ function resolvePath(p: string, workspace: string): string {
   if (!path.isAbsolute(p)) p = path.join(workspace || os.homedir(), p);
   return path.resolve(p);
 }
+// 🛡️ 작업 폴더 안인지 — 모델이 만든 경로가 ../.. 나 절대경로로 워크스페이스를 탈출해 시스템 파일을 덮어쓰는 것 방지
+function underWorkspace(target: string, workspace: string): boolean {
+  const root = path.resolve(workspace || os.homedir());
+  return target === root || target.startsWith(root + path.sep);
+}
+// 🛡️ 절대 읽으면 안 되는 비밀 파일(키·토큰) — 위치 무관 차단(모델이 유출 못 하게)
+function isSecretPath(p: string): boolean {
+  return /(?:^|\/)\.(?:ssh|aws|gnupg)(?:\/|$)|(?:^|\/)\.env(?:\.|$|\/)|id_rsa|id_ed25519|\.pem$|\.notarize|\/Library\/Keychains\//i.test(p);
+}
+// 🛡️ 되돌릴 수 없는 파괴 명령 차단 — 깨진/탈옥 모델이 자율운영 중 내질러도 실행 안 함.
+//    정상 개발 명령(npm/python/git/node, rm -rf node_modules·./build 등)은 통과.
+const DANGER_CMD: RegExp[] = [
+  /\brm\s+-[a-z]*r[a-z]*\b\s+(?:-[a-z]+\s+)*["']?(?:\/|\/\*|~|~\/\*?|\$HOME\/?|\.\.\/?)["']?(?:\s|;|&|\||$)/i,   // rm -rf / ~ $HOME /* ..
+  /\bsudo\b/i,                                                   // 권한 상승
+  /\bmkfs[.\s]|>\s*\/dev\/(?:sd|nvme|disk|hd)/i,                 // 디스크 포맷/덮어쓰기
+  /\bdd\b[\s\S]*\bof=\/dev\//i,                                  // 디스크 직접 쓰기
+  /:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/,              // 포크밤
+  /\b(?:shutdown|reboot|halt|poweroff)\b/i,                     // 시스템 종료
+];
+export function isDangerousCommand(cmd: string): boolean { return DANGER_CMD.some(re => re.test(cmd || '')); }
 
 // 에이전트 응답에서 도구 호출 태그 추출
 export function parseTools(text: string): ToolCall[] {
@@ -82,6 +102,7 @@ export function runTool(call: ToolCall, workspace: string): ToolResult {
       return wrap(out || '(빈 폴더)');
     }
     if (call.tool === 'read_file') {
+      if (isSecretPath(target)) return wrap(`🛡️ 보안상 이 파일은 읽을 수 없어요(키·토큰 등): ${target}`, false);
       const st = fs.statSync(target);
       // 바이너리(영상·이미지·음악·PDF 등)는 텍스트로 못 읽음 → 규칙 대신 결과로 안내(자가교정)
       if (/\.(mp4|mov|avi|mkv|webm|mp3|wav|m4a|flac|aac|png|jpe?g|gif|webp|heic|bmp|pdf|zip|dmg|exe|psd|ai|sketch)$/i.test(target))
@@ -90,11 +111,13 @@ export function runTool(call: ToolCall, workspace: string): ToolResult {
       return wrap(fs.readFileSync(target, 'utf8').slice(0, 14000));
     }
     if (call.tool === 'write_file') {
+      if (!underWorkspace(target, workspace) || isSecretPath(target)) return wrap(`🛡️ 작업 폴더 밖에는 저장할 수 없어요: ${target}. 상대경로(예: 오늘업무_날짜/파일.md)로 저장하세요.`, false);
       fs.mkdirSync(path.dirname(target), { recursive: true });
       fs.writeFileSync(target, call.content ?? '', 'utf8');
       return wrap(`저장됨 → ${target}`);
     }
     if (call.tool === 'run_command') {
+      if (isDangerousCommand(call.path)) return wrap(`🛡️ 위험한 명령은 실행하지 않아요(시스템 파괴·권한상승 차단): ${call.path.slice(0, 80)}`, false);
       const cwd = resolvePath('.', workspace);
       // 🛡️ 한글 폴더에서 npm init 실패 방지 — npm은 폴더명으로 패키지 이름을 짓는데 한글이면 invalid name.
       //    package.json을 안전한 이름으로 직접 만들어준다 (에이전트는 성공으로 받고 다음 단계 진행).

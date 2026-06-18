@@ -1,6 +1,6 @@
 {
   "name": "connect-ai-desktop",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "description": "Connect AI — AI 1인 기업 OS. 에이전트 팀이 분석·기획·코딩·결재까지, 100% 로컬·무료.",
   "main": "out/main.js",
   "author": "EZER AI <opctverse@gmail.com>",

@@ -32,6 +32,24 @@ export async function listCommits(token: string, repo: string, limit = 30): Prom
   } catch (e: any) { return { ok: false, error: e?.response?.data?.message || e?.message || String(e) }; }
 }
 
+// 📖 특정 레포의 파일 하나를 읽는다(에이전트가 코드를 고치기 전에 현재 내용 확인용). 공개 레포는 토큰 없이도.
+export async function getRepoFile(token: string, repo: string, filePath: string): Promise<{ ok: boolean; text?: string; error?: string }> {
+  if (!validRepo(repo)) return { ok: false, error: `레포를 "owner/이름"으로 입력하세요. 지금 값: "${repo}"` };
+  const { owner, name } = split(repo);
+  const h: any = token ? hdr(token) : { Accept: 'application/vnd.github+json', 'User-Agent': 'connect-ai-desktop' };
+  try {
+    const r = await axios.get(`https://api.github.com/repos/${owner}/${name}/contents/${(filePath || '').replace(/^\/+/, '')}`, { headers: h, timeout: 15000 });
+    if (Array.isArray(r.data)) return { ok: true, text: '[폴더] ' + r.data.map((x: any) => x.name).join(', ') };   // 디렉터리면 목록
+    const raw = Buffer.from(r.data.content || '', 'base64').toString('utf8');
+    return { ok: true, text: raw.slice(0, 12000) };   // 너무 큰 파일은 잘라서
+  } catch (e: any) {
+    const st = e?.response?.status;
+    if (st === 404) return { ok: false, error: `파일을 못 찾았어요(404): "${repo}/${filePath}". 경로를 확인하거나 list로 폴더부터 보세요.` };
+    if (st === 401 || st === 403) return { ok: false, error: '비공개 레포면 토큰 권한(repo)이 필요해요.' };
+    return { ok: false, error: e?.response?.data?.message || e?.message || String(e) };
+  }
+}
+
 // 범용 파일 푸시(생성/업데이트). 레포가 없으면 자동 생성(본인 계정일 때). 텍스트를 레포 path 에 커밋.
 export async function pushFile(token: string, repo: string, filePath: string, text: string, message: string): Promise<{ ok: boolean; error?: string; url?: string }> {
   if (!token) return { ok: false, error: 'GitHub 토큰을 🗂️ 연동에서 먼저 입력하세요. (repo 권한 필요)' };

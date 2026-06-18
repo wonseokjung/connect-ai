@@ -1,7 +1,7 @@
 // ✅ 승인 큐 — 에이전트가 중요한 행동 전에 사장님 승인을 요청. <approve>제목 | 상세</approve>
 import * as fs from 'fs';
 
-export interface ApprovalAction { kind: 'run' | 'write' | 'telegram' | 'email' | 'github' | 'ytmeta'; payload: string; path?: string; }   // github=콘텐츠 발행(레포 푸시), ytmeta=유튜브 제목·설명 수정
+export interface ApprovalAction { kind: 'run' | 'write' | 'telegram' | 'email' | 'github' | 'ytmeta'; payload: string; path?: string; repo?: string; }   // github=콘텐츠 발행(레포 푸시), repo=대상 레포(없으면 기본 레포), ytmeta=유튜브 제목·설명 수정
 export interface Approval {
   id: string; title: string; summary: string; agentEmoji: string;
   status: 'pending' | 'approved' | 'rejected'; createdAt: number;

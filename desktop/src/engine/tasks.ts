@@ -11,9 +11,17 @@ let tasks: Task[] = [];
 
 export function setTaskFile(p: string) {
   TASK_FILE = p;
-  try { tasks = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { tasks = []; }
+  try { tasks = JSON.parse(fs.readFileSync(p, 'utf8')); }
+  catch { try { tasks = JSON.parse(fs.readFileSync(p + '.bak', 'utf8')); } catch { tasks = []; } }   // 🛟 손상 → 백업 복구
 }
-function save() { try { fs.writeFileSync(TASK_FILE, JSON.stringify(tasks, null, 2)); } catch { /* */ } }
+function save() {
+  try {
+    const tmp = TASK_FILE + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(tasks, null, 2));   // 원자적: tmp → rename
+    try { const cur = fs.readFileSync(TASK_FILE, 'utf8'); JSON.parse(cur); fs.writeFileSync(TASK_FILE + '.bak', cur); } catch { /* 직전본 없음/손상 → 백업 생략 */ }
+    fs.renameSync(tmp, TASK_FILE);
+  } catch { /* */ }
+}
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 export function listTasks(): Task[] { return tasks.slice().sort((a, b) => b.createdAt - a.createdAt); }

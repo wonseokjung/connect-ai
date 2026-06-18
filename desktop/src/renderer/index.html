@@ -155,9 +155,6 @@
       <!-- 💡 추천 명령 칩 — 첫 화면에서 클릭 한 번으로 wow (첫 메시지 보내면 사라짐) -->
       <div class="sugg-chips" id="suggChips">
         <button class="sg-chip" data-act="ops">🎯 운영 시작 — AI 팀에게 오늘 일 시키기</button>
-        <button class="sg-chip" data-q="간단한 계산기 웹앱 만들어서 브라우저로 띄워줘">🌐 계산기 웹앱 만들어 띄워줘</button>
-        <button class="sg-chip" data-q="크롬 열어서 유튜브 들어가줘">🖥️ 크롬 열어서 유튜브</button>
-        <button class="sg-chip" data-q="이번 달 매출이랑 유튜브 현황 보고해줘">💰 매출·채널 현황 보고</button>
       </div>
       <div class="input-wrap"><div class="input-box" id="inputBox">
         <div class="attach-chips" id="attachChips"></div>
@@ -334,12 +331,13 @@
         <!-- 내 서비스 -->
         <div class="msec hidden" id="msec-svc">
           <div class="svc-add">
-            <input id="svcName" placeholder="서비스 이름 (예: 내 유튜브 채널)" autocomplete="off" />
+            <input id="svcName" placeholder="서비스 이름 (예: 내 랜딩 페이지)" autocomplete="off" />
             <input id="svcUrl" placeholder="웹사이트 주소 https://..." autocomplete="off" />
+            <input id="svcRepo" placeholder="깃헙 레포 owner/repo (선택 — 코드까지 고치게)" autocomplete="off" />
             <input id="svcDesc" placeholder="한 줄 설명 (선택)" autocomplete="off" />
             <button id="svcAddBtn" class="oc-primary">+ 등록</button>
           </div>
-          <div class="muted small">💡 등록한 서비스는 에이전트가 인지해서 답변·작업에 활용합니다.</div>
+          <div class="muted small">💡 등록한 서비스는 에이전트가 인지해서 답변·작업에 활용합니다. <b>깃헙 레포</b>를 넣으면 에이전트가 그 코드를 읽고 <b>SEO·GEO 같은 가벼운 수정은 직접</b>, 핵심 변경은 <b>결재</b>로 올립니다. (GitHub Pages면 즉시 반영)</div>
           <div class="svc-list" id="svcList"></div>
         </div>
         <!-- 연동 (API) — 서비스 정의 기반, 익스텐션과 동일 -->
@@ -429,16 +427,16 @@
   </div>
   <div class="overlay hidden" id="officePanel">
     <div class="overlay-card office-card">
-      <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><button class="code-mini" id="officeVoiceBtn" title="🎭 에이전트 음성 대화 — 자비스처럼 각자 목소리로 말해요">🔇</button><button class="code-mini" id="officePop" title="별도 창으로 띄우기 (옆에 놓고 보기)">🪟</button><button class="overlay-x" data-close="officePanel">✕</button></div>
+      <div class="overlay-head">🏢 <span id="officeName">우리 회사</span> 사무실 <span class="cls-count" id="officeStatus">대기 중</span><span class="team-brain" id="teamBrain" title="에이전트들이 쓰는 두뇌 — 내가 학습시킨 모델로 바꿀수록 우리 팀이 똑똑해져요">🧠 두뇌 확인 중…</span><button class="code-mini" id="officeVoiceBtn" title="🎭 에이전트 음성 대화 — 자비스처럼 각자 목소리로 말해요">🔇</button><button class="code-mini" id="officePop" title="별도 창으로 띄우기 (옆에 놓고 보기)">🪟</button><button class="overlay-x" data-close="officePanel">✕</button></div>
       <div class="office-main">
         <div class="office-left">
           <div class="voffice" id="voffice"></div>
           <div class="confer-feed" id="conferFeed"></div>
           <div class="muted" style="text-align:center;font-size:11px">💬 동료를 클릭하면 상세 정보 · 큰 일을 맡기면 모였다가 → 자리로 걸어가 일하고 → 회의합니다</div>
         </div>
-        <!-- 🎯 오른쪽 = 메인 투두와 연결된 '오늘의 작전' (같은 tasks 데이터) -->
+        <!-- 🎯 오른쪽 = 메인 투두와 연결된 '오늘의 할일' (같은 tasks 데이터) -->
         <aside class="office-todo">
-          <div class="ot-head">🎯 오늘의 작전 <span class="ot-count" id="officeTodoCount"></span></div>
+          <div class="ot-head">🎯 오늘의 할일 <span class="ot-count" id="officeTodoCount"></span></div>
           <div class="ot-add"><input id="officeTaskInput" placeholder="할 일 추가…" autocomplete="off" /><button id="officeTaskAddBtn" title="추가">＋</button></div>
           <div class="ot-board" id="officeTodoBoard"></div>
           <button class="ot-ops" id="officeOpsBtn">🚀 운영 시작 — AI 팀에게 맡기기</button>
@@ -469,15 +467,15 @@
         <!-- ⚡ 게임 히어로 — 지식 수집 -->
         <div class="game-hero gh-cyan">
           <div class="gh-emoji" id="ghShortEmoji">⚡</div>
-          <div class="gh-mid"><div class="gh-cap">수집한 지식</div><div class="gh-big" id="ghShortNum">0</div></div>
-          <button class="gh-go" id="ghHeroSync">⬆ 지식 수집</button>
+          <div class="gh-mid"><div class="gh-cap">저장된 지식</div><div class="gh-big" id="ghShortNum">0</div></div>
+          <button class="gh-go" id="ghHeroSync">☁️ 백업</button>
         </div>
-        <!-- 🔧 기능(연결·동기화)은 접어둠 -->
+        <!-- 🔧 기능(백업·복원)은 접어둠 -->
         <details class="tab-tools" open>
-          <summary>🔧 자세히 — 클라우드 백업 · 멘토 두뇌 받기</summary>
+          <summary>🔧 자세히 — 클라우드 백업·복원 · 멘토 두뇌 받기</summary>
         <div class="mem-bar">
-          <div class="mem-info">⚡ 단기 기억 = <b>GitHub</b> <span class="mem-repo" id="ghRepo">미연결</span></div>
-          <div class="mem-acts"><button id="ghPushBtn" class="oc-primary">⬆ 동기화</button><button id="ghPullBtn" class="oc-primary">⬇ 불러오기</button></div>
+          <div class="mem-info">⚡ 단기 기억 = <b>내 지식 저장소</b> <span class="muted small">(GitHub 백업)</span> <span class="mem-repo" id="ghRepo">미연결</span></div>
+          <div class="mem-acts"><button id="ghPushBtn" class="oc-primary" title="내 지식을 GitHub에 올려 백업">⬆ 백업</button><button id="ghPullBtn" class="oc-primary" title="GitHub에 백업해둔 지식을 다시 내려받기">⬇ 복원</button></div>
         </div>
         <div class="mem-status" id="ghStatus"></div>
         <!-- 🔌 에제르 브릿지 상태 — 주입이 안 보이는 이유를 알려줌 -->
@@ -502,14 +500,14 @@
       <!-- 장기 기억 = HuggingFace 학습 (단기 → 장기 변환 흐름) -->
       <div class="bsec hidden" id="bsec-long">
         <!-- 🌱 게임 히어로 — 두뇌 육성 -->
+        <!-- 히어로는 '현황 배너'만 — 학습 버튼은 아래 ④카드 하나로 통일(중복 제거) -->
         <div class="game-hero gh-green">
           <div class="gh-emoji">🌱</div>
           <div class="gh-mid">
             <div class="gh-cap">내 AI 두뇌 키우기</div>
             <div class="gh-big">모은 지식 <span id="ghLongXp">0</span>개</div>
-            <div class="gh-sub">모은 지식으로 내 AI를 학습시켜요 🌱→🌳</div>
+            <div class="gh-sub">아래에서 이름 짓고 → 학습하면 내 AI가 돼요 🌱→🌳</div>
           </div>
-          <button class="gh-go" id="ghHeroTrain">🚀 학습</button>
         </div>
         <!-- 🌱→🌳 비주얼 파이프라인 -->
         <div class="grow-pipe">
@@ -519,29 +517,82 @@
           <span class="gp-arr">→</span>
           <div class="gp-step"><span class="gp-ic">🌳</span><span class="gp-t">내 AI</span></div>
         </div>
-        <!-- 핵심 (논리 순서: ① 이름 → ② 방법 → ③ 강도 → ④ 학습) -->
+        <!-- 핵심 = 번호 카드 4장(①이름 ②방법 ③강도 ④시작) — 텍스트 최소·아이콘 위주 -->
         <div class="grow-do" id="lfStep3">
-          <input id="modelNameInput" class="fuse-in" placeholder="🏷️ 새 AI 이름 (my-brain-v1)" title="⚠️ 한글 X · 영어·숫자·하이픈(-)만" autocomplete="off" />
-          <div class="grow-row"><span class="grow-lab">🎓 방법</span><div class="method-pick" id="methodPick"></div></div>
-          <div class="method-card" id="methodCard"></div>
-          <div class="grow-row"><span class="grow-lab">💪 강도</span>
-            <div class="ts-presets">
-              <button class="ts-preset" data-preset="safe">🛡️ 안전</button>
-              <button class="ts-preset on" data-preset="balanced">⚖️ 기본</button>
-              <button class="ts-preset" data-preset="strong">🔥 강하게</button>
+          <div class="lstep">
+            <span class="lstep-n">1</span>
+            <div class="lstep-body">
+              <div class="lstep-lab">🏷️ 이름 짓기</div>
+              <input id="modelNameInput" class="fuse-in" placeholder="my-brain-v1 (영어로)" title="⚠️ 한글 X · 영어·숫자·하이픈(-)만" autocomplete="off" />
             </div>
           </div>
-          <div class="ts-hint" id="tsHint">⚖️ 기본 — 권장</div>
-          <div class="grow-acts">
-            <input id="cloudCode" class="surg-pw" placeholder="🔒" maxlength="8" type="password" autocomplete="off" title="비밀번호 (멤버십만 필요)" />
-            <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버(우리 GPU)에서 버튼 한 번 — 멤버십·월3회">💎 멤버십·원클릭</button>
-            <button id="hfTrainBtn" class="train-free" title="내 무료 Colab GPU로 직접 — 누르면 바로 코랩 (비번 불필요)">🆓 무료·Colab</button>
+          <div class="lstep">
+            <span class="lstep-n">2</span>
+            <div class="lstep-body">
+              <div class="lstep-lab">🎓 어떻게 배울까</div>
+              <div class="method-pick" id="methodPick"></div>
+              <div class="method-card" id="methodCard"></div>
+            </div>
           </div>
-          <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
+          <div class="lstep">
+            <span class="lstep-n">3</span>
+            <div class="lstep-body">
+              <div class="lstep-lab">💪 얼마나 세게</div>
+              <div class="ts-presets">
+                <button class="ts-preset" data-preset="safe">🛡️<small>안전</small></button>
+                <button class="ts-preset on" data-preset="balanced">⚖️<small>기본</small></button>
+                <button class="ts-preset" data-preset="strong">🔥<small>강하게</small></button>
+              </div>
+              <div class="ts-hint" id="tsHint">⚖️ 기본 — 권장</div>
+            </div>
+          </div>
+          <!-- ④ 데이터 — 학습보다 먼저(파이프라인 순서). ⑤ 학습이 자동으로도 함. -->
+          <div class="lstep">
+            <span class="lstep-n">4</span>
+            <div class="lstep-body">
+              <div class="lstep-lab">🗂️ 데이터 <span class="lstep-opt">선택 · ⑤ 학습이 자동으로 함</span></div>
+              <details class="lf-optional"><summary>📦 변환 · 🤗 HF 업로드 — 직접 하거나 미리보기</summary>
+                <div class="muted small" style="margin:4px 0 8px">💡 ⑤ <b>🆓 학습</b>을 누르면 <code>변환 → HF 업로드 → Colab(load_dataset)</code> 까지 자동. 여기선 그 과정을 직접/미리 볼 수 있어요.</div>
+                <div class="lf-step" id="lfStep1">
+                  <span class="lf-ic">📦</span>
+                  <div class="lf-body"><b id="step1Title">SFT 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → Q&amp;A instruction 데이터(JSONL)</div>
+                    <label class="aug-toggle" id="augToggle"><input type="checkbox" id="augChk" /> 🔬 증강 (다양화 · echo 방지)</label>
+                  </div>
+                  <button id="dsConvertBtn" class="oc-primary">변환</button>
+                </div>
+                <div class="ds-prog hidden" id="dsProg">
+                  <div class="ds-bar"><div class="ds-fill" id="dsFill"></div></div>
+                  <div class="ds-cnt" id="dsCnt"></div>
+                  <div class="ds-preview" id="dsPreview"></div>
+                </div>
+                <div class="lf-arrow">↓</div>
+                <div class="lf-step" id="lfStep2">
+                  <span class="lf-ic">🤗</span>
+                  <div class="lf-body"><b>HF 데이터셋 업로드</b><div class="muted small">내 HF에 저장 → Colab이 <code>load_dataset</code>로 사용 <span class="mem-repo" id="hfRepo">미연결</span></div></div>
+                  <button id="hfUploadBtn" class="oc-primary">업로드</button>
+                </div>
+                <div class="mem-status" id="hfStatus"></div>
+                <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 JSONL</button></div>
+              </details>
+            </div>
+          </div>
+          <div class="lstep lstep-go">
+            <span class="lstep-n">5</span>
+            <div class="lstep-body">
+              <div class="lstep-lab">🚀 학습 시작</div>
+              <div class="grow-acts">
+                <button id="hfTrainBtn" class="train-free" title="내 무료 Colab으로 직접 — 누르면 바로 코랩이 열려요 (비번 불필요)">🆓 무료로 시작<small>구글 코랩</small></button>
+                <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버에서 버튼 한 번 학습 — 베타 · 비밀번호 받은 분만">🧪 Connect AI 서버<small>베타 · 비밀번호</small></button>
+              </div>
+              <input id="cloudCode" class="surg-pw pw-line" placeholder="🔒 베타 비밀번호" maxlength="8" type="password" autocomplete="off" title="베타 비밀번호 (받은 분만)" hidden />
+              <div class="grow-auto" id="growAuto">✨ <b>Colab</b>: HF 토큰 입력 → 런타임 모두 실행 → fine-tune + <code>push_to_hub</code> 자동. 완료 후 🤖 내 AI 팀에서 받기.</div>
+              <div class="mem-status" id="cloudTrainStatus" style="display:none;margin-top:8px"></div>
+            </div>
+          </div>
         </div>
         <!-- ⚙️ 고급만 접어둠 -->
         <details class="tab-tools" id="longTools">
-          <summary>⚙️ 고급 — 전문가 파라미터 · 데이터 다듬기 <b>(선택)</b></summary>
+          <summary>⚙️ 전문가 파라미터 <b>(선택)</b></summary>
         <div id="sftFlow">
         <div class="train-set">
           <details class="ts-adv">
@@ -566,31 +617,7 @@
               <input id="tsSteps" type="number" value="0" min="0" max="300" /></div>
           </details>
         </div>
-        <details class="lf-optional"><summary>🔧 데이터 미리보기·다듬기 <b>(선택 · 안 해도 자동으로 됩니다)</b></summary>
-          <div class="muted small" style="margin:4px 0 6px">💡 유료·무료 둘 다 <b>지식을 알아서 데이터로</b> 만들어요. 여기는 <b>더 좋은 품질(AI Q&amp;A·증강)</b>을 원할 때만.</div>
-          <div class="lf-step" id="lfStep1">
-            <span class="lf-num">1</span>
-            <div class="lf-body"><b id="step1Title">📦 SFT 데이터로 변환</b><div class="muted small" id="step1Sub">지식 → AI가 Q&amp;A 문제로 자동 출제</div>
-              <label class="aug-toggle" id="augToggle"><input type="checkbox" id="augChk" /> 🔬 다양하게 (증강 · echo 방지)</label>
-            </div>
-            <button id="dsConvertBtn" class="oc-primary">변환</button>
-          </div>
-          <div class="ds-prog hidden" id="dsProg">
-            <div class="ds-bar"><div class="ds-fill" id="dsFill"></div></div>
-            <div class="ds-cnt" id="dsCnt"></div>
-            <div class="ds-preview" id="dsPreview"></div>
-          </div>
-          <!-- ②업로드는 이제 불필요(유료=자동변환·무료=노트북에 직접심음) — DOM은 두되 숨김(JS 참조 안전) -->
-          <div class="lf-arrow" hidden>↓</div>
-          <div class="lf-step lf-locked" id="lfStep2" hidden>
-            <span class="lf-num">2</span>
-            <div class="lf-body"><b>🤗 HuggingFace 업로드 <span class="beta">선택</span></b><div class="muted small">내 HF 계정에 데이터셋 보관 <span class="mem-repo" id="hfRepo">미연결</span></div></div>
-            <button id="hfUploadBtn" class="oc-primary" disabled>업로드</button>
-          </div>
-        </details>
         </div><!-- /#sftFlow -->
-        <div class="mem-status" id="hfStatus"></div>
-        <div style="text-align:right;margin-top:4px"><button id="hfExportBtn" class="lf-ghost">📦 JSONL</button></div>
         </details>
       </div>
 
@@ -667,6 +694,8 @@
       <div class="ih-bar"><div class="ih-fill" id="ihFill"></div></div>
       <div class="ih-log" id="ihLog"></div>
       <div class="ih-text" id="ihText"></div>
+      <!-- 🔒 각인 완료 인장 — 소유 컨셉 피날레 (완료 순간에만 쾅) -->
+      <div class="ih-seal" id="ihSeal"><span class="ih-seal-ic">🔒</span><span class="ih-seal-tx"><b>내 두뇌에 영구 각인</b><span>✨ 완전한 내 소유 ✨</span></span></div>
     </div>
   </div>
 

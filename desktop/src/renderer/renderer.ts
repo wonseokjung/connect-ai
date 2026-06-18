@@ -310,7 +310,7 @@ async function ask(text: string) {
   ($('sendBtn') as HTMLElement).hidden = true; ($('stopBtn') as HTMLElement).hidden = false;
   $('thinkingBar').classList.add('active'); $('brandSuffix').textContent = '· 생각 중…';
   brainEnergy(0.7);  // 🧠 두뇌 활성화
-  let finalText = ''; let liveEl: HTMLElement | null = null; let teamEngaged = false;
+  let finalText = ''; let liveEl: HTMLElement | null = null; let teamEngaged = false; let toolUsed = false;
   // 🪟 사무실은 별도 창 전용 — 팀 작업 시작되면 옆 창 자동으로 띄움(메인 창은 채팅 집중)
   const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; connect.officeOpen?.(); };
   const off = connect.onEngineEvent((e: any) => {
@@ -320,13 +320,19 @@ async function ask(text: string) {
     else if (e.kind === 'agentChunk') { brainEnergy(0.85); }
     else if (e.kind === 'agentDone') { addLog(`${e.emoji || AGENTS[e.id]?.emoji || '🤖'} ${AGENTS[e.id]?.name || e.id}`, e.output || '(결과 없음)', false, true, AGENTS[e.id]?.color); }
     else if (e.kind === 'agentConfer') { brainEnergy(0.8); }
-    else if (e.kind === 'tool') { const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행', serve: '🖥️ 서버 실행', youtube: '📺 유튜브 분석', telegram: '✈️ 텔레그램 전송' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9);
+    else if (e.kind === 'tool') { toolUsed = true; const lbl: any = { list_dir: '📁 폴더 확인', find: '🔎 파일 검색', read_file: '📄 파일 읽음', write_file: '📝 파일 생성', run_command: '⚡ 명령 실행', task: '📋 할 일 등록', remember: '🧠 기억함', approve: '✅ 승인 요청', mcp: '🧩 MCP 도구', web_search: '🌐 웹 검색', fetch_url: '🌐 페이지 읽기', revenue: '💰 매출 확인', screenshot: '👁️ 화면 봄', clipboard: '📋 클립보드', open: '🚀 열기/실행', serve: '🖥️ 서버 실행', youtube: '📺 유튜브 분석', telegram: '✈️ 텔레그램 전송' }; addLog(lbl[e.name] || '🔧 도구', `${e.ok ? '' : '⚠️ 실패 · '}${e.path}`, false, false, e.name === 'run_command' ? '#ffab40' : '#06aa45'); brainEnergy(0.9);
       if (e.name === 'write_file') codeBump(true); else if (e.name === 'run_command' || e.name === 'serve') codeBump(false); }
     else if (e.kind === 'token') { finalText += e.text; if (!liveEl) liveEl = addLog(agentTag(), '', false, true); setBody(liveEl, finalText, true); brainEnergy(0.88); }
     else if (e.kind === 'final') { finalText = e.text; if (liveEl) setBody(liveEl, finalText, true); else addLog(agentTag(), finalText, false, true); speak(stripMd(finalText)); brainEnergy(0.95); }
     else if (e.kind === 'error') { addLog(agentTag(), e.text, false, true); speak(e.text); }
   });
-  try { await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) }); }
+  try {
+    await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) });
+    // 🚨 모델이 한두 글자만 내고 즉시 멈춤(즉시 EOS) → 조용히 "저는"만 뜨던 문제를 화면에 진단으로 표면화 [[feedback_fail_loudly]]
+    if (!toolUsed && finalText.trim().length <= 2) {
+      addLog('⚠️ 진단', `모델이 **${finalText.trim() || '빈 응답'}** 한 토큰만 내고 멈췄어요(즉시 EOS). 보통 두뇌(모델)가 깨졌거나 챗 템플릿이 안 맞아서예요.\n→ 🤖 내 AI에서 **기본 모델**로 바꿔 테스트해보세요. 위 🧠 Brain 배지로 현재 모델 확인 가능.`, false, true, '#ffab40');
+    }
+  }
   finally { off(); busy = false; ($('stopBtn') as HTMLElement).hidden = true; ($('sendBtn') as HTMLElement).hidden = false; $('thinkingBar').classList.remove('active'); $('brandSuffix').textContent = cfg.company ? `· ${cfg.company}` : ''; setTimeout(() => { if (!busy && !speechSynthesis.speaking) brainEnergy(0.13); }, 600); }
 }
 const inputEl = $('input') as HTMLTextAreaElement;
@@ -378,14 +384,17 @@ async function renderCreatedModels() {
   if (!items.length) { el.innerHTML = '<div class="muted small" style="padding:6px 2px">🌱 장기기억으로 학습하거나 🧬 합성하면 여기 <b>캐릭터로</b> 모여요.</div>'; return; }
   const inv: any = await connect.inventory?.().catch(() => null);
   const head = inv ? `<div class="cm-head">🧬 <b>${items.length}</b>마리 · <b>Lv.${inv.totalLevel || 0}</b> <span class="muted small">🌱 학습 ${inv.trains || 0} · 🧬 합성 ${inv.fusions || 0}</span></div>` : '';
-  el.innerHTML = head + items.map(m => {
+  el.innerHTML = head + '<div class="cm-grid">' + items.map(m => {
     const av = m.avatar || cmEmoji(m.id);
     const avh = av.startsWith('data:') ? `<div class="cm-av" style="background-image:url('${escAttr(av)}')"></div>` : `<div class="cm-av cm-emoji">${av}</div>`;
-    const badge = m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '🤖 내 모델';
+    const t = m.method === 'fusion' ? 'fuse' : m.method === 'train' ? 'train' : 'mine';   // 타입별 정체성 색
+    const badge = t === 'fuse' ? '🧬 합성' : t === 'train' ? '🌱 학습' : '🤖 내 모델';
     const nm = m.name || (m.id.split('/').pop());
-    return `<div class="cm-card" data-id="${escAttr(m.id)}" title="${escAttr(m.id)} — 클릭해서 꾸미기">${avh}
-      <div class="cm-info"><div class="cm-name">${escapeHtml(nm)}</div><div class="cm-type">${badge}</div>${m.personality ? `<div class="cm-personality">${escapeHtml(m.personality)}</div>` : ''}</div></div>`;
-  }).join('');
+    return `<div class="cm-card cm-${t}" data-id="${escAttr(m.id)}" title="${escAttr(m.id)} — 클릭해서 꾸미기">
+      <span class="cm-rib">${badge}</span>${avh}
+      <div class="cm-name">${escapeHtml(nm)}</div>
+      <div class="cm-personality">${m.personality ? escapeHtml(m.personality) : '＋ 클릭해 꾸미기'}</div></div>`;
+  }).join('') + '</div>';
   el.querySelectorAll('.cm-card').forEach(c => c.addEventListener('click', () => openCreatedDetail((c as HTMLElement).dataset.id!)));
 }
 function openCreatedDetail(id: string) {
@@ -403,7 +412,7 @@ function openCreatedDetail(id: string) {
     <div class="muted small" style="margin-top:2px">🤖 ${escapeHtml(id)} · ${m.method === 'fusion' ? '🧬 합성' : m.method === 'train' ? '🌱 학습' : '내 모델'}</div>
     <button class="oc-primary" id="cmSave" style="width:100%;margin-top:6px">💾 저장</button>
     <div class="cm-acts">
-      <button class="cm-act" id="cmUse">💬 이 AI로 일하기</button>
+      <button class="cm-act" id="cmUse" title="이 모델을 에이전트들의 두뇌로 켜요 — 학습시킨 만큼 팀이 똑똑해져요">🧠 우리 팀 두뇌로 쓰기</button>
       <button class="cm-act" id="cmFuse">🧬 합성에 넣기</button>
     </div>
     <div class="mem-status" id="cmStatus" style="margin-top:6px"></div></div>`;
@@ -433,9 +442,15 @@ async function useCreatedModel(id: string) {
   set(`<span class="cyc-spin"></span> ${escapeHtml(pickF.quant || 'GGUF')} 받는 중… (큰 파일이라 몇 분)`);
   const d: any = await connect.hfDownload?.(id, pickF.path).catch((e: any) => ({ ok: false, error: String(e?.message || e) }));
   if (!d?.ok) { set(`⚠️ 받기 실패: ${escapeHtml(d?.error || '')}`); return; }
-  set('✅ 받았어요! 이 AI를 두뇌로 켜는 중…');
-  await loadLocalAI();
-  set(`🎉 <b>${escapeHtml(id.split('/').pop() || '')}</b> 가 이제 내 AI 두뇌예요! 🤖 내 모델에서 켜서 대화해보세요.`);
+  set('<span class="cyc-spin"></span> Brain 엔진 켜는 중… (모델 로딩 1~2분)');
+  // 🔑 실제로 모델을 켜고(localStart) 에이전트 target까지 바꿔야(setConfig) "팀 두뇌"가 됨 — lm-use 핸들러와 동일
+  const s: any = await connect.localStart?.(d.path).catch((e: any) => ({ running: false, error: String(e?.message || e) }));
+  _localStatus = s;
+  if (!s?.running) { set(`⚠️ 모델은 받았는데 엔진 켜기 실패: ${escapeHtml(s?.error || '시작 실패')}. 🤖 내 AI에서 직접 켜보세요.`); return; }
+  await connect.setConfig?.({ llmBase: LOCAL_BASE, llmModel: s.modelName });   // 비서·에이전트가 이 모델로 추론하게
+  await loadLocalAI(); await renderAiCurrent();
+  try { await refreshTeamBrain(); } catch { /* */ }   // 🧠 사무실 헤더 '팀 Brain' 갱신(③ 연결)
+  set(`🎉 <b>${escapeHtml(id.split('/').pop() || '')}</b> = 팀 Brain. 에이전트가 이 모델로 추론해요. 🚀 운영 시작으로 실행.`);
 }
 // 🏢 작은 사무실 미리보기 — 팀 아바타가 둥실둥실, 누르면 큰 사무실 창. [[project_my_ai_team_vision]]
 function renderOfficePreview() {
@@ -1305,10 +1320,12 @@ async function renderTasks() {
 }
 async function addTaskFromInput() {
   const inp = $('taskInput') as HTMLInputElement; const v = inp.value.trim(); if (!v) return;
-  await connect.tasksAdd(v); inp.value = ''; renderTasks();
+  inp.value = '';   // ⛔ await 전에 즉시 비움 — 한글 IME가 Enter를 두 번 쏴도 중복 추가 방지
+  try { await connect.tasksAdd(v); } catch { inp.value = v; hint('⚠️ 할 일 추가 실패 — 다시 시도하세요'); return; }   // 실패하면 입력 복원
+  renderTasks();
 }
 $('taskAddBtn').addEventListener('click', addTaskFromInput);
-$('taskInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter') addTaskFromInput(); });
+$('taskInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter' && !e.isComposing) addTaskFromInput(); });   // !isComposing = 한글 조합 중 Enter 무시
 
 // 🏢🎯 사무실 오른쪽 투두 — 메인 투두(#taskBoard)와 '같은 tasks 데이터'를 미러링. 체크/추가 모두 공용 API.
 async function renderOfficeTodo() {
@@ -1316,7 +1333,7 @@ async function renderOfficeTodo() {
   const all = await connect.tasksList();
   const open = (all || []).filter((t: any) => t.status === 'open');
   const cnt = $('officeTodoCount'); if (cnt) cnt.textContent = open.length ? String(open.length) : '';
-  if (!open.length) { board.innerHTML = '<div class="todo-empty">작전이 없어요 — 🚀 운영 시작을 누르면 AI 팀이 채워줘요.</div>'; return; }
+  if (!open.length) { board.innerHTML = '<div class="todo-empty">할 일이 없어요 — 위에 추가하거나 🚀 운영 시작을 누르면 AI 팀이 채워줘요.</div>'; return; }
   board.innerHTML = open.map((t: any) => `<div class="todo-row${t.priority === 'urgent' ? ' urgent' : t.priority === 'high' ? ' high' : ''}" data-id="${t.id}">
     <button class="todo-chk" data-id="${t.id}" title="완료"></button>
     <span class="todo-tx">${escapeHtml(t.title)}</span>
@@ -1333,25 +1350,17 @@ async function renderOfficeTodo() {
 // 사무실 투두 입력 + 운영 시작 (메인과 동일 동작)
 async function addOfficeTask() {
   const inp = $('officeTaskInput') as HTMLInputElement; if (!inp) return; const v = inp.value.trim(); if (!v) return;
-  await connect.tasksAdd(v); inp.value = ''; renderTasks();
+  inp.value = '';   // ⛔ await 전에 즉시 비움 — 한글 IME Enter 두 번 → 중복 추가 방지
+  try { await connect.tasksAdd(v); } catch { inp.value = v; hint('⚠️ 할 일 추가 실패 — 다시 시도하세요'); return; }   // 실패하면 입력 복원
+  renderTasks();
 }
-// ⚡ 단기 게임 히어로 '지식 수집' = 동기화 버튼과 동일 동작(+수집 애니)
+// ⚡ 단기 히어로 '☁️ 백업' = 백업(push) 버튼과 동일 동작(+연출)
 $('ghHeroSync')?.addEventListener('click', () => ($('ghPushBtn') as HTMLElement)?.click());
-// 🌱 장기 게임 히어로 '학습' = 모델 이름이 있으면 바로 학습(점화 애니), 없으면 설정 펼쳐 안내
-$('ghHeroTrain')?.addEventListener('click', () => {
-  const name = (($('modelNameInput') as HTMLInputElement)?.value || '').trim();
-  const code = (($('cloudCode') as HTMLInputElement)?.value || '').trim();
-  if (name && code) { ($('cloudTrainBtn') as HTMLElement)?.click(); }   // cloudTrainBtn이 점화 연출까지 처리
-  else {
-    // 빈 칸이면 애니 띄우지 말고 안내만 — '갑자기 애니' 방지
-    ($(name ? 'cloudCode' : 'modelNameInput') as HTMLInputElement)?.focus();
-    hint('🌱 이름과 비밀번호를 넣으면 학습이 시작돼요');
-  }
-});
+// 🌱 장기 히어로는 현황 배너만 — 학습 버튼은 ④카드(무료/서버)로 통일(중복 제거)
 // 🧬 합성 게임 히어로 '합성' = 합성소 열기(거기서 fusion 애니)
 $('ghHeroFuse')?.addEventListener('click', () => openSurgery());
 $('officeTaskAddBtn')?.addEventListener('click', addOfficeTask);
-$('officeTaskInput')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') addOfficeTask(); });
+$('officeTaskInput')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter' && !e.isComposing) addOfficeTask(); });   // !isComposing = 한글 조합 중 Enter 무시
 $('officeOpsBtn')?.addEventListener('click', () => ($('opsStartBtn') as HTMLElement)?.click());
 async function renderApprovals() {
   const all = await connect.approvalsList();
@@ -1375,6 +1384,21 @@ $('aprTestBtn')?.addEventListener('click', async () => {
 });
 const fmtN = (n: number) => Number(n || 0).toLocaleString();
 const fmtAgo = (iso: string) => { const t = Date.parse(iso); if (!t) return ''; const d = Math.floor((Date.now() - t) / 86400000); if (d < 1) return '오늘'; if (d < 30) return d + '일 전'; if (d < 365) return Math.floor(d / 30) + '개월 전'; return Math.floor(d / 365) + '년 전'; };
+// 🚀 SEO(검색엔진)·GEO(AI답변 인용) 최적화 지시문 — 사이트 + 깃헙 소스를 함께 점검해 적용까지
+function seoGeoPrompt(name: string, url: string, repo = '') {
+  const repoStep = repo
+    ? `2) 이 서비스 레포는 "${repo}" 다. read_repo_file 로 index.html(또는 docs/index.html)을 직접 읽어 현재 <title>·meta·헤딩·JSON-LD·robots/sitemap·llms.txt 유무를 확인.`
+    : `2) (이 서비스에 깃헙 레포가 등록돼 있으면) read_repo_file 로 소스를 직접 확인. 없으면 🗂️ 내 서비스에서 레포를 등록하면 코드까지 고칠 수 있다고 한 줄 안내.`;
+  const applyStep = repo
+    ? `결과는 (a) 우선순위 개선안을 <task>로 3~5개, (b) 바로 적용 가능한 건 edit_repo_file 로 "${repo}" 레포에 결재를 올려라 — 메타태그·llms.txt·sitemap·JSON-LD 같은 가벼운 SEO·GEO는 minor=true, 페이지 내용·구조 등 핵심 변경은 minor=false. 반드시 read_repo_file로 현재 내용을 먼저 읽고 전체 새 내용을 넘겨라.`
+    : `결과는 우선순위 개선안을 <task>로 3~5개 만들어라(레포가 없어 직접 수정은 불가 — 레포 등록을 권하라).`;
+  return `내 서비스 "${name}" (${url}) 의 SEO·GEO를 최적화해줘. 차례대로:
+1) fetch_url 로 실제 페이지를 읽어 <title>·meta description·h1/h2 구조·schema.org 구조화데이터·이미지 alt·내부링크·robots/sitemap 유무를 점검.
+${repoStep}
+3) web_search 로 핵심 키워드와 경쟁사가 검색·AI답변에 어떻게 노출되는지 비교.
+4) SEO와 GEO를 모두 고려: SEO=제목/메타/헤딩/구조화데이터/속도, GEO=ChatGPT·Perplexity 같은 AI가 인용하기 좋게 FAQ·Q&A 구조, 명확한 사실 문장, llms.txt, JSON-LD.
+${applyStep}`;
+}
 // 🧭 비즈니스 인텔리전스 — 등록 서비스의 실시간 스냅샷 + 분석 액션
 async function renderServiceIntel() {
   $('svcIntel').innerHTML = '<div class="muted small" style="padding:6px 2px">🌐 서비스 정보 읽는 중…</div>';
@@ -1383,12 +1407,16 @@ async function renderServiceIntel() {
   $('svcIntel').innerHTML = list.map((s: any) => `<div class="si-card">
     <div class="si-head"><span class="si-ic">${s.type === 'youtube' ? '📺' : '🌐'}</span>
       <div class="si-info"><a class="si-name" data-url="${escapeHtml(s.url)}">${escapeHtml(s.name)}</a><div class="si-url">${escapeHtml(s.url || '')}</div></div>
-      <button class="si-btn" data-name="${escapeHtml(s.name)}" data-url="${escapeHtml(s.url)}">🔍 분석</button></div>
+      <div class="si-acts"><button class="si-btn" data-name="${escapeHtml(s.name)}" data-url="${escapeHtml(s.url)}">🔍 분석</button>${s.type === 'youtube' ? '' : `<button class="si-btn si-seo" data-name="${escapeHtml(s.name)}" data-url="${escapeHtml(s.url)}" data-repo="${escapeHtml(s.repo || '')}">🚀 SEO·GEO 최적화</button>`}</div></div>
     <div class="si-snap">${escapeHtml(s.snapshot || '(읽지 못함 — 사이트가 막았을 수 있어요)')}</div></div>`).join('');
   $('svcIntel').querySelectorAll('.si-name').forEach(a => a.addEventListener('click', () => connect.openExternal((a as HTMLElement).dataset.url)));
-  $('svcIntel').querySelectorAll('.si-btn').forEach(b => b.addEventListener('click', () => {
+  $('svcIntel').querySelectorAll('.si-btn:not(.si-seo)').forEach(b => b.addEventListener('click', () => {
     const el = b as HTMLElement; closeOverlay('managePanel');
     ask(`내 서비스 "${el.dataset.name}" (${el.dataset.url}) 를 분석해줘. 필요하면 web_search·fetch_url 로 직접 확인하고, 개선하거나 키울 구체적인 액션을 <task>로 2~4개 만들어줘.`);
+  }));
+  $('svcIntel').querySelectorAll('.si-seo').forEach(b => b.addEventListener('click', () => {
+    const el = b as HTMLElement; closeOverlay('managePanel');
+    ask(seoGeoPrompt(el.dataset.name || '', el.dataset.url || '', el.dataset.repo || ''));
   }));
 }
 async function renderYouTube() {
@@ -1418,14 +1446,14 @@ async function renderDash() {
 async function loadServices() {
   const list = await connect.servicesList();
   $('svcList').innerHTML = list.length
-    ? list.map((s: any) => `<div class="svc-item"><div class="si-main"><div class="si-name">${escapeHtml(s.name)}</div>${s.url ? `<a class="si-url" href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}${s.desc ? `<div class="si-desc">${escapeHtml(s.desc)}</div>` : ''}</div><button class="bn-x" data-id="${s.id}">✕</button></div>`).join('')
+    ? list.map((s: any) => `<div class="svc-item"><div class="si-main"><div class="si-name">${escapeHtml(s.name)}</div>${s.url ? `<a class="si-url" href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}${s.repo ? `<div class="si-repo">💻 ${escapeHtml(s.repo)} <span class="si-repo-tag">코드 편집 가능</span></div>` : ''}${s.desc ? `<div class="si-desc">${escapeHtml(s.desc)}</div>` : ''}</div><button class="bn-x" data-id="${s.id}">✕</button></div>`).join('')
     : '<div class="muted" style="padding:16px;text-align:center">아직 등록한 서비스가 없어요. 위에 추가하세요.</div>';
   $('svcList').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.servicesDelete((b as HTMLElement).dataset.id); loadServices(); }));
 }
 $('svcAddBtn').addEventListener('click', async () => {
   const name = ($('svcName') as HTMLInputElement).value.trim(); if (!name) return;
-  await connect.servicesAdd({ name, url: ($('svcUrl') as HTMLInputElement).value.trim(), desc: ($('svcDesc') as HTMLInputElement).value.trim() });
-  ($('svcName') as HTMLInputElement).value = ''; ($('svcUrl') as HTMLInputElement).value = ''; ($('svcDesc') as HTMLInputElement).value = '';
+  await connect.servicesAdd({ name, url: ($('svcUrl') as HTMLInputElement).value.trim(), repo: ($('svcRepo') as HTMLInputElement).value.trim(), desc: ($('svcDesc') as HTMLInputElement).value.trim() });
+  for (const id of ['svcName', 'svcUrl', 'svcRepo', 'svcDesc']) ($(id) as HTMLInputElement).value = '';
   loadServices();
 });
 // 🔌 서비스 정의 — 익스텐션과 동일한 8개 연동
@@ -1740,6 +1768,7 @@ const isIdle = (id: string) => { const el = document.getElementById('vo-' + id);
 let banterPool: { from: string; to: string; text: string }[] = [];
 let banterFetching = false, banterLast = 0;
 async function refillBanter() {
+  if (!OFFICE_MODE) return;   // 🏢 잡담 LLM 호출은 사무실 전용 창 하나만 — 두 창이 동시에 단일슬롯 엔진 치는 것 방지(채팅 truncation·비용)
   if (banterFetching || banterPool.length > 2) return;
   if (Date.now() - banterLast < 25000) return;   // 최소 25초 간격(로컬 모델 보호)
   banterFetching = true; banterLast = Date.now();
@@ -1854,6 +1883,16 @@ function officeOpsTick(s: any) {
     }
   }
 }
+// 🧠 팀 두뇌 표시 — '내가 학습시킨 모델 → 에이전트 두뇌'(③ 연결)를 항상 눈에 보이게
+async function refreshTeamBrain() {
+  const el = $('teamBrain'); if (!el) return;
+  let modelName = '', running = false;
+  try { const s: any = await connect.localStatus?.(); running = !!s?.running; modelName = s?.modelName || ''; } catch { /* */ }
+  let know = 0; try { const c: any = await connect.brainCount?.(); know = (typeof c === 'number' ? c : c?.count) || 0; } catch { /* */ }
+  const brain = running && modelName ? modelName.replace(/\.gguf$/i, '').slice(0, 22) : '기본 모델';
+  el.innerHTML = `🧠 Brain: <b>${escapeHtml(brain)}</b> · 지식 ${know}`;
+  el.classList.toggle('mine', running && !!modelName);   // 내 모델이면 강조
+}
 const OFFICE_MODE = new URLSearchParams(location.search).get('office') === '1';
 if (OFFICE_MODE) {
   document.body.classList.add('office-only');
@@ -1862,6 +1901,8 @@ if (OFFICE_MODE) {
   connect.onEngineEvent?.(driveOfficeEvent);   // 메인에서 브로드캐스트되는 엔진 이벤트 수신
   connect.onOpsUpdate?.((s: any) => officeOpsTick(s));   // 🔗 운영 피드가 캐릭터 옆에서 흐름
 }
+refreshTeamBrain();
+connect.onLocalStatus?.(() => refreshTeamBrain());   // 두뇌(로컬 모델) 바뀌면 즉시 갱신
 $('officePop')?.addEventListener('click', () => connect.officeOpen?.());
 
 // ── 💻 작업실 (파일 트리 + 코드 뷰어) ──────────────────────
@@ -2107,7 +2148,7 @@ $('voffice').addEventListener('click', (e) => { const el = (e.target as HTMLElem
 // ── 🧠 지식 네트워크 (두뇌) ───────────────────────────
 $('brainBtn').addEventListener('click', async () => { openOverlay('brainPanel'); selectBtab('short');   // 열 때마다 단기 탭부터 (직전 합성 탭이 그대로 떠 헷갈리던 문제)
   await refreshMem(); await renderBridge(); await renderBrain(); renderMethods();
-  try { const saved = localStorage.getItem('cloudCode'); const cc = $('cloudCode') as HTMLInputElement | null; if (saved && cc && !cc.value) cc.value = saved; } catch { /* */ }   // 🎟️ 저장된 멤버십 코드 자동 채움
+  try { const saved = localStorage.getItem('cloudCode'); const cc = $('cloudCode') as HTMLInputElement | null; if (saved && cc && !cc.value) { cc.value = saved; cc.hidden = false; } } catch { /* */ }   // 🎟️ 저장된 멤버십 코드 자동 채움(있으면 비번칸도 보이게)
 });
 // 🗂️ 지식 목록은 평소 숨김(그래프로 충분) — 정리(삭제)할 때만 펼침
 $('notesToggle').addEventListener('click', () => { const n = $('brainNotes'); n.classList.toggle('hidden'); ($('notesToggle') as HTMLElement).classList.toggle('on', !n.classList.contains('hidden')); });
@@ -2186,13 +2227,13 @@ $('surgRoadmapBtn')?.addEventListener('click', () => {
 });
 // ⚡ 단기 = GitHub
 $('ghPushBtn').addEventListener('click', async () => {
-  $('ghStatus').textContent = '⬆ GitHub에 동기화 중…';
+  $('ghStatus').textContent = '☁️ GitHub에 백업 중…';
   const r = await connect.githubPush();
-  $('ghStatus').textContent = r.ok ? `✅ ${r.count}개 지식 동기화 완료` : `⚠️ ${r.error}`;
-  if (r.ok) playCollect(r.count || 1);   // ⚡ 동기화 순간 지식 수집 연출
+  $('ghStatus').textContent = r.ok ? `✅ 지식 ${r.count}개 백업 완료` : `⚠️ ${r.error}`;
+  if (r.ok) playCollect(r.count || 1);   // ⚡ 백업 순간 연출
 });
 $('ghPullBtn').addEventListener('click', async () => {
-  $('ghStatus').textContent = '⬇ GitHub에서 불러오는 중…';
+  $('ghStatus').textContent = '⬇ GitHub에서 복원 중…';
   const r = await connect.githubPull();
   if (r.ok) { const extra = r.scanned ? ` · 파일 ${r.scanned}개 스캔${r.skipped ? `, 잡파일 ${r.skipped}개 제외` : ''}${r.capped ? ' (상한 도달)' : ''}` : ''; $('ghStatus').textContent = `✅ ${r.added}개 새로 가져옴 (총 ${r.total}개)${extra}`; }
   else $('ghStatus').textContent = `⚠️ ${r.error}`;
@@ -2268,6 +2309,7 @@ $('modelNameInput')?.addEventListener('input', (e: any) => {
 });
 // ③ 모델 이름 정하고 학습
 $('hfTrainBtn').addEventListener('click', async () => {
+  const ga = $('growAuto'); if (ga) ga.style.display = '';   // 무료(코랩) 경로 → 코랩 안내 다시 표시
   const name = ($('modelNameInput') as HTMLInputElement).value.trim();
   if (name) { const nameErr = validModelName(name); if (nameErr) { hint(nameErr); ($('modelNameInput') as HTMLInputElement).focus(); return; } }   // 이름은 선택(없으면 자동)
   hint('🆓 무료 Colab 노트북 만드는 중…');
@@ -2282,14 +2324,16 @@ $('hfTrainBtn').addEventListener('click', async () => {
     maxSeq: +sv('tsSeq'), scheduler: sv('tsSched'), quant: sv('tsQuant'),
     maxSteps: steps > 0 ? steps : undefined,
   };
-  $('hfStatus').textContent = '🚀 무료 Colab 노트북 만드는 중…';
+  $('hfStatus').textContent = '🗂️ 변환 · HF 데이터셋 업로드 · 노트북 생성 중…';
   const r = await connect.trainNotebook(name, opts);
   if (!r.ok) {
     $('hfStatus').textContent = `⚠️ ${r.error}`; hint(`⚠️ ${r.error}`);
     if (/지식/.test(r.error || '')) (document.querySelector('.btab[data-btab="short"]') as HTMLElement)?.click();   // 지식 없으면 단기 탭으로
     return;
   }
-  $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
+  const dsLine = r.dataset ? ` · 📦 데이터셋 <a href="#" id="dsLink">${escapeHtml(r.dataset)}</a> 업로드됨` : '';
+  $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${dsLine}${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
+  $('dsLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(`https://huggingface.co/datasets/${r.dataset}`); });
   $('colabLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.colab); });
   if (r.colab) connect.openExternal(r.colab);
   hint('🆓 무료 Colab 노트북이 열렸어요 — "런타임 → 모두 실행"');
@@ -2315,7 +2359,7 @@ async function openAuth() {
   if (!me?.configured) { $('authTitle').textContent = '회원'; body.innerHTML = `<div class="muted small" style="line-height:1.6">회원 시스템이 아직 설정되지 않았어요. ⚙️ 설정 → 고급에 <b>회원 Firebase API Key</b>를 넣어주세요.</div>`; return; }
   if (me?.email) {
     $('authTitle').textContent = '내 계정';
-    body.innerHTML = `<div class="auth-me"><div class="auth-ava">👤</div><div><div class="auth-email">${escapeHtml(me.email)}</div><div class="muted small">무료 회원 · 학습 월 1회</div></div></div><button class="cyc-btn ghost" id="authLogout" style="width:100%;margin-top:12px">로그아웃</button>`;
+    body.innerHTML = `<div class="auth-me"><div class="auth-ava">👤</div><div><div class="auth-email">${escapeHtml(me.email)}</div><div class="muted small">로그인됨 · 무료 학습 가능</div><div class="muted small" style="margin-top:2px">🔒 베타 비밀번호 = 학습·합성 월 3회 · 🆓 Colab 합성은 무제한(무료)</div></div></div><button class="cyc-btn ghost" id="authLogout" style="width:100%;margin-top:12px">로그아웃</button>`;
     $('authLogout')?.addEventListener('click', async () => { await connect.authLogout?.(); refreshAuthBtn(); openAuth(); hint('로그아웃했어요'); });
     return;
   }
@@ -2382,8 +2426,15 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   // 🔤 모델 이름이 영어인지 먼저 검증 (한글이면 학습 repo 생성 실패)
   const mn = (($('modelNameInput') as HTMLInputElement)?.value || '').trim();
   if (mn) { const e = validModelName(mn); if (e) { cloudStat('🔤 ' + e); ($('modelNameInput') as HTMLInputElement)?.focus(); return; } }
-  const code = (($('cloudCode') as HTMLInputElement)?.value || '').trim();
-  if (!code) { cloudStat('🔒 비밀번호를 입력하세요. 학습·합성은 각각 한 달에 3번까지 쓸 수 있어요.'); ($('cloudCode') as HTMLInputElement)?.focus(); return; }
+  const ga = $('growAuto'); if (ga) ga.style.display = 'none';   // 코랩 전용 안내는 서버 학습엔 안 맞음 → 숨김
+  const pwBox = $('cloudCode') as HTMLInputElement;
+  const code = (pwBox?.value || '').trim();
+  if (!code) {
+    // 🔒 비번칸은 평소 숨김 — 💎 멤버십 처음 누르면 그때 나타나며 안내(빈 자물쇠칸으로 헷갈리지 않게)
+    if (pwBox?.hidden) { pwBox.hidden = false; cloudStat('🔒 베타 비밀번호를 넣고 🧪 Connect AI 서버를 다시 누르세요. <span class="muted small">(비밀번호가 없으면 옆 🆓 무료로 시작!)</span>'); }
+    else cloudStat('🔒 베타 비밀번호를 입력하세요. <span class="muted small">없으면 🆓 무료로 시작하세요.</span>');
+    pwBox?.focus(); return;
+  }
   playTrainStart(mn || '내 두뇌');   // 🧬 이름·비번 다 갖춰 '진짜 시작'할 때만 점화 연출 (빈 클릭엔 안 뜸)
   const btn = $('cloudTrainBtn') as HTMLButtonElement; btn.disabled = true;
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
@@ -2397,10 +2448,12 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   if (r.ok && r.jobId) {
     cloudStat(`🚀 학습 시작! <a href="${escAttr(r.url || r.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 "내 모델로 받기"가 떠요. (보통 15~40분)</span>`);
     if (cloudPoll) clearInterval(cloudPoll);
+    let cloudPolls = 0;   // 🔒 무한 폴링 방지(GCP 비용 사고 교훈) — 최대 ~2시간(20s×360)이면 포기
     cloudPoll = window.setInterval(async () => {
+      if (++cloudPolls > 360) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat('⏱️ 상태 확인을 멈췄어요(2시간 경과). HuggingFace에서 직접 확인하세요.'); return; }
       const s = await connect.trainCloudStatus?.(); if (!s?.ok) return;
-      if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); playLevelUp((($('modelNameInput') as HTMLInputElement)?.value || '내 두뇌')); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
-      else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudStat(`⚠️ 학습 실패: ${escapeHtml(s.message || s.stage)} · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>`); }
+      if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); cloudPoll = 0; playLevelUp((($('modelNameInput') as HTMLInputElement)?.value || '내 두뇌')); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
+      else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat(`⚠️ 학습 실패: ${escapeHtml(s.message || s.stage)} · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>`); }
       else cloudStat(`⏳ 학습 중… (${escapeHtml(s.stage)}) · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>`);
     }, 20000);
   } else if (r.needLogin) {
@@ -2444,8 +2497,23 @@ function openSurgery(scope: 'merge' | 'task' = 'merge') {
 function surgStat(html: string) { const el = $('surgStatus'); if (el) { el.innerHTML = html; try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* */ } } }
 // 실패 시: 메시지 + '← 다시' 버튼(폼 복원). 연출이 폼을 덮었어도 처음부터 다시 안 해도 됨(_surg 유지)
 function surgFail(html: string) {
-  surgStat(`${html}<div style="margin-top:8px"><button id="surgRetry" class="lf-ghost">← 다시 입력</button></div>`);
+  // 💳 HF Pro/결제·토큰 때문에 막힌 거면 → 비용 0원 무료 Colab 합성으로 바로 유도 (비번 보유자가 막다른 에러에서 헤매지 않게)
+  const hfWall = /HF|Pro|크레딧|결제|허깅|토큰/i.test(html);
+  const freeBtn = hfWall ? `<button id="surgFreeFromFail" class="surg-free-btn" style="margin-top:8px">🆓 무료로 직접 하기 <span class="sfb-sub">Colab · 결제 없이</span></button>` : '';
+  surgStat(`${html}<div style="margin-top:8px">${freeBtn}<button id="surgRetry" class="lf-ghost">← 다시 입력</button></div>`);
   $('surgRetry')?.addEventListener('click', () => renderSurgery());
+  $('surgFreeFromFail')?.addEventListener('click', surgeryFreeFromFail);
+}
+// 💎 서버 합성 실패 후 → 같은 레시피로 무료 Colab 합성 (DOM이 연출에 덮였으므로 _surg 모듈 상태로 실행)
+async function surgeryFreeFromFail() {
+  const a = _surg.a, b = _surg.b, name = _fuseName || surgSuggestName();
+  if (!a || !b) return renderSurgery();
+  surgStat('<span class="cyc-spin"></span> 🆓 무료 Colab 노트북 만드는 중…');
+  let res: any = null;
+  try { res = await connect.surgeryNotebook?.(a, b, _surg.method, _surg.t, name); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
+  if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
+  if (res.colab) connect.openExternal?.(res.colab);
+  surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요 · 결제 안 해도 됩니다</span>`);
 }
 // 진행 중 상태 + ✕ 취소 버튼(매 틱 재생성되므로 매번 재연결)
 function surgRunning(html: string) {
@@ -2575,9 +2643,9 @@ function wireSurgery() {
   $('surgFreeBtn')?.addEventListener('click', surgeryFree);
 }
 // 🎮 합성 게임 연출 — 융합 서클 → 궤도 충전(진행 중 루프) → 완료 시 빛기둥+카드+★
-let _fuseName = 'my-fusion';
+let _fuseName = 'my-fusion', _fuseA = '', _fuseB = '';
 function surgFusion(aName: string, bName: string, newName: string) {
-  _fuseName = newName;
+  _fuseName = newName; _fuseA = aName; _fuseB = bName;
   const body = $('surgBody'); if (!body) return;
   // 진행상황(surgStatus)을 맨 위 눈에 띄게 — 연출에 가려 안 보이던 문제 해결
   body.innerHTML = `<div class="surg-status gf-top" id="surgStatus"><span class="cyc-spin"></span> 합성 시작…</div>
@@ -2606,6 +2674,19 @@ function surgFusionDone() {
     const card = st.querySelector('.gf-card'); card?.classList.add('reveal');
     const stars = $('gfStars'); if (stars) { [0, 1, 2].forEach(i => setTimeout(() => { const s = document.createElement('span'); s.className = 'gf-star on'; s.textContent = '⭐'; stars.appendChild(s); }, 300 + i * 220)); }
   }, 450);
+  setTimeout(() => playFusionHero(_fuseName, _fuseA, _fuseB), 700);   // 🎬 풀스크린 "두 AI가 하나로" 히어로(썸네일 모먼트)
+}
+// 🎬 합성 완료 풀스크린 히어로 — 소유 컨셉(부모 두 AI → 내 합성 AI 탄생). born-fx 재사용 + 보라/시안 테마.
+function playFusionHero(newName: string, aName: string, bName: string) {
+  const o = document.createElement('div'); o.className = 'born-fx fuse-hero';
+  o.innerHTML = `<div class="born-rays"></div><div class="born-flash"></div><div class="born-ring"></div><div class="born-ring r2"></div>`
+    + `<div class="born-core">🧬</div>`
+    + `<div class="born-cap">🧬 두 AI가 하나로</div>`
+    + `<div class="born-name">${escapeHtml(newName || '내 합성 AI')}</div>`
+    + `<div class="fuse-sub"><span class="fp a">🧠 ${escapeHtml(aName || 'AI')}</span><span class="plus">⊕</span><span class="fp b">🧠 ${escapeHtml(bName || 'AI')}</span><span class="arrow">→</span><span class="mine">✨ 내가 합성한 AI</span></div>`;
+  document.body.appendChild(o);
+  requestAnimationFrame(() => o.classList.add('on'));
+  setTimeout(() => o.remove(), 3600);
 }
 async function surgeryGo() {
  try {
@@ -2661,7 +2742,11 @@ let currentMethod = 'sft', methodsRendered = false, methodList: any[] = [];
 async function renderMethods() {
   if (methodsRendered) return; methodsRendered = true;
   methodList = await connect.methodsList();
-  $('methodPick').innerHTML = methodList.map((m: any) => `<button class="m-chip${m.id === 'sft' ? ' on' : ''}" data-m="${m.id}">${m.emoji} ${m.label}</button>`).join('');
+  // arXiv 폴백 — 메인 재시작 전(⌘⇧R만)에도 논문 열기 동작 (합성소와 동일)
+  const AX_FALLBACK: Record<string, string> = { sft: '2106.09685', dpo: '2305.18290' };
+  methodList.forEach((m: any) => { if (!m.arxiv && AX_FALLBACK[m.id]) m.arxiv = AX_FALLBACK[m.id]; });
+  // 타일 = 연구 이름 그대로(SFT/DPO) — 쉬운말 대신. 클릭하면 아래 논문 카드가 뜸(합성 탭처럼)
+  $('methodPick').innerHTML = methodList.map((m: any) => `<button class="m-chip${m.id === 'sft' ? ' on' : ''}" data-m="${m.id}" title="${escAttr(m.full || m.label)}"><span class="m-emoji">${m.emoji}</span><span class="m-lab">${escapeHtml(m.label)}</span></button>`).join('');
   document.querySelectorAll('.m-chip').forEach(b => b.addEventListener('click', () => selectMethod((b as HTMLElement).dataset.m!)));
   selectMethod('sft');
 }
@@ -2671,7 +2756,14 @@ function selectMethod(id: string) {
   document.querySelectorAll('.m-chip').forEach(c => c.classList.toggle('on', (c as HTMLElement).dataset.m === id));
   // 한 줄 + 상세는 툴팁(ⓘ)으로 — 텍스트 최소화
   const mcTip = `${m.what}\n언제: ${m.when}\n데이터: ${m.data}${m.note ? `\n💡 ${m.note}` : ''}`;   // 자세한 건 툴팁으로 (텍스트 다이어트)
-  $('methodCard').innerHTML = `<div class="mc-what" title="${escAttr(mcTip)}">${m.emoji} <b>${escapeHtml(m.label)}</b> <span class="mc-full">${escapeHtml(m.full || '')}${m.paper ? ` · ${escapeHtml(m.paper)}` : ''}</span> <span class="muted small">ⓘ</span></div>`;
+  // 합성소 카드처럼 — 풀네임 + 한국어 뜻 + 'arXiv 논문 열기'. 클릭하면 논문이 뜸.
+  $('methodCard').innerHTML = `<div class="mc-paper">`
+    + `<div class="mc-name">📄 ${escapeHtml(m.full || m.label)}</div>`
+    + `<div class="mc-mean" title="${escAttr(mcTip)}">${escapeHtml(m.what || '')}</div>`
+    + (m.arxiv ? `<button class="mc-arxiv" data-ax="${escAttr(m.arxiv)}">arXiv:${escapeHtml(m.arxiv)} 논문 열기 ↗</button>` : '')
+    + `</div>`;
+  const axBtn = $('methodCard').querySelector('.mc-arxiv') as HTMLElement | null;
+  if (axBtn) axBtn.addEventListener('click', () => { const ax = axBtn.dataset.ax; if (ax) connect.openExternal?.(`https://arxiv.org/abs/${ax}`); hint(`📄 ${m.full} 논문(arXiv:${ax})을 엽니다`); });
   const isDpo = id === 'dpo';
   $('step1Title').textContent = isDpo ? '⚖️ DPO 선호쌍 생성' : '📦 SFT 데이터로 변환';
   $('step1Sub').textContent = isDpo ? 'AI가 좋은답 ✅ vs 나쁜답 ❌ 을 스스로 생성 (사람 클릭 0)' : '지식 → AI가 Q&A 문제로 자동 출제';
@@ -2679,8 +2771,8 @@ function selectMethod(id: string) {
   ($('augToggle') as HTMLElement).style.display = isDpo ? 'none' : '';
   // 단계 초기화
   ['lfStep1', 'lfStep2', 'lfStep3'].forEach(s => $(s).classList.remove('lf-done'));
-  $('lfStep2').classList.add('lf-locked');   // ②업로드만 변환 필요(선택) — ③학습은 안 잠금(바로 가능)
-  ($('hfUploadBtn') as HTMLButtonElement).disabled = true; ($('hfTrainBtn') as HTMLButtonElement).disabled = true;
+  $('lfStep2').classList.add('lf-locked');   // ②업로드만 변환 필요(선택, 숨김) — 학습 버튼은 절대 안 잠금(데이터 자동변환·인라인)
+  ($('hfUploadBtn') as HTMLButtonElement).disabled = true;   // 업로드만 변환 후 활성(숨겨진 고급 기능)
   $('dsProg').classList.add('hidden');
 }
 // 🧠 매트릭스 브레인 인젝션 FX — 지식이 분야 두뇌로 다운로드되는 연출(분야 색으로 물듦)
@@ -2689,19 +2781,29 @@ const hexToRgb = (h: string) => { const m = /^#?([0-9a-f]{6})$/i.exec(h || ''); 
 const PROTOCOL = ['> 인젝션 프로토콜 시작…', '> 페이로드 직렬화…', '> 신경망 채널 동기화…', '> 두뇌 가중치 전송…', '> ✓ 주입 완료'];
 // 🧬 장기기억 = 레벨업/진화 연출
 function playLevelUp(name: string) {
-  const o = document.createElement('div'); o.className = 'levelup-fx';
-  o.innerHTML = `<span class="lu-flash"></span><span class="lu-core">🌳</span><span class="lu-txt">LEVEL UP! ✨</span><span class="lu-name">${escapeHtml(name || '내 두뇌')}</span><span class="lu-stars">⭐⭐⭐</span>`;
+  // 🎬 "내 AI 탄생" — 소유 컨셉 히어로(모델 이름이 주인공 + 👑 소유 도장 + 빛줄기 폭발)
+  const o = document.createElement('div'); o.className = 'born-fx';
+  o.innerHTML = `<div class="born-rays"></div><div class="born-flash"></div><div class="born-ring"></div><div class="born-ring r2"></div>`
+    + `<div class="born-core">🧠</div>`
+    + `<div class="born-cap">👑 내 AI 탄생</div>`
+    + `<div class="born-name">${escapeHtml(name || '내 두뇌')}</div>`
+    + `<div class="born-sub">✨ 이제 완전한 내 소유 ✨</div>`;
   document.body.appendChild(o);
   requestAnimationFrame(() => o.classList.add('on'));
-  setTimeout(() => o.remove(), 2600);
+  setTimeout(() => o.remove(), 3400);
 }
 // 🧬 장기기억 = 학습 '시작'(육성 점화) 연출 — 학습 버튼 누르는 순간 바로
 function playTrainStart(name: string) {
-  const o = document.createElement('div'); o.className = 'trainstart-fx';
-  o.innerHTML = `<span class="ts-flash"></span><span class="ts-ring"></span><span class="ts-ring r2"></span><span class="ts-core">🧬</span><span class="ts-txt">두뇌 학습 시작! 🚀</span><span class="ts-name">${escapeHtml(name || '내 두뇌')}</span>`;
+  // 🎬 학습 점화 — 완성(born-fx)과 짝이 되는 '발사' 히어로. "곧 내 AI가 됩니다"로 기대를 건다.
+  const o = document.createElement('div'); o.className = 'born-fx launch-hero';
+  o.innerHTML = `<div class="born-rays"></div><div class="born-flash"></div><div class="born-ring"></div><div class="born-ring r2"></div>`
+    + `<div class="born-core">🧬</div>`
+    + `<div class="born-cap">🚀 학습 시작</div>`
+    + `<div class="born-name">${escapeHtml(name || '내 두뇌')}</div>`
+    + `<div class="born-sub">⏳ 곧 완전한 내 AI가 됩니다</div>`;
   document.body.appendChild(o);
   requestAnimationFrame(() => o.classList.add('on'));
-  setTimeout(() => o.remove(), 2200);
+  setTimeout(() => o.remove(), 2600);
 }
 // ⚡ 단기기억 = 지식 수집 연출 (🧠 버튼으로 +N 카드 팝)
 function playCollect(n = 1) {
@@ -2716,6 +2818,7 @@ function playCollect(n = 1) {
 function playInjection(label: string, lines: string[] = [], color = '#00ff41') {
   const fx = $('injectFx'); const canvas = $('injectRain') as HTMLCanvasElement;
   fx.classList.remove('hidden', 'out');
+  $('ihSeal')?.classList.remove('show'); fx.querySelector('.inject-hud')?.classList.remove('sealed');   // 🔁 재사용 시 인장 초기화
   fx.style.setProperty('--fx', color);   // HUD 글로우·바·코어를 분야 색으로
   const [r, g, b] = hexToRgb(color);
   $('ihText').textContent = lines.join('\n').slice(0, 280);
@@ -2766,11 +2869,20 @@ function playInjection(label: string, lines: string[] = [], color = '#00ff41') {
       ctx.font = (fontSize * (0.65 + near * 0.8)) + 'px monospace'; ctx.fillText(q.g, x, y);
     }
     if (p < 1 && !fx.classList.contains('hidden')) injectRaf = requestAnimationFrame(tick);
-    else { $('ihCore')?.classList.add('blast'); setTimeout(() => $('ihCore')?.classList.remove('blast'), 600); fx.classList.add('out'); setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); brainEnergy(0.3); }, 620); }   // 주입 완료 충격파
+    else {
+      // 💥 클라이맥스 — 코어 충격파 + HUD 골드 플래시 + 🔒 소유 인장 쾅 (읽을 시간 확보 후 페이드)
+      $('ihCore')?.classList.add('blast'); setTimeout(() => $('ihCore')?.classList.remove('blast'), 600);
+      fx.querySelector('.inject-hud')?.classList.add('sealed');
+      $('ihSeal')?.classList.add('show');
+      setTimeout(() => {
+        fx.classList.add('out');
+        setTimeout(() => { fx.classList.add('hidden'); fx.classList.remove('out'); fx.querySelector('.inject-hud')?.classList.remove('sealed'); brainEnergy(0.3); }, 620);
+      }, 1300);   // 인장을 천천히 음미할 시간
+    }
   };
   injectRaf = requestAnimationFrame(tick);
 }
-$('injectFx').addEventListener('click', () => { cancelAnimationFrame(injectRaf); $('injectFx').classList.add('hidden'); brainEnergy(0.3); });
+$('injectFx').addEventListener('click', () => { cancelAnimationFrame(injectRaf); const f = $('injectFx'); f.classList.add('hidden'); f.querySelector('.inject-hud')?.classList.remove('sealed'); $('ihSeal')?.classList.remove('show'); brainEnergy(0.3); });
 // 🎨 분야 = 두뇌 — 라벨·이모지·색(그래프 노드/칩/성장바 공통)
 const CAT_META: Record<string, { label: string; emoji: string; color: string }> = {
   marketing: { label: '마케팅', emoji: '📣', color: '#ff5c8a' },
@@ -2794,7 +2906,7 @@ async function renderBrain() {
   renderGrowth(stats);
   $('brainNotes').innerHTML = list.length
     ? list.map((n: any) => { const c = CAT_META[n.category] || CAT_META.general; return `<div class="bn" style="border-left:3px solid ${c.color}" title="${escapeHtml(n.text.slice(0, 500))}"><span class="bn-t">${escapeHtml(noteTitle(n.text))}</span><button class="bn-x" data-id="${n.id}">✕</button></div>`; }).join('')
-    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. ⬇ GitHub 불러오기, 🧠 EZER AI 지식 스토어에서 주입, 또는 대화 중 에이전트가 자동으로 쌓아요.</div>';
+    : '<div class="muted" style="text-align:center;padding:14px">아직 지식이 없어요. ⬇ 복원으로 GitHub에서 가져오거나, 🧠 EZER AI 지식 스토어에서 주입, 또는 대화 중 에이전트가 자동으로 쌓아요.</div>';
   $('brainNotes').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.brainDelete((b as HTMLElement).dataset.id); await renderBrain(); }));
 }
 
@@ -3392,11 +3504,18 @@ $('pwBgmBtn')?.addEventListener('click', pwToggleBgm);
 
 // ── 부팅 + 시작 ───────────────────────────────────────
 function timeHello() { const h = new Date().getHours(); return h < 5 ? '늦은 시간이네요' : h < 12 ? '좋은 아침입니다' : h < 18 ? '좋은 오후입니다' : '좋은 저녁입니다'; }
-function greet() {
-  const custom = (cfg.greeting || '').trim();
+async function greet() {
   const title = cfg.userTitle || '사장님';
-  const g = custom ? custom.replace(/\{name\}/g, agentName()).replace(/\{title\}/g, title) : `${timeHello()}, ${title}. ${agentName()}입니다. 무엇을 도와드릴까요?`;
-  addLog(agentTag(), g, false, true);
+  const custom = (cfg.greeting || '').trim();
+  if (custom) { addLog(agentTag(), custom.replace(/\{name\}/g, agentName()).replace(/\{title\}/g, title), false, true); return; }
+  // 🗣️ 비서 브리핑 — 열자마자 '바로 할 한 가지'를 분명히 (오른쪽 사무실과 연결)
+  let openCnt = 0;
+  try { const all = await connect.tasksList?.(); openCnt = (all || []).filter((t: any) => t.status === 'open').length; } catch { /* */ }
+  const hello = `${timeHello()}, ${title}.`;
+  const brief = openCnt > 0
+    ? `오늘 할일 **${openCnt}개**. **🚀 운영 시작** → 에이전트가 실행(→ 사무실). 또는 바로 지시하세요.`
+    : `**오늘의 할일** 추가 또는 바로 지시 → 에이전트가 사무실에서 실행.`;
+  addLog(agentTag(), `${hello} ${brief}`, false, true);
 }
 // 🚀 첫 실행 온보딩 — 다운로드한 사람이 60초 안에 "우와"를 보게. 3단계: AI 켜기 → 회사 → 운영 시작
 let welTimer: any = null;

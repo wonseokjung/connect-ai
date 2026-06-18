@@ -205,12 +205,14 @@ export function apiError(e: any): string {
   let detail = d ? (d?.error?.message || (typeof d?.error === 'string' ? d.error : '') || d?.message || (typeof d === 'string' ? d : '')) : '';
   const code = e?.code || '';
   detail = String(detail || e?.message || code || e).replace(/\s+/g, ' ').trim().slice(0, 240);
+  if (detail === '[object Object]') detail = '';   // 상세 없을 때 흉한 "[object Object]" 노출 방지
   const status = e?.response?.status;
   let hint = '';
   if (/model.*(required|not found|missing)|no model|모델.*(없|지정)/i.test(detail)) hint = ' — AI 두뇌(모델)가 지정되지 않았어요(🤖 내 AI 팀에서 모델을 켜고 골라주세요)';
   else if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 문자가 있었어요(자동 정리 후 다시 시도해 주세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
   else if (status === 401 || status === 403) hint = ' — 접근이 거부됐어요(🤖 내 AI에서 두뇌가 켜져 있는지 먼저 확인하세요. 클라우드면 API 키·권한, 백신/방화벽이 로컬 엔진 포트를 막았는지도 확인)';
   else if (status === 404) hint = ' — 모델/주소를 찾지 못함(모델 이름·LLM 주소 확인)';
+  else if (status === 429) hint = ' — 요청이 너무 많아 잠시 제한됐어요(잠깐 기다렸다 다시 시도하세요)';
   else if (status === 500 || status === 503) hint = /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 이모지/문자가 있었어요(자동 정리됨 — 다시 보내주세요)' : ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
   else if (/timeout|ETIMEDOUT|exceeded/i.test(detail + code)) hint = ' — 응답이 너무 오래 걸려요(저사양이면 더 작은 모델을 쓰거나 잠시 후 다시)';
   else if (/ECONNREFUSED|ECONNRESET|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
@@ -287,26 +289,27 @@ export async function completeMessages(t: LlmTarget, messages: ChatMessage[], op
 async function streamSSE(url: string, body: any, onToken: (t: string) => void, signal: AbortSignal | undefined, headers: any = {}): Promise<OneShot> {
   const res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any, headers });
   let acc = '', truncated = false;
+  const processLine = (line: string) => {
+    const s = line.trim();
+    if (!s.startsWith('data:')) return;
+    const payload = s.slice(5).trim();
+    if (payload === '[DONE]') return;
+    try {
+      const ch = JSON.parse(payload)?.choices?.[0];
+      const tok = ch?.delta?.content || '';
+      if (tok) { acc += tok; onToken(tok); }
+      if (ch?.finish_reason === 'length') truncated = true;
+    } catch { /* keep-alive */ }
+  };
   await new Promise<void>((resolve, reject) => {
     let buf = '';
     res.data.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8');
       const lines = buf.split('\n');
       buf = lines.pop() || '';
-      for (const line of lines) {
-        const s = line.trim();
-        if (!s.startsWith('data:')) continue;
-        const payload = s.slice(5).trim();
-        if (payload === '[DONE]') continue;
-        try {
-          const ch = JSON.parse(payload)?.choices?.[0];
-          const tok = ch?.delta?.content || '';
-          if (tok) { acc += tok; onToken(tok); }
-          if (ch?.finish_reason === 'length') truncated = true;
-        } catch { /* keep-alive */ }
-      }
+      for (const line of lines) processLine(line);
     });
-    res.data.on('end', resolve);
+    res.data.on('end', () => { if (buf.trim()) processLine(buf); resolve(); });   // 🔧 개행 없이 끝난 마지막 줄도 처리 — 안 하면 마지막 토큰 유실("저는"에서 끊김)
     res.data.on('error', reject);
   });
   return { text: acc, truncated };
@@ -315,23 +318,24 @@ async function streamSSE(url: string, body: any, onToken: (t: string) => void, s
 async function streamNdjson(url: string, body: any, onToken: (t: string) => void, signal: AbortSignal | undefined): Promise<OneShot> {
   const res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any });
   let acc = '', truncated = false;
+  const processLine = (line: string) => {
+    const s = line.trim();
+    if (!s) return;
+    try {
+      const j = JSON.parse(s);
+      const tok = j?.message?.content; if (tok) { acc += tok; onToken(tok); }
+      if (j?.done_reason === 'length') truncated = true;
+    } catch { /* partial */ }
+  };
   await new Promise<void>((resolve, reject) => {
     let buf = '';
     res.data.on('data', (chunk: Buffer) => {
       buf += chunk.toString('utf8');
       const lines = buf.split('\n');
       buf = lines.pop() || '';
-      for (const line of lines) {
-        const s = line.trim();
-        if (!s) continue;
-        try {
-          const j = JSON.parse(s);
-          const tok = j?.message?.content; if (tok) { acc += tok; onToken(tok); }
-          if (j?.done_reason === 'length') truncated = true;
-        } catch { /* partial */ }
-      }
+      for (const line of lines) processLine(line);
     });
-    res.data.on('end', resolve);
+    res.data.on('end', () => { if (buf.trim()) processLine(buf); resolve(); });   // 🔧 마지막 줄 유실 방지
     res.data.on('error', reject);
   });
   return { text: acc, truncated };
