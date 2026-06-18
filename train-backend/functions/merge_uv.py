@@ -182,14 +182,10 @@ def main():
     # 3) f16 GGUF 변환 (순수 파이썬 — llama.cpp convert 스크립트만 사용, 컴파일 불필요)
     gguf_path = None
     try:
-        import urllib.request, zipfile, io as _io
-        print("📥 llama.cpp 받는 중 (zip — git 불필요)...", flush=True)
-        _z = urllib.request.urlopen("https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.zip", timeout=180).read()
-        zipfile.ZipFile(_io.BytesIO(_z)).extractall(".")
-        _ld = "llama.cpp-master"
-        sh([sys.executable, "-m", "pip", "install", "-q", "-r", f"{_ld}/requirements/requirements-convert_hf_to_gguf.txt"])
+        sh(["git", "clone", "--depth", "1", "https://github.com/ggml-org/llama.cpp"])
+        sh([sys.executable, "-m", "pip", "install", "-q", "-r", "llama.cpp/requirements/requirements-convert_hf_to_gguf.txt"])
         gguf_path = "merged-f16.gguf"
-        sh([sys.executable, f"{_ld}/convert_hf_to_gguf.py", "merged", "--outfile", gguf_path, "--outtype", "f16"])
+        sh([sys.executable, "llama.cpp/convert_hf_to_gguf.py", "merged", "--outfile", gguf_path, "--outtype", "f16"])
         print(f"✅ GGUF 변환 완료 → {gguf_path}", flush=True)
     except Exception as e:
         print(f"⚠️ GGUF 변환 실패(합쳐진 모델은 업로드됨): {e}", file=sys.stderr)

@@ -1,0 +1,4 @@
+fastapi
+uvicorn[standard]
+huggingface_hub>=0.24
+requests

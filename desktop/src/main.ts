@@ -1756,7 +1756,7 @@ function scriptText(name: string): string {
 }
 function uvScriptText(): string { return scriptText('train_qlora_uv.py'); }
 // 제공자가 배포 후 채우는 기본 백엔드 (비우면 사용자 토큰 직접 모드). config.trainBackendUrl 로 덮어쓰기 가능.
-const DEFAULT_TRAIN_BACKEND = 'https://api-xozdhcl4ya-uc.a.run.app';   // ☁️ Connect AI 학습 서비스 (Firebase Functions Gen2 단일 api — /train·/trainStatus 라우팅)
+const DEFAULT_TRAIN_BACKEND = 'https://wonseokjayjung-connectai.hf.space';   // ☁️ Connect AI 학습·합성 백엔드 (HF Space 문지기 — /train·/merge·/trainStatus·/mergeStatus). GCP 불필요, 토큰·잡 전부 HF.
 const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
@@ -1918,13 +1918,14 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
 });
 ipcMain.handle('train:cloudStatus', async () => {
   const c = loadConfig(); const backend = trainBackendBase(c); const j = c.cloudJob;
-  if (backend) {
+  if (backend && j?.backend) {
     const user = await fbIdToken(); const userId = user?.uid || installId();
-    try { const r = await axios.get(`${backend}/trainStatus`, { params: { userId }, timeout: 15000 }); if (r.data?.outputRepo) saveConfig({ cloudJob: { backend: true, outRepo: r.data.outputRepo } }); return r.data; }
+    const ep = j.kind === 'merge' ? 'mergeStatus' : 'trainStatus';   // 🔪 합성/학습 각자 게이트 조회
+    try { const r = await axios.get(`${backend}/${ep}`, { params: { userId }, timeout: 15000 }); if (r.data?.outputRepo) saveConfig({ cloudJob: { ...j, outRepo: r.data.outputRepo } }); return r.data; }
     catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
   }
   const h = connOf('huggingface');
-  if (!j?.id) return { ok: false, error: '진행 중인 학습이 없어요.' };
+  if (!j?.id) return { ok: false, error: '진행 중인 작업이 없어요.' };
   const s = await jobStatus(h.HF_TOKEN, j.namespace, j.id);
   return { ...s, outRepo: j.outRepo, jobUrl: `https://huggingface.co/jobs/${j.namespace}/${j.id}` };
 });
@@ -1951,9 +1952,30 @@ ipcMain.handle('train:cloudInstall', async () => {
 ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, method = 'slerp', t = '0.5', outName = '', password = '') => {
   const gate = gpuGate(password, 'surgery');   // 🔒 비번 0101 + 월 3회 (학습과 공유)
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
-  const h = connOf('huggingface');
-  if (!h.HF_TOKEN) return { ok: false, error: '💎 서버 합성은 본인 HuggingFace Pro 토큰이 필요해요(🗂️ 연동 → HuggingFace). 결제 없이 하려면 아래 🆓 무료로 직접 하기(Colab)로 바로 합성하세요.' };
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요 (같은 베이스·같은 크기여야 합쳐져요).' };
+  const c = loadConfig();
+  // ── 우리 서버(무료 백엔드) 우선 — 제공자(사장님) HF Pro 토큰으로 HF Job 실행. 회원 본인 토큰 안 씀(학습과 동일) ──
+  const backend = trainBackendBase(c);
+  const hasHf = !!connOf('huggingface').HF_TOKEN;
+  if (backend) {
+    const user = await fbIdToken();
+    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '무료 합성은 회원 로그인 후 가능해요 (앱에서 로그인하세요).' };
+    if (!fbApiKey() || user) {
+      try {
+        const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName }, { timeout: 60000 });
+        const d = r.data || {};
+        if (d.ok) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', d.outputRepo || '', outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { backend: true, kind: 'merge', id: d.jobId, namespace: d.namespace, outRepo: d.outputRepo || '', ts: Date.now() } }); return { ...d, viaBackend: true, modelRepo: d.modelRepo || `https://huggingface.co/${d.outputRepo}` }; }
+        if (!hasHf) return { ...d, viaBackend: true };   // 백엔드 거절(코드·로그인·캡) + 본인 HF 없음 → 그대로 안내
+      } catch (e: any) {
+        const st = e?.response?.status;
+        if (!hasHf) return { ok: false, error: `합성 서버가 잠시 불안정해요(${st || '네트워크'}). 잠시 후 다시 시도하거나 🆓 무료로 직접 하기(Colab)를 쓰세요.` };
+        // 본인 HF 토큰 있으면 아래 직접 모드로 폴백(파워유저)
+      }
+    }
+  }
+  // ── 직접 모드(백엔드 미설정/불안정 + 파워유저) — 본인 HF Pro 토큰 ──
+  const h = connOf('huggingface');
+  if (!h.HF_TOKEN) return { ok: false, error: '💎 무료 서버 합성은 회원 로그인이 필요해요. 또는 🆓 무료로 직접 하기(Colab)로 결제 없이 합성하세요.' };
   const me = await hfUsername(h.HF_TOKEN);
   if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
   const script = scriptText('merge_uv.py');
@@ -1967,7 +1989,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
     datasetRepo: surgRepo, scriptFile: 'merge_uv.py', flavor: 'l4x1', timeout: '1h',
     env: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: String(t), OUTPUT_REPO: outRepo },   // ⚠️ 키 'T'는 HF Jobs가 거부 → MERGE_T
   });
-  if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', outRepo, outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
+  if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', outRepo, outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { kind: 'merge', id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 // 🆓 무료 합성 — 비멤버용. 같은 합성을 Colab 무료 GPU에서 직접(노트북 생성→깃→Colab 원클릭). 비번·GPU 게이트 없음.

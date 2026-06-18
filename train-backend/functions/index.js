@@ -12,11 +12,15 @@ const { onRequest } = require('firebase-functions/v2/https');
 const { defineSecret } = require('firebase-functions/params');
 const admin = require('firebase-admin');
 const axios = require('axios');
+const fs = require('fs');
 
 admin.initializeApp();
 const HF_TOKEN = defineSecret('HF_TOKEN');          // 제공자 HF write 토큰 (Pro 계정)
 const MONTH_MS = 30 * 24 * 3600 * 1000;
 const FREE_FLAVOR = 'l4x1';                          // 무료 티어 GPU
+const MERGE_MONTHLY = 3;                             // 🔪 회원당 월 합성 횟수 캡 (비용 방어 — HF 계정 $20 하드캡과 이중 안전)
+// 🔪 합성(merge) 스크립트 — functions/ 에 동봉, Job이 데이터셋으로 받아 실행
+const MERGE_SCRIPT = (() => { try { return fs.readFileSync(__dirname + '/merge_uv.py', 'utf8'); } catch (e) { return ''; } })();
 const BASE_MODEL = 'unsloth/llama-3.2-3b-instruct-bnb-4bit';  // ≤8B 가드
 const sanitize = (s) => String(s || '').replace(/[.#$\[\]/\s]/g, '_').slice(0, 40);
 
@@ -88,9 +92,12 @@ async function jobStatus(token, namespace, jobId) {
 
 // 🌐 단일 진입점 api — /train, /trainStatus 를 path로 라우팅 (Gen2 함수당 URL 분리 문제 해결, 앱은 URL 하나만 알면 됨)
 const ACCESS_CODE = '0101';   // 🎟️ 멤버십 런칭 코드 — 멤버에게만 공유 (변경 시 여기 수정 후 재배포)
-exports.api = onRequest({ secrets: [HF_TOKEN], cors: true, timeoutSeconds: 120, memory: '512MiB' }, async (req, res) => {
+// 🛡️ maxInstances: 5 = 동시 실행 5개 하드캡 — 어떤 폭주에도 비용이 못 터진다(800만원 사고 방지). 호출당 1~2초·512MiB라 정상 사용은 무료티어 내.
+exports.api = onRequest({ secrets: [HF_TOKEN], cors: true, timeoutSeconds: 120, memory: '512MiB', maxInstances: 5 }, async (req, res) => {
   const path = (req.path || '').replace(/^\/+/, '').toLowerCase();
   if (path === 'trainstatus') return trainStatusHandler(req, res);
+  if (path === 'merge') return mergeHandler(req, res);            // 🔪 합성 = HF Job (제공자 토큰)
+  if (path === 'mergestatus') return mergeStatusHandler(req, res);
   return trainHandler(req, res);   // 기본 = train
 });
 
@@ -152,6 +159,72 @@ async function trainStatusHandler(req, res) {
     if (!userId) return res.json({ ok: false, error: 'userId 필요' });
     const g = (await admin.database().ref(`trainGate/${sanitize(userId)}`).get()).val();
     if (!g?.jobId) return res.json({ ok: false, error: '진행 중인 학습이 없어요.' });
+    const s = await jobStatus(HF_TOKEN.value(), g.namespace, g.jobId);
+    return res.json({ ok: true, stage: s.stage || 'UNKNOWN', message: s.message || '', outputRepo: g.outputRepo, jobUrl: `https://huggingface.co/jobs/${g.namespace}/${g.jobId}` });
+  } catch (e) { return res.json({ ok: false, error: e?.message || String(e) }); }
+}
+
+// 🔪 POST /merge  { userId, idToken, accessCode, modelA, modelB, method, t, outName }  → { ok, jobId, namespace, outputRepo, left }
+//    학습과 동일하게 제공자(사장님) HF Pro 토큰으로 HF Job 실행 → 회원은 무료. 회원당 월 MERGE_MONTHLY회 캡.
+async function mergeHandler(req, res) {
+  try {
+    let { userId, idToken, accessCode, modelA, modelB, method, t, outName } = req.body || {};
+    // 🎟️ 게이트 ① 멤버십 코드
+    if (String(accessCode || '').trim() !== ACCESS_CODE) return res.json({ ok: false, badCode: true, error: '멤버십 코드가 틀렸어요. 멤버에게 공유된 코드를 입력하세요.' });
+    // 🎟️ 게이트 ② 로그인 필수 (익명 불가 — 재설치 우회 방지)
+    if (!idToken) return res.json({ ok: false, needLogin: true, error: '무료 합성은 회원 전용이에요. 앱에서 로그인해주세요.' });
+    try { const dec = await admin.auth().verifyIdToken(idToken); userId = dec.uid; } catch (e) { return res.json({ ok: false, needLogin: true, error: '로그인 세션이 만료됐어요. 다시 로그인해주세요.' }); }
+    if (!userId) return res.json({ ok: false, error: 'userId가 필요해요(로그인).' });
+    if (!modelA || !modelB) return res.json({ ok: false, error: '합칠 두 모델(A·B)을 모두 지정하세요.' });
+    if (!MERGE_SCRIPT) return res.json({ ok: false, error: '합성 스크립트 로드 실패(서버 설정 오류).' });
+    method = String(method || 'slerp'); t = String(t || '0.5');
+
+    // 🎟️ 게이트 ③ 회원당 월 캡 (RTDB mergeGate — 클라이언트 우회 불가, $20 하드캡과 이중 방어)
+    const sid = sanitize(userId);
+    const ref = admin.database().ref(`mergeGate/${sid}`);
+    const month = new Date().toISOString().slice(0, 7);   // YYYY-MM
+    const g = (await ref.get()).val() || {};
+    const used = (g.month === month) ? (g.count || 0) : 0;
+    if (used >= MERGE_MONTHLY) return res.json({ ok: false, gated: true, error: `무료 합성은 월 ${MERGE_MONTHLY}회예요. 다음 달에 다시 가능해요.` });
+
+    const token = HF_TOKEN.value();
+    const provider = await hfUsername(token);
+    if (!provider) return res.json({ ok: false, error: '제공자 HF 토큰 확인 실패(서버 설정 오류).' });
+    const id = sid.slice(0, 24);
+    const surgRepo = `${provider}/cai-surg-${id}`;                                  // 스크립트 마운트용 데이터셋
+    const safeOut = sanitize(outName || `merged-${Date.now().toString(36)}`).slice(0, 40) || 'merged';
+    const outputRepo = `${provider}/${safeOut}`;                                    // 결과(public) — 회원이 토큰 없이 받음
+
+    await commitToDataset(token, surgRepo, [{ path: 'merge_uv.py', content: MERGE_SCRIPT }], false);
+    await ensureModelRepoPublic(token, outputRepo);
+
+    // 🔪 GPU 작업 = HF Job (학습과 동일 방식) — 데이터셋 마운트 후 uv run merge_uv.py
+    const job = await launchJob(token, provider, {
+      dockerImage: 'ghcr.io/astral-sh/uv:python3.12-bookworm',
+      command: ['uv', 'run', '/data/merge_uv.py'],
+      flavor: FREE_FLAVOR, timeout: '1h',
+      environment: { MODEL_A: modelA, MODEL_B: modelB, METHOD: method, MERGE_T: t, OUTPUT_REPO: outputRepo },
+      secrets: { HF_TOKEN: token },
+      volumes: [{ type: 'dataset', source: surgRepo, mountPath: '/data' }],
+    });
+    const jobId = job?.id || job?.jobId;
+    await ref.set({ month, count: used + 1, jobId, outputRepo, namespace: provider });
+    return res.json({ ok: true, jobId, namespace: provider, outputRepo, modelRepo: `https://huggingface.co/${outputRepo}`, left: MERGE_MONTHLY - used - 1 });
+  } catch (e) {
+    const st = e?.response?.status, msg = e?.response?.data?.error || e?.response?.data?.message || e?.message;
+    if (st === 402 || /credit|insufficient|balance/i.test(String(msg))) return res.json({ ok: false, error: '서버 HF 크레딧이 부족해요(운영자에 문의).' });
+    if (st === 403 || /pro|billing|subscription/i.test(String(msg))) return res.json({ ok: false, error: '제공자 계정에 HF Pro가 필요해요(서버 설정).' });
+    return res.json({ ok: false, error: (st ? `HTTP ${st}: ` : '') + (msg || '합성 시작 실패') });
+  }
+}
+
+// 🔪 GET /mergeStatus?userId=...  → { ok, stage, outputRepo }
+async function mergeStatusHandler(req, res) {
+  try {
+    const userId = req.query.userId;
+    if (!userId) return res.json({ ok: false, error: 'userId 필요' });
+    const g = (await admin.database().ref(`mergeGate/${sanitize(userId)}`).get()).val();
+    if (!g?.jobId) return res.json({ ok: false, error: '진행 중인 합성이 없어요.' });
     const s = await jobStatus(HF_TOKEN.value(), g.namespace, g.jobId);
     return res.json({ ok: true, stage: s.stage || 'UNKNOWN', message: s.message || '', outputRepo: g.outputRepo, jobUrl: `https://huggingface.co/jobs/${g.namespace}/${g.jobId}` });
   } catch (e) { return res.json({ ok: false, error: e?.message || String(e) }); }
