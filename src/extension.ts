@@ -30,6 +30,7 @@ import { PendingApproval, createApproval, listPendingApprovals, findApprovalBySh
 import { readTelegramConfig, sendTelegramReport, sendTelegramLong, sendTelegramTyping, _markdownToTelegram } from './telegram-send';
 import { stopTrackerNudge, startTrackerNudgeLoop, _runDailyBriefingOnce, startDailyBriefingLoop, stopDailyBriefingLoop, startRevenueWatcherLoop, stopRevenueWatcherLoop, _parseLooseDate, startRecurrenceLoop, stopRecurrenceLoop, startPreAlarmLoop, stopPreAlarmLoop, _harvestActionItems } from './schedulers';
 import { scaffoldDeveloperProject } from './developer-scaffold';
+import { _quickLLMCall } from './llm';
 
 // ============================================================
 // Security helpers
@@ -486,24 +487,6 @@ function readToolAutonomyLevel(agentId: string): number {
     return 2; // Draft is the safe default — agent prepares, user approves.
 }
 
-async function _quickLLMCall(systemPrompt: string, userMsg: string, maxTokens = 64): Promise<string> {
-    const { ollamaBase, defaultModel, timeout } = getConfig();
-    const isLMStudio = _isLMStudioEngine(ollamaBase);
-    const apiUrl = isLMStudio ? `${ollamaBase}/v1/chat/completions` : `${ollamaBase}/api/chat`;
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMsg }
-    ];
-    const tmo = Math.min(timeout || 60000, 60000);
-    if (isLMStudio) {
-        const body = { model: defaultModel, messages, stream: false, max_tokens: maxTokens, temperature: 0.2 };
-        const r = await axios.post(apiUrl, body, { timeout: tmo });
-        return r.data?.choices?.[0]?.message?.content?.toString().trim() || '';
-    }
-    const body = { model: defaultModel, messages, stream: false, options: { num_predict: maxTokens, temperature: 0.2 } };
-    const r = await axios.post(apiUrl, body, { timeout: tmo });
-    return r.data?.message?.content?.toString().trim() || '';
-}
 
 const CEO_CLASSIFIER_PROMPT = _loadPrompt('ceo-classifier.md');
 const SECRETARY_TELEGRAM_PROMPT = _loadPrompt('secretary-telegram.md');
