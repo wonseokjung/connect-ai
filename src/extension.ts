@@ -825,7 +825,7 @@ async function handleTelegramCommand(text: string): Promise<void> {
             const targetAgent = await classifyToAgent(trimmed);
             const a = AGENTS[targetAgent];
             await sendTelegramReport(`🧭 (비서 응답 실패 → CEO 라우팅) ${a.emoji} *${a.name}*\n\n_"${trimmed.slice(0, 120)}"_\n\n_답변 준비되는 대로 보내드릴게요._`);
-            _activeChatProvider?.sendPromptFromExtension?.(trimmed, { fromTelegram: true, corporate: true });
+            runtime.activeChatProvider?.sendPromptFromExtension?.(trimmed, { fromTelegram: true, corporate: true });
         } catch { /* truly silent fail */ }
     }
 }
@@ -936,7 +936,7 @@ function _buildCapabilityReport(): string {
    않고 실제 상태를 즉시. */
 function _buildDispatchStatusReport(): string {
     const lines: string[] = ['📊 *지금 상태*\n'];
-    const provider = _activeChatProvider;
+    const provider = runtime.activeChatProvider;
     const snap = provider?.getDispatchSnapshot?.();
     if (snap?.current) {
         const c = snap.current;
@@ -979,7 +979,7 @@ function _buildDispatchStatusReport(): string {
 
 async function handleTelegramViaSecretary(userText: string): Promise<void> {
     /* Mirror user's Telegram message into the sidebar chat */
-    try { _activeChatProvider?.postSystemNote?.(`텔레그램: "${userText.slice(0, 200)}"`, '📱'); } catch { /* ignore */ }
+    try { runtime.activeChatProvider?.postSystemNote?.(`텔레그램: "${userText.slice(0, 200)}"`, '📱'); } catch { /* ignore */ }
     /* Show the bot is working — Telegram typing indicator */
     sendTelegramTyping().catch(() => { /* ignore */ });
     /* Push the user's message into short-term memory BEFORE we build the
@@ -991,13 +991,13 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
        — 사용자가 멈추라고 했는데 또 LLM 한 사이클 돌리면 답답함 가중. */
     const cancelQ = /^\s*(취소|중단|중지|그만|멈춰|멈춰줘|stop|cancel|abort|nevermind|never\s*mind)\s*[\.!\?]*\s*$/i;
     if (cancelQ.test(userText)) {
-        const result = _activeChatProvider?.abortActiveDispatch?.() || { cancelled: false };
+        const result = runtime.activeChatProvider?.abortActiveDispatch?.() || { cancelled: false };
         if (result.cancelled) {
             const what = result.what ? ` (${result.what} 단계에서)` : '';
             const msg = `🛑 *비서*: 작업 중단했어요${what}. 다음 명령 기다릴게요.`;
             await sendTelegramReport(msg);
             _pushTelegramHistory('assistant', `작업 중단됨${what}`);
-            try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (작업 중단)`, '🛑'); } catch { /* ignore */ }
+            try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (작업 중단)`, '🛑'); } catch { /* ignore */ }
         } else {
             const msg = `💬 *비서*: 지금 진행 중인 작업이 없어요. 자유롭게 새 명령 주세요.`;
             await sendTelegramReport(msg);
@@ -1013,7 +1013,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const cap = _buildCapabilityReport();
         await sendTelegramLong(cap);
         _pushTelegramHistory('assistant', cap.slice(0, 400));
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (능력 요약)`, '💬'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (능력 요약)`, '💬'); } catch { /* ignore */ }
         return;
     }
     /* v2.89 — 진행 상태 introspection. "지금 뭐 해?" / "/status" / "큐" 류
@@ -1023,7 +1023,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const status = _buildDispatchStatusReport();
         await sendTelegramLong(status);
         _pushTelegramHistory('assistant', status.slice(0, 400));
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (진행 상태)`, '💬'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (진행 상태)`, '💬'); } catch { /* ignore */ }
         return;
     }
 
@@ -1111,7 +1111,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const rescuedText = textM ? textM[1].replace(/\\n/g, '\n').replace(/\\"/g, '"').trim() : '';
         if (rescuedText) {
             await sendTelegramLong(`💬 *비서*: ${rescuedText.slice(0, 1500)}`);
-            try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (JSON 복구): ${rescuedText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
+            try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램 (JSON 복구): ${rescuedText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
             return;
         }
         /* Fallback — aggressively strip from the first { onward (handles both
@@ -1127,7 +1127,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         }
         const fallbackMsg = clean.slice(0, 600);
         await sendTelegramReport(`💬 비서: ${fallbackMsg}`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${fallbackMsg.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${fallbackMsg.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
         return;
     }
 
@@ -1187,7 +1187,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const confirmMsg = replyText || `📅 일정 추가됨\n*${ev.title}*\n${fmt(startDate)} – ${fmt(endDate)}`;
         await sendTelegramLong(`💬 *비서*: ${confirmMsg}${link}${trailer}`);
         _pushTelegramHistory('assistant', `일정 추가됨: ${ev.title} (${fmt(startDate)} – ${fmt(endDate)})`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 캘린더: "${ev.title}" ${fmt(startDate)}`, '📅'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 캘린더: "${ev.title}" ${fmt(startDate)}`, '📅'); } catch { /* ignore */ }
         /* Refresh local cache so other agents see the new event */
         refreshCalendarCacheViaOAuth(14).catch(() => { /* silent */ });
         return;
@@ -1218,7 +1218,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
            without dumping the full list into every subsequent prompt. */
         const histSummary = events.slice(0, 5).map(e => `${e.title} (${fmt(e.startIso)})`).join(', ');
         _pushTelegramHistory('assistant', `향후 ${days}일 일정: ${histSummary}${events.length > 5 ? ' 외 ' + (events.length - 5) + '건' : ''}`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 캘린더 조회 (${events.length}건)`, '📅'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 캘린더 조회 (${events.length}건)`, '📅'); } catch { /* ignore */ }
         return;
     }
     if (mode === 'calendar_delete') {
@@ -1256,7 +1256,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
                 : `💬 *비서*: \`${query}\` 일치 ${matches.length}건 중 ${ok}건 취소`;
             await sendTelegramLong(`${headline}\n\n${okBlock}${failBlock}`);
             _pushTelegramHistory('assistant', `${ok}건 취소됨 (${query}). ${fail > 0 ? fail + '건 실패.' : ''}`);
-            try { _activeChatProvider?.postSystemNote?.(`비서 → 캘린더 벌크 취소: "${query}" ${ok}/${matches.length}건`, '🗑️'); } catch { /* ignore */ }
+            try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 캘린더 벌크 취소: "${query}" ${ok}/${matches.length}건`, '🗑️'); } catch { /* ignore */ }
             refreshCalendarCacheViaOAuth(30).catch(() => { /* silent */ });
             return;
         }
@@ -1275,7 +1275,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const cancelMsg = `💬 *비서*: ✖️ 취소됨 — *${ev.title}* (${fmt(ev.startIso)})${replyText ? `\n\n${replyText}` : ''}`;
         await sendTelegramLong(cancelMsg);
         _pushTelegramHistory('assistant', `취소됨 — ${ev.title} (${fmt(ev.startIso)}). ${replyText}`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 캘린더 취소: "${ev.title}"`, '🗑️'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 캘린더 취소: "${ev.title}"`, '🗑️'); } catch { /* ignore */ }
         refreshCalendarCacheViaOAuth(14).catch(() => { /* silent */ });
         return;
     }
@@ -1338,7 +1338,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         const confirmMsg = replyText || `📅 *${finalTitle}* 수정됨 — ${fmt(updated.startIso || newStartIso || ev.startIso)}${updated.endIso ? ` ~ ${fmt(updated.endIso)}` : ''}`;
         await sendTelegramLong(`💬 *비서*: ${confirmMsg}${link}${trailer}`);
         _pushTelegramHistory('assistant', `${finalTitle} 수정됨 (${fmt(updated.startIso || ev.startIso)})`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 캘린더 수정: "${finalTitle}" ${fmt(updated.startIso || ev.startIso)}`, '✏️'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 캘린더 수정: "${finalTitle}" ${fmt(updated.startIso || ev.startIso)}`, '✏️'); } catch { /* ignore */ }
         refreshCalendarCacheViaOAuth(14).catch(() => { /* silent */ });
         return;
     }
@@ -1347,16 +1347,16 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
     if (mode === 'dispatch') {
         await sendTelegramReport(`📨 *비서 → CEO*\n\n${replyText || '작업을 분배할게요'}${trailer}`);
         _pushTelegramHistory('assistant', `(CEO에게 전달) ${replyText || '작업을 분배할게요'}`);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → CEO 전달: ${replyText.slice(0, 300)}`, '📨'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → CEO 전달: ${replyText.slice(0, 300)}`, '📨'); } catch { /* ignore */ }
         const dispatchInstr = String(parsed.dispatch_to_ceo || userText).slice(0, 1500);
         /* corporate:true 추가 — _handleCorporatePrompt를 직접 호출해서 진짜
            멀티 에이전트 디스패치 발동. 이전엔 webview를 거쳐서 단일 LLM
            응답으로만 흘러서 "전달 완료"만 답하고 실제 작업 안 함. */
-        try { _activeChatProvider?.sendPromptFromExtension?.(dispatchInstr, { fromTelegram: true, corporate: true }); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.sendPromptFromExtension?.(dispatchInstr, { fromTelegram: true, corporate: true }); } catch { /* ignore */ }
     } else if (mode === 'ask') {
         await sendTelegramLong(`💬 *비서*: ${replyText}`);
         _pushTelegramHistory('assistant', replyText);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${replyText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${replyText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
     } else {
         if (!replyText) {
             await sendTelegramReport(`💬 비서: 한 번 더 말씀해주실 수 있나요? 답변을 만들지 못했어요.`);
@@ -1364,7 +1364,7 @@ async function handleTelegramViaSecretary(userText: string): Promise<void> {
         }
         await sendTelegramLong(`💬 *비서*: ${replyText}${trailer}`);
         _pushTelegramHistory('assistant', replyText);
-        try { _activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${replyText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
+        try { runtime.activeChatProvider?.postSystemNote?.(`비서 → 텔레그램: ${replyText.slice(0, 300)}`, '💬'); } catch { /* ignore */ }
     }
 }
 
@@ -1426,7 +1426,7 @@ async function _runScheduledReportEntry(entry: ReportScheduleEntry) {
             const status = r.exitCode === 0 ? '✅' : `❌ exit ${r.exitCode}`;
             const msg = `📆 *${entry.label}* (스케줄 자동 실행) ${status}\n\n\`\`\`\n${out.slice(0, 3000)}\n\`\`\``;
             try { await sendTelegramLong(msg); } catch { /* silent */ }
-            try { _activeChatProvider?.postSystemNote?.(`📆 ${entry.label} 자동 실행 ${status}`, '📆'); } catch { /* ignore */ }
+            try { runtime.activeChatProvider?.postSystemNote?.(`📆 ${entry.label} 자동 실행 ${status}`, '📆'); } catch { /* ignore */ }
         }
     } catch (e: any) {
         console.warn('[scheduler] entry failed:', e?.message || e);
@@ -1796,7 +1796,7 @@ async function _runRevenueWatcherOnce(): Promise<void> {
             } catch { /* ignore */ }
             /* 사무실 영숙 책상 펄스 + 알림 */
             try {
-                _activeChatProvider?.pulseAgent?.('secretary', isRefund ? '↩️' : '💰', 6000, `${arrow}: ${amount}`);
+                runtime.activeChatProvider?.pulseAgent?.('secretary', isRefund ? '↩️' : '💰', 6000, `${arrow}: ${amount}`);
             } catch { /* ignore */ }
         }
 
@@ -1922,8 +1922,8 @@ ${JSON.stringify(ap.payload, null, 2)}
        so user sees who requested it. Both decay quickly so the office
        doesn't get cluttered. */
     try {
-        _activeChatProvider?.pulseAgent?.(ap.agentId, '⏳', 3500, `${ap.title} 승인 요청`);
-        _activeChatProvider?.pulseAgent?.('secretary', '🔔', 3500);
+        runtime.activeChatProvider?.pulseAgent?.(ap.agentId, '⏳', 3500, `${ap.title} 승인 요청`);
+        runtime.activeChatProvider?.pulseAgent?.('secretary', '🔔', 3500);
     } catch { /* ignore */ }
     /* v2.82: removed chat sidebar injection — approvals now surface via
        (1) telegram card, (2) status bar "⚠️ 승인 N건" badge, (3) dashboard
@@ -2197,7 +2197,7 @@ _Developer 에이전트와 사용자가 내린 디자인·기술 의사결정이
 async function _youtubeCommentReplyDraftBatch(opts: { maxComments?: number; maxPerVideo?: number } = {}): Promise<{ drafted: number; skipped: number; reason?: string }> {
     /* Office pulse so the user sees youtube agent is working on something
        even when triggered from a button press rather than chat dispatch. */
-    try { _activeChatProvider?.pulseAgent?.('youtube', '📺', 4000, '댓글 큐 갱신 중'); } catch { /* ignore */ }
+    try { runtime.activeChatProvider?.pulseAgent?.('youtube', '📺', 4000, '댓글 큐 갱신 중'); } catch { /* ignore */ }
     const cfgPath = path.join(getCompanyDir(), '_agents', 'youtube', 'config.md');
     const cfgTxt = _safeReadText(cfgPath);
     const apiM = cfgTxt.match(/YOUTUBE_API_KEY\s*[:：=]\s*([A-Za-z0-9_\-]+)/);
@@ -3841,10 +3841,8 @@ OS 차이: 백그라운드 프로세스는 맥/리눅스에선 \`nohup ... &\`, 
 // Extension Activation
 // ============================================================
 
-// Module-level reference so module-scope helpers (e.g. showBrainNetwork) can
-// register externally-opened graph panels with the provider for thinking
-// event broadcasts.
-let _activeChatProvider: SidebarChatProvider | null = null;
+// 활성 사이드바 채팅 프로바이더는 runtime.activeChatProvider(runtime-state) holder 로 이동.
+// (module-scope helpers·telegram·schedulers·panels 가 공유 — 순환 방지 위해 ChatProviderLike 로 타입화)
 
 // One-time recovery for users upgrading from <=2.22.5, where the first-run
 // auto-detect wrote the engine URL to a typo'd config key (`ollamaBase`) that
@@ -4012,7 +4010,7 @@ export function activate(context: vscode.ExtensionContext) {
     _recoverEngineUrlIfMismatched(context);
     _autoPickInstalledModelIfMissing();
     const provider = new SidebarChatProvider(context.extensionUri, context);
-    _activeChatProvider = provider;
+    runtime.activeChatProvider = provider;
     // Autonomous-company runtime: idle auto-cycle.
     // 모닝 브리핑은 더 이상 활성화 시점에 자동 발사하지 않습니다 — 일부
     // 사용자(자원이 빠듯한 PC + 처음 확장을 켠 직후 Ollama 차가운 상태)에서
@@ -5195,7 +5193,7 @@ async function runConnectCompanyRepo() {
     }
     /* Try a first sync immediately so user gets instant feedback. */
     await vscode.window.showInformationMessage(`✅ 회사 GitHub 연결됨: ${cleaned.replace(/^https:\/\/[^@]+@/, 'https://')}\n\n첫 백업을 시도합니다…`);
-    await _safeGitAutoSyncCompany(`Initial company backup`, _activeChatProvider);
+    await _safeGitAutoSyncCompany(`Initial company backup`, runtime.activeChatProvider);
 }
 
 /* Folder-picker driven flow for changing where the company workspace lives.
@@ -5307,7 +5305,7 @@ async function showBrainNetwork(_context: vscode.ExtensionContext) {
         // Hook this panel into the chat provider's thinking-event broadcast,
         // so AI search activity pulses on this graph too — not just on the
         // separate Thinking Mode panel.
-        _activeChatProvider?.registerExternalGraphPanel(panel);
+        runtime.activeChatProvider?.registerExternalGraphPanel(panel);
 
         const brainDir = _getBrainDir();
         const graph = buildKnowledgeGraph(brainDir);
@@ -5776,9 +5774,9 @@ class CompanyDashboardPanel {
                     /* v2.89.146 — corporate dispatch 직접 호출. injectPrompt 는
                        bypassCorporate=true 라 shortcut 건너뛰는 버그 회피. */
                     try {
-                        if (_activeChatProvider) {
-                            const model = _activeChatProvider.getDefaultModel();
-                            _activeChatProvider.runCorporatePromptExternal(
+                        if (runtime.activeChatProvider) {
+                            const model = runtime.activeChatProvider.getDefaultModel();
+                            runtime.activeChatProvider.runCorporatePromptExternal(
                                 '현빈아, 이번 달 PayPal 매출 실데이터 가져와서 분석하고 다음 액션 1개 추천해줘.',
                                 model
                             ).catch(() => { /* ignore */ });
@@ -5843,7 +5841,7 @@ class CompanyDashboardPanel {
                             await this._sendState();
                             /* 사이드바도 동기화 */
                             try {
-                                const sb = _activeChatProvider as any;
+                                const sb = runtime.activeChatProvider as any;
                                 if (sb && sb._view) {
                                     sb._view.webview.postMessage({ type: 'activeAgents', value: readActiveAgents() });
                                     sb._view.webview.postMessage({ type: 'hiredAgents', value: readHiredAgents() });
@@ -5993,7 +5991,7 @@ class CompanyDashboardPanel {
                         this._postToast(`🧠 에이전트별 모델 라우팅 저장됨 (${Object.keys(cleaned).length}건)`);
                         this._panel.webview.postMessage({ type: 'agentModelRoutingSaved', ok: true });
                         /* v2.89.116 — 사이드바 dock도 같이 갱신 (양쪽이 항상 같은 진실) */
-                        try { _activeChatProvider?.triggerAgentDockReload?.(); } catch { /* ignore */ }
+                        try { runtime.activeChatProvider?.triggerAgentDockReload?.(); } catch { /* ignore */ }
                     } catch (e: any) {
                         this._panel.webview.postMessage({ type: 'agentModelRoutingSaved', ok: false, error: e?.message || String(e) });
                     }
@@ -7597,7 +7595,7 @@ async function fetchYouTubeAnalyticsSummary(): Promise<any> {
 }
 
 export function deactivate() {
-    try { _activeChatProvider?.stopAutoCycle?.(); } catch { /* ignore */ }
+    try { runtime.activeChatProvider?.stopAutoCycle?.(); } catch { /* ignore */ }
     try { stopTelegramPolling(); } catch { /* ignore */ }
     try { stopTrackerNudge(); } catch { /* ignore */ }
     try { stopDailyBriefingLoop(); } catch { /* ignore */ }
@@ -7763,8 +7761,8 @@ class OfficePanel {
                 case 'toggleAutoCycle':
                     try {
                         await vscode.workspace.getConfiguration('connectAiLab').update('autoCycleEnabled', !!msg.on, vscode.ConfigurationTarget.Global);
-                        if (msg.on) _activeChatProvider?.startAutoCycle?.(15, 0);
-                        else _activeChatProvider?.stopAutoCycle?.();
+                        if (msg.on) runtime.activeChatProvider?.startAutoCycle?.(15, 0);
+                        else runtime.activeChatProvider?.stopAutoCycle?.();
                     } catch { /* ignore */ }
                     break;
                 case 'pickCompanyFolder': {
@@ -14817,7 +14815,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
 
             /* (d) 1회 자동 재시도 — 회사 컨텍스트 빼고 더 강한 JSON 지시로. */
             if (!plan) {
-                try { _activeChatProvider?.postSystemNote?.('CEO 첫 응답 파싱 실패 — JSON 모드로 1회 재시도', '🔄'); } catch { /* ignore */ }
+                try { runtime.activeChatProvider?.postSystemNote?.('CEO 첫 응답 파싱 실패 — JSON 모드로 1회 재시도', '🔄'); } catch { /* ignore */ }
                 try {
                     const retryRaw = await this._callAgentLLM(
                         `${_personalizePrompt(CEO_PLANNER_PROMPT)}\n\n[중요] 오직 JSON 한 객체만 출력. 설명/주석/마크다운 금지. 형식: {"brief":"…","tasks":[{"agent":"<id>","task":"…"}]}`,
@@ -15362,12 +15360,12 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                             startYouTubeOAuthFlow().then(r => {
                                 try {
                                     if (r.ok) {
-                                        _activeChatProvider?.postSystemNote?.('✅ YouTube OAuth 연결 완료 — 다시 분석 요청해주세요.', '🔐');
+                                        runtime.activeChatProvider?.postSystemNote?.('✅ YouTube OAuth 연결 완료 — 다시 분석 요청해주세요.', '🔐');
                                         if (this._telegramMirrorPending !== undefined) {
                                             sendTelegramReport(`✅ *OAuth 연결 완료* — 이제 시청 지속률·트래픽 소스 같은 Analytics 데이터 분석 가능. 같은 명령 다시 보내주세요.`).catch(() => {});
                                         }
                                     } else {
-                                        _activeChatProvider?.postSystemNote?.(`⚠️ OAuth 실패: ${r.message}`, '🔐');
+                                        runtime.activeChatProvider?.postSystemNote?.(`⚠️ OAuth 실패: ${r.message}`, '🔐');
                                     }
                                 } catch { /* ignore */ }
                             });
