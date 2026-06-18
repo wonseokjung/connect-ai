@@ -25,6 +25,12 @@ export interface ChatProviderLike {
     getDispatchSnapshot(): { current: { prompt: string; priority: string; elapsedSec: number } | null; queueLength: number; queue: Array<{ priority: string; prompt: string }> };
 }
 
+/* 승인 패널 프로바이더의 호출 표면(refresh). approvals 모듈이 패널을 새로고침하는데, 패널 클래스는
+ * extension.ts 에 남으므로 호출 표면만 인터페이스로 고정. */
+export interface ApprovalsPanelLike {
+    refresh(): void;
+}
+
 /* extCtx: 확장 컨텍스트 (activate 에서 1회 설정).
  * autoSyncRunning: 두뇌 git 자동/수동 동기화 동시 실행 방지 락. _safeGitAutoSync(git-sync)와
  *   SidebarChatProvider 수동 동기화·상태 패널이 공유하므로 holder 에 둔다.
@@ -34,4 +40,5 @@ export const runtime: {
     extCtx: vscode.ExtensionContext | null;
     autoSyncRunning: boolean;
     activeChatProvider: ChatProviderLike | null;
-} = { extCtx: null, autoSyncRunning: false, activeChatProvider: null };
+    approvalsPanelProvider: ApprovalsPanelLike | null;
+} = { extCtx: null, autoSyncRunning: false, activeChatProvider: null, approvalsPanelProvider: null };
