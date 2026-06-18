@@ -187,7 +187,10 @@ def main():
         _z = urllib.request.urlopen("https://github.com/ggml-org/llama.cpp/archive/refs/heads/master.zip", timeout=180).read()
         zipfile.ZipFile(_io.BytesIO(_z)).extractall(".")
         _ld = "llama.cpp-master"
-        sh([sys.executable, "-m", "pip", "install", "-q", "-r", f"{_ld}/requirements/requirements-convert_hf_to_gguf.txt"])
+        # convert 의존성(gguf·numpy·sentencepiece·protobuf·transformers)은 이미 위 스크립트 헤더에 설치됨.
+        # uv 환경엔 pip이 없어 'python -m pip'가 실패하므로, 혹시 빠진 것만 uv로 보강(실패해도 진행).
+        try: sh(["uv", "pip", "install", "-q", "gguf", "numpy", "sentencepiece", "protobuf"])
+        except Exception as _ie: print(f"(의존성 보강 생략: {_ie})", flush=True)
         gguf_path = "merged-f16.gguf"
         sh([sys.executable, f"{_ld}/convert_hf_to_gguf.py", "merged", "--outfile", gguf_path, "--outtype", "f16"])
         print(f"✅ GGUF 변환 완료 → {gguf_path}", flush=True)
