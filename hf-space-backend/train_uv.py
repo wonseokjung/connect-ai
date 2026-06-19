@@ -7,6 +7,7 @@ import os, sys
 DATASET_REPO=os.environ.get("DATASET_REPO",""); DATASET_FILE=os.environ.get("DATASET_FILE","brain.jsonl")
 BASE_MODEL=os.environ.get("BASE_MODEL","unsloth/llama-3.2-3b-instruct-bnb-4bit"); OUTPUT_REPO=os.environ.get("OUTPUT_REPO","")
 HF_TOKEN=os.environ.get("HF_TOKEN",""); MAX_STEPS=int(os.environ.get("MAX_STEPS","120")); MAX_SEQ=2048
+UPLOAD_TOKEN=os.environ.get("UPLOAD_TOKEN") or HF_TOKEN   # 결과 업로드 토큰(회원 연동 시 회원 계정으로 = 진짜 소유), 없으면 제공자
 def main():
     if not (DATASET_REPO and OUTPUT_REPO and HF_TOKEN): print("env missing",file=sys.stderr); sys.exit(1)
     from huggingface_hub import hf_hub_download
@@ -30,8 +31,8 @@ def main():
     SFTTrainer(model=model,tokenizer=tok,train_dataset=ds,args=SFTConfig(dataset_text_field="text",max_seq_length=MAX_SEQ,
         per_device_train_batch_size=2,gradient_accumulation_steps=4,warmup_steps=5,max_steps=MAX_STEPS,learning_rate=2e-4,
         logging_steps=5,optim="adamw_8bit",weight_decay=0.01,lr_scheduler_type="linear",output_dir="outputs",report_to="none")).train()
-    model.push_to_hub(OUTPUT_REPO,token=HF_TOKEN); tok.push_to_hub(OUTPUT_REPO,token=HF_TOKEN)
-    try: model.push_to_hub_gguf(OUTPUT_REPO,tok,quantization_method="q4_k_m",token=HF_TOKEN)
+    model.push_to_hub(OUTPUT_REPO,token=UPLOAD_TOKEN); tok.push_to_hub(OUTPUT_REPO,token=UPLOAD_TOKEN)
+    try: model.push_to_hub_gguf(OUTPUT_REPO,tok,quantization_method="q4_k_m",token=UPLOAD_TOKEN)
     except Exception as e: print("gguf fail",e,file=sys.stderr)
     print("DONE",OUTPUT_REPO)
 if __name__=="__main__": main()

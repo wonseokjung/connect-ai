@@ -1875,7 +1875,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 학습됩니다. 또는 🆓 무료로 시작(코랩)을 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
-        const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
+        const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode, userHfToken: connOf('huggingface').HF_TOKEN || '' }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유)
         const d = r.data || {};
         if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', d.outputRepo || '', '', c.trainBaseModel); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
@@ -1964,7 +1964,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 합성됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
-        const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName }, { timeout: 60000 });
+        const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName, userHfToken: connOf('huggingface').HF_TOKEN || '' }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유)
         const d = r.data || {};
         if (d.ok) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', d.outputRepo || '', outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { backend: true, kind: 'merge', id: d.jobId, namespace: d.namespace, outRepo: d.outputRepo || '', ts: Date.now() } }); return { ...d, viaBackend: true, modelRepo: d.modelRepo || `https://huggingface.co/${d.outputRepo}` }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드 거절(코드·로그인·캡) + 본인 HF 없음 → 그대로 안내

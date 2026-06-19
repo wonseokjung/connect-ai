@@ -197,10 +197,11 @@ def main():
     except Exception as e:
         print(f"⚠️ GGUF 변환 실패(합쳐진 모델은 업로드됨): {e}", file=sys.stderr)
 
-    # 4) 업로드 (safetensors 합본 + GGUF)
+    # 4) 업로드 (safetensors 합본 + GGUF) — UPLOAD_TOKEN(회원 연동 시 회원 계정=진짜 소유), 없으면 제공자
+    UPLOAD_TOKEN = os.environ.get("UPLOAD_TOKEN") or HF_TOKEN
     from huggingface_hub import HfApi, create_repo
-    api = HfApi(token=HF_TOKEN)
-    create_repo(OUTPUT_REPO, token=HF_TOKEN, exist_ok=True, repo_type="model")
+    api = HfApi(token=UPLOAD_TOKEN)
+    create_repo(OUTPUT_REPO, token=UPLOAD_TOKEN, exist_ok=True, repo_type="model")
     api.upload_folder(folder_path="merged", repo_id=OUTPUT_REPO, ignore_patterns=["*.gguf"])
     if gguf_path and os.path.exists(gguf_path):
         api.upload_file(path_or_fileobj=gguf_path, path_in_repo=os.path.basename(gguf_path), repo_id=OUTPUT_REPO)

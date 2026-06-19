@@ -37,6 +37,24 @@ def provider():
     _provider = (r.json() or {}).get("name", "")
     return _provider
 
+def hf_whoami(token):
+    # 회원 토큰의 실제 HF 사용자명(결과를 회원 계정에 올릴 때). 실패하면 빈 문자열
+    try:
+        r = requests.get("https://huggingface.co/api/whoami-v2", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        return (r.json() or {}).get("name", "") if r.status_code == 200 else ""
+    except Exception:
+        return ""
+
+# 🎁 회원이 본인 HF 토큰을 연동했으면 → 결과를 회원 계정에 업로드(진짜 소유). 아니면 제공자 계정.
+#    반환: (out_owner, upload_token)
+def upload_target(body):
+    tok = (body.get("userHfToken") or "").strip()
+    if tok:
+        un = hf_whoami(tok)
+        if un:
+            return un, tok
+    return provider(), HF_TOKEN
+
 # ── 회원 한도 기록 (HF Dataset, 회원당 파일) ──
 _gate_ds = None
 def gate_ds():
@@ -166,21 +184,22 @@ async def train(req: Request):
     if used >= TRAIN_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 학습은 월 {TRAIN_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
-    ds_repo = f"{prov}/cai-brain-{sid}"
-    out_repo = f"{prov}/cai-model-{sid}"
+    out_owner, upload_token = upload_target(b)        # 🎁 회원 연동 시 회원 계정, 아니면 제공자
+    ds_repo = f"{prov}/cai-brain-{sid}"               # 데이터셋(잡 마운트)은 항상 제공자
+    out_repo = f"{out_owner}/cai-model-{sid}"         # 결과는 회원(소유) or 제공자
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gate_set(sid, g)
     try:
         commit_dataset(ds_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
-        ensure_model_public(out_repo)
+        if out_owner == prov: ensure_model_public(out_repo)   # 제공자 계정만 미리 생성(회원 계정은 스크립트가 회원 토큰으로 생성)
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/train.py"],
             "flavor": FREE_FLAVOR, "timeout": "1h",
             "environment": {"DATASET_REPO": ds_repo, "DATASET_FILE": "brain.jsonl",
                             "OUTPUT_REPO": out_repo, "BASE_MODEL": BASE_MODEL, "MAX_STEPS": "120"},
-            "secrets": {"HF_TOKEN": HF_TOKEN},
+            "secrets": {"HF_TOKEN": HF_TOKEN, "UPLOAD_TOKEN": upload_token},
             "volumes": [{"type": "dataset", "source": ds_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")
@@ -219,23 +238,24 @@ async def merge(req: Request):
     if used >= MERGE_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 합성은 월 {MERGE_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
-    surg_repo = f"{prov}/cai-surg-{sid}"
+    out_owner, upload_token = upload_target(b)        # 🎁 회원 연동 시 회원 계정, 아니면 제공자
+    surg_repo = f"{prov}/cai-surg-{sid}"              # 스크립트 마운트는 항상 제공자
     # 🛡️ 결과 repo는 회원별로 격리(sid prefix) — 남의 repo 덮어쓰기 방지
     nm = sanitize(b.get("outName") or "") or f"merged-{int(datetime.datetime.utcnow().timestamp())}"
-    out_repo = f"{prov}/cai-merge-{sid}-{nm}"
+    out_repo = f"{out_owner}/cai-merge-{sid}-{nm}"    # 결과는 회원(소유) or 제공자
     # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
     g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gate_set(sid, g)
     try:
         commit_dataset(surg_repo, [("merge_uv.py", MERGE_SCRIPT)])
-        ensure_model_public(out_repo)
+        if out_owner == prov: ensure_model_public(out_repo)   # 제공자 계정만 미리 생성(회원 계정은 스크립트가 생성)
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/merge_uv.py"],
             "flavor": FREE_FLAVOR, "timeout": "1h",
             "environment": {"MODEL_A": model_a, "MODEL_B": model_b, "METHOD": method,
                             "MERGE_T": t, "OUTPUT_REPO": out_repo},
-            "secrets": {"HF_TOKEN": HF_TOKEN},
+            "secrets": {"HF_TOKEN": HF_TOKEN, "UPLOAD_TOKEN": upload_token},
             "volumes": [{"type": "dataset", "source": surg_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")

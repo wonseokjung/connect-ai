@@ -26,6 +26,8 @@ let _maxCtx = 0, _loadedCtx = 0;              // 모델 최대 컨텍스트 / �
 let _ready = false, _loading = false, _error = '';
 let _startSeq = 0;                            // 모델 전환 경쟁 방지용 토큰
 let _autoRestart = 0;                         // 💔 작동 중 엔진이 죽으면 자동 복구한 횟수 (사용자가 직접 켜면 리셋)
+let _winCpuOnly = false;                      // 🪟 윈도우 GPU(vulkan) 바이너리가 구형 CPU에서 죽으면 → CPU 빌드로 전환
+let _lastExitCode: number | null = null;      // 마지막 종료 코드 (GPU 크래시 판별용)
 
 // ⚙️ 추론 파라미터 — 사용자가 AI 패널에서 조절. (flashAttn·ctxSize=기동 플래그 / 나머지=요청마다 llm.ts 가 전송)
 export interface LocalOptions {
@@ -43,12 +45,22 @@ export function localStatus(): LocalStatus {
 }
 
 // 플랫폼별 llama-server 바이너리 폴더. packaged: resources/llamacpp/<plat>, dev: desktop/vendor/llamacpp/<plat>.
-function binDir(): string {
-  const plat = process.platform === 'win32' ? 'win-x64' : process.platform === 'linux' ? 'linux-x64' : (process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64');
+// 후보 폴더에서 실제 존재하는 경로 반환 (packaged: resources/llamacpp, dev: vendor/llamacpp)
+function dirFor(plat: string): string {
   const res = (process as any).resourcesPath as string | undefined;
   if (res) { const p = path.join(res, 'llamacpp', plat); if (fs.existsSync(p)) return p; }
   return path.join(__dirname, '..', 'vendor', 'llamacpp', plat);   // __dirname=desktop/out → ../vendor
 }
+function binDir(): string {
+  if (process.platform === 'win32') {
+    // 🪟 GPU(vulkan) 빌드 우선 — 동봉돼 있고 CPU전용 폴백 상태 아니면. 없으면 cpu 빌드.
+    if (!_winCpuOnly) { const gpu = dirFor('win-x64-gpu'); if (fs.existsSync(path.join(gpu, 'llama-server.exe'))) return gpu; }
+    return dirFor('win-x64');
+  }
+  const plat = process.platform === 'linux' ? 'linux-x64' : (process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64');
+  return dirFor(plat);
+}
+function usingWinGpu(): boolean { return process.platform === 'win32' && !_winCpuOnly && fs.existsSync(path.join(dirFor('win-x64-gpu'), 'llama-server.exe')); }
 function binPath(): string {
   const exe = process.platform === 'win32' ? 'llama-server.exe' : 'llama-server';
   return path.join(binDir(), exe);
@@ -130,6 +142,7 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     // 리눅스: 동봉한 .so 들을 찾도록 LD_LIBRARY_PATH 에 바이너리 폴더 추가.
     if (process.platform === 'linux') env.LD_LIBRARY_PATH = `${binDir()}${path.delimiter}${env.LD_LIBRARY_PATH || ''}`;
 
+    _lastExitCode = null;   // 이번 시도의 종료코드만 보도록 초기화
     const child = spawn(bin, args, { cwd: binDir(), env, stdio: ['ignore', 'pipe', 'pipe'] });
     _proc = child;
     let log = '';
@@ -138,6 +151,7 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     child.on('exit', (code) => {
       if (_proc !== child) return;                  // 우리가 교체·종료한 프로세스 → 무시
       const wasReady = _ready;
+      _lastExitCode = code;                          // 🪟 GPU 크래시 판별용
       _proc = null; _ready = false;
       if (!_error && code) { const d = diagCode(code); _error = `엔진이 종료됐어요 (code ${code})${d ? ' — ' + d : ''}. ${tailErr(log)}`; }
       // 💔 작동 중이던 엔진이 갑자기 죽음(="공동두뇌 모두 종료") → 조용히 최대 2회 자동 복구
@@ -152,6 +166,13 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
     const ok = await waitReady(useNgl > 0 ? 120000 : 150000);   // 큰 모델 로드까지 넉넉히(CPU는 더 느릴 수 있어 여유)
     if (seq !== _startSeq) return localStatus();    // 그 사이 다른 모델 요청 → 결과 무시
     if (!ok || !_proc) {
+      // 🪟 윈도우 GPU(vulkan) 바이너리가 구형 CPU에서 0xC0000005(액세스 위반)로 즉사 → CPU 빌드로 교체 재시도(처음부터)
+      const winGpuCrash = (_lastExitCode === 3221225477 || _lastExitCode === -1073741819) && !_proc;   // 0xC0000005 = 프로세스 즉사(구형 CPU)
+      if (process.platform === 'win32' && !_winCpuOnly && usingWinGpu() && winGpuCrash) {
+        _winCpuOnly = true; await killProc(); _loading = false; _error = ''; _lastExitCode = null;
+        _loadMsg = '🖥️ GPU 엔진이 이 PC와 안 맞아 안정 모드(CPU)로 전환 중…'; emitStatus();
+        return startLocalEngine(modelPath, true, undefined, ctxOverride);   // 처음부터 (CPU 바이너리, GPU부터 재시도)
+      }
       // 🔁 단계별 자동 폴백: GPU → CPU(같은 ctx) → CPU(작은 ctx 2048). 저사양·드라이버없음·메모리빠듯 모두 구제.
       if (useNgl > 0) {
         await killProc(); _loading = false; _error = '';
@@ -188,7 +209,7 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
         _maxCtx = tr || n || 0;
       }
     } catch { /* */ }
-    _gpu = process.platform === 'win32' ? 'cuda/vulkan' : process.platform === 'linux' ? 'vulkan/cpu' : (process.arch === 'arm64' ? 'metal' : 'cpu/metal');
+    _gpu = process.platform === 'win32' ? (_winCpuOnly ? 'cpu(안정모드)' : 'vulkan(GPU)') : process.platform === 'linux' ? 'vulkan/cpu' : (process.arch === 'arm64' ? 'metal' : 'cpu/metal');
     return localStatus();
   } catch (e: any) {
     if (seq === _startSeq) { _error = String(e?.message || e); _ready = false; }
