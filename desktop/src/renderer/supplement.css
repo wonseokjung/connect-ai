@@ -1992,3 +1992,26 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .fuse-hero .fuse-sub .fp.a{color:#9affc0}.fuse-hero .fuse-sub .fp.b{color:#9fe9ff}
 .fuse-hero .fuse-sub .plus{color:#fff;font-size:16px}.fuse-hero .fuse-sub .arrow{color:#cbb6ff}
 .fuse-hero .fuse-sub .mine{color:#fff;background:rgba(167,139,250,.2);border:1px solid rgba(167,139,250,.55);border-radius:999px;padding:3px 12px}
+
+/* ═══════ 🎬 GPU 작업 진행 카드 — 인앱 라이브 진행률 + 로그(HF 링크 없이 멋지게) ═══════ */
+.jobprog { padding: 15px 17px; border-radius: 15px; border: 1px solid color-mix(in srgb, var(--accent, #39ff14) 30%, transparent);
+  background: linear-gradient(135deg, rgba(0,255,65,.07), rgba(0,180,255,.05)); box-shadow: 0 0 28px rgba(0,255,65,.12), inset 0 0 22px rgba(0,255,65,.04);
+  animation: jpIn .42s cubic-bezier(.2,1,.4,1); }
+@keyframes jpIn { from { opacity: 0; transform: translateY(9px) scale(.97); } to { opacity: 1; transform: none; } }
+.jp-top { display: flex; align-items: center; gap: 9px; font-size: 14px; color: var(--text-bright, #eaffef); }
+.jp-stage { color: var(--accent, #39ff14); font-weight: 800; text-shadow: 0 0 10px color-mix(in srgb, var(--accent, #39ff14) 55%, transparent); animation: jpPulse 1.6s ease-in-out infinite; }
+@keyframes jpPulse { 0%,100% { opacity: .72; } 50% { opacity: 1; } }
+.jp-bar { height: 11px; border-radius: 7px; margin: 12px 0 9px; background: rgba(0,0,0,.38); border: 1px solid var(--border2); overflow: hidden; position: relative; }
+.jp-fill { height: 100%; border-radius: 7px; background: linear-gradient(90deg, #00b4ff, #39ff14, #00ffa3, #00b4ff); background-size: 250% 100%;
+  box-shadow: 0 0 14px var(--accent, #39ff14); transition: width .8s cubic-bezier(.2,1,.4,1); animation: jpFlow 2.2s linear infinite; }
+@keyframes jpFlow { to { background-position: 250% 0; } }
+.jp-bar::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.28), transparent); transform: translateX(-100%); animation: jpShine 1.9s ease-in-out infinite; }
+@keyframes jpShine { 0% { transform: translateX(-100%); } 60%,100% { transform: translateX(220%); } }
+.jp-meta { font-size: 11px; color: var(--text-dim, #889); line-height: 1.55; }
+/* 🖥️ 실제 작업 로그 — 사장님 토큰으로 백엔드가 가져온 진짜 진행 (라이브 터미널) */
+.jp-log { margin: 10px 0; padding: 9px 12px; border-radius: 10px; background: #02100a; border: 1px solid color-mix(in srgb, var(--accent, #39ff14) 22%, transparent);
+  font-family: var(--mono); font-size: 11px; line-height: 1.65; color: #9fe6b4; max-height: 124px; overflow-y: auto; box-shadow: inset 0 0 16px rgba(0,255,65,.06); }
+.jp-logline { white-space: pre-wrap; word-break: break-all; animation: jpLogIn .32s ease; opacity: .9; }
+.jp-logline::before { content: '▸ '; color: var(--accent, #39ff14); opacity: .6; }
+.jp-logline:last-child { color: #e6ffef; opacity: 1; }
+@keyframes jpLogIn { from { opacity: 0; transform: translateX(-5px); } to { opacity: .9; transform: none; } }

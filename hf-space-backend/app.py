@@ -95,6 +95,35 @@ def job_status(job_id):
     d = r.json() or {}
     return d.get("status") or {"stage": d.get("stage", "UNKNOWN")}
 
+def job_logs(job_id, n=8):
+    # 🖥️ 작업 로그(제공자 토큰으로) — 회원에게 라이브 진행을 보여주기 위함. 실패하면 빈 리스트(진행바는 그대로 동작)
+    for url in (f"https://huggingface.co/api/jobs/{provider()}/{job_id}/logs",
+                f"https://huggingface.co/api/jobs/{provider()}/{job_id}/logs-stream"):
+        try:
+            r = requests.get(url, headers=HDR, timeout=8)
+            if r.status_code == 200 and r.text:
+                out = []
+                for raw in r.text.splitlines():
+                    s = raw.strip()
+                    if not s:
+                        continue
+                    # SSE면 data: 접두 제거, JSON이면 메시지만
+                    if s.startswith("data:"):
+                        s = s[5:].strip()
+                    try:
+                        j = json.loads(s)
+                        s = j.get("message") or j.get("log") or j.get("data") or s
+                    except Exception:
+                        pass
+                    s = str(s).strip()
+                    if s:
+                        out.append(s[:140])
+                if out:
+                    return out[-n:]
+        except Exception:
+            pass
+    return []
+
 def err_payload(e):
     msg = ""
     if isinstance(e, requests.HTTPError) and e.response is not None:
@@ -227,8 +256,11 @@ def _status(sid, kind):
     try:
         s = job_status(g["jobId"])
         stage = s.get("stage", "UNKNOWN") if isinstance(s, dict) else str(s)
+        logs = []
+        try: logs = job_logs(g["jobId"])   # 🖥️ 라이브 진행 로그(회원이 HF 로그인 없이 봄)
+        except Exception: pass
         return {"ok": True, "stage": stage, "message": (s.get("message", "") if isinstance(s, dict) else ""),
-                "outputRepo": g.get("outputRepo"),
+                "logs": logs, "outputRepo": g.get("outputRepo"),
                 "jobUrl": f"https://huggingface.co/jobs/{g.get('namespace')}/{g['jobId']}"}
     except Exception as e:
         return {"ok": False, "error": str(e)}

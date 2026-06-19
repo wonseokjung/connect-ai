@@ -16,9 +16,13 @@ const BASE = `https://github.com/ggml-org/llama.cpp/releases/download/${BUILD}`;
 // 🪟 윈도우 기본 = 'cpu' 빌드: ggml-cpu 가 런타임에 CPU 명령어(AVX2/AVX-512 등)를 자동 감지해 가장 맞는 백엔드를 로드 → 구형 CPU(i5-10400F 등)에서도 안 죽음.
 //   vulkan 빌드는 단일 ggml-cpu라 최신 명령어로 빌드돼 구형 CPU에서 0xC0000005(액세스 위반)로 즉시 종료되는 제보 다수.
 //   GPU 가속이 필요하면 LLAMACPP_WIN_VARIANT=vulkan 으로 빌드.
-const WIN_VARIANT = process.env.LLAMACPP_WIN_VARIANT || 'cpu';
+// 🪟 윈도우는 두 빌드 다 받는다: win-x64(cpu·모든 CPU 호환 폴백) + win-x64-gpu(vulkan·GPU 가속).
+//   앱(localengine)이 GPU 빌드를 먼저 띄우고, 구형 CPU에서 0xC0000005로 죽으면 자동으로 cpu 빌드로 폴백 → GPU 되는 사람 빠르고, 안 되는 사람도 안 죽음.
 const TARGETS = process.platform === 'win32'
-  ? [{ plat: 'win-x64', asset: `llama-${BUILD}-bin-win-${WIN_VARIANT}-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i }]   // cpu = 모든 x64 CPU 호환(런타임 명령어 감지) / vulkan = GPU 가속
+  ? [
+      { plat: 'win-x64', asset: `llama-${BUILD}-bin-win-cpu-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i },          // CPU 폴백
+      { plat: 'win-x64-gpu', asset: `llama-${BUILD}-bin-win-vulkan-x64.zip`, exe: 'llama-server.exe', libRe: /\.dll$/i },   // GPU(vulkan)
+    ]
   : process.platform === 'linux'
   ? [{ plat: 'linux-x64', asset: `llama-${BUILD}-bin-ubuntu-vulkan-x64.tar.gz`, exe: 'llama-server', libRe: /\.so(\.\d+)*$/i }]   // 우분투 vulkan = GPU + CPU 폴백
   : [

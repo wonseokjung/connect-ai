@@ -174,7 +174,7 @@ export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], t
   if (tools && tools.length) { body.tools = tools; body.tool_choice = 'auto'; }
   let r;
   try {
-    r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+    r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
   } catch (e: any) {
     // 🛠️ 일부 모델은 chat template이 도구 호출을 지원 안 해 tools 요청에 400/500을 낸다(llama-server --jinja).
     //    → tools 빼고 재시도. 앱은 태그 기반 도구 폴백(parseTextTools)으로 그대로 동작한다. (사용자 "status code 400" 해결)
@@ -183,7 +183,7 @@ export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], t
       // tools 제거 + (템플릿이 빡빡하면) 메시지 평탄화로 재시도 → 어떤 모델이든 답하게
       delete body.tools; delete body.tool_choice;
       if (isTemplateErr(e)) body.messages = flattenMessages(messages);
-      r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+      r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
     } else throw e;
   }
   const msg = r.data?.choices?.[0]?.message || {};
@@ -241,7 +241,7 @@ async function callOnce(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, s
     if (opts.frequencyPenalty != null) body.frequency_penalty = opts.frequencyPenalty;
     if (opts.presencePenalty != null) body.presence_penalty = opts.presencePenalty;
     if (!stream) {
-      const r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any, headers });
+      const r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
       const choice = r.data?.choices?.[0];
       return { text: choice?.message?.content || '', truncated: choice?.finish_reason === 'length' };
     }
@@ -252,7 +252,7 @@ async function callOnce(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, s
   const body: any = { model: t.model, messages, stream, options: { temperature: opts.temperature ?? 0.6, num_predict: -1 } };
   if (opts.frequencyPenalty != null) body.options.repeat_penalty = 1 + opts.frequencyPenalty; // 0.6 → 1.6
   if (!stream) {
-    const r = await axios.post(url, body, { timeout: 180000, signal: opts.signal as any });
+    const r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any });
     return { text: r.data?.message?.content || '', truncated: r.data?.done_reason === 'length' };
   }
   return streamNdjson(url, body, opts.onToken!, opts.signal);

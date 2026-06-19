@@ -1871,7 +1871,8 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
     const jsonl = lastBrainJsonl || brainToJsonl();
     if (!jsonl) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓으세요.' };
     const user = await fbIdToken();
-    if (fbApiKey() && !user && !hasHf) return { ok: false, needLogin: true, error: '무료 학습은 로그인 후 가능해요. (또는 🗂️ 연동에 HuggingFace 토큰을 넣으면 내 계정으로 바로 학습돼요)' };
+    // 🆓 무료 서버 우선 — 본인 토큰이 있어도 로그인하면 우리 서버에서 무료. (옛 레슨 따라 토큰 넣은 회원이 결제벽에 빠지지 않게)
+    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 학습됩니다. 또는 🆓 무료로 시작(코랩)을 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode }, { timeout: 60000 });
@@ -1960,7 +1961,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
     const user = await fbIdToken();
-    if (fbApiKey() && !user && !hasHf) return { ok: false, needLogin: true, error: '무료 합성은 회원 로그인 후 가능해요 (앱에서 로그인하세요). 또는 🆓 무료로 직접 하기(Colab)로 결제 없이 합성하세요.' };
+    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 합성됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName }, { timeout: 60000 });

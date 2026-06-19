@@ -2422,6 +2422,31 @@ refreshAuthBtn();
 // ☁️ 내 AI 키우기 — 코랩 없이 HF Jobs로 학습 (무료 월 1회)
 let cloudPoll = 0;
 function cloudStat(html: string) { const el = $('cloudTrainStatus'); if (!el) return; el.style.display = 'block'; el.innerHTML = html; }
+// 🎬 GPU 작업 진행 단계 → 친절한 한국어·진행률 (HF 링크 대신 앱에서 멋지게 보여줌)
+function jobStageInfo(stage: string): { pct: number; txt: string } {
+  const s = (stage || '').toUpperCase();
+  if (/SCHEDUL|PENDING|QUEUE|WAIT/.test(s)) return { pct: 18, txt: '🗓️ GPU 자리 배정 중…' };
+  if (/BUILD|INITIAL|LOAD|START|PREP/.test(s)) return { pct: 38, txt: '📦 환경·모델 준비 중…' };
+  if (/RUN|TRAIN|PROGRESS|ACTIVE/.test(s)) return { pct: 70, txt: '⚡ GPU에서 작업 중…' };
+  if (/UPLOAD|PUSH|SAVE|FINAL/.test(s)) return { pct: 92, txt: '☁️ 결과 올리는 중…' };
+  return { pct: 50, txt: '⏳ 진행 중…' };
+}
+// 멋진 인앱 진행 카드 (HF 링크 없음). title=학습/합성, secs=경과초, logs=서버가 가져온 실제 작업 로그(라이브)
+function jobProgressCard(title: string, stage: string, secs: number, logs?: string[]): string {
+  const { pct, txt } = jobStageInfo(stage);
+  const mm = secs >= 60 ? `${Math.floor(secs / 60)}분 ${secs % 60}초` : `${secs}초`;
+  const eta = title.includes('합성') ? '보통 5~20분' : '보통 15~40분';
+  // 🖥️ 실제 작업 로그(사장님 토큰으로 백엔드가 가져온 것)를 라이브 터미널처럼
+  const feed = (logs && logs.length)
+    ? `<div class="jp-log">${logs.slice(-6).map(l => `<div class="jp-logline">${escapeHtml(String(l).slice(0, 120))}</div>`).join('')}</div>`
+    : '';
+  return `<div class="jobprog">
+    <div class="jp-top"><span class="cyc-spin"></span> <b>${escapeHtml(title)}</b> <span class="jp-stage">${txt}</span></div>
+    <div class="jp-bar"><div class="jp-fill" style="width:${pct}%"></div></div>
+    ${feed}
+    <div class="jp-meta">⏱️ ${mm} 경과 · GPU에서 진행돼요 (${eta}) · 끝나면 자동으로 받기 버튼이 떠요</div>
+  </div>`;
+}
 $('cloudTrainBtn')?.addEventListener('click', async () => {
   // 🔤 모델 이름이 영어인지 먼저 검증 (한글이면 학습 repo 생성 실패)
   const mn = (($('modelNameInput') as HTMLInputElement)?.value || '').trim();
@@ -2446,24 +2471,27 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   if (!localStorage) { /* noop */ }
   else if (r.ok || r.gated || r.needLogin) { try { localStorage.setItem('cloudCode', code); } catch { /* */ } }   // 통과한 코드 기억(재입력 방지)
   if (r.ok && r.jobId) {
-    cloudStat(`🚀 학습 시작! <a href="${escAttr(r.url || r.modelRepo)}" target="_blank">진행상황 보기</a><br><span class="muted small">완료되면 "내 모델로 받기"가 떠요. (보통 15~40분)</span>`);
+    let secs = 0;
+    cloudStat(jobProgressCard('학습', 'SCHEDULING', 0));
     if (cloudPoll) clearInterval(cloudPoll);
     let cloudPolls = 0;   // 🔒 무한 폴링 방지(GCP 비용 사고 교훈) — 최대 ~2시간(20s×360)이면 포기
     cloudPoll = window.setInterval(async () => {
-      if (++cloudPolls > 360) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat('⏱️ 상태 확인을 멈췄어요(2시간 경과). HuggingFace에서 직접 확인하세요.'); return; }
-      const s = await connect.trainCloudStatus?.(); if (!s?.ok) return;
+      secs += 20;
+      if (++cloudPolls > 360) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat('⏱️ 상태 확인을 멈췄어요(2시간 경과). 잠시 후 앱을 다시 열면 결과를 받을 수 있어요.'); return; }
+      const s = await connect.trainCloudStatus?.(); if (!s?.ok) { cloudStat(jobProgressCard('학습', '', secs, [])); return; }
       if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(cloudPoll); cloudPoll = 0; playLevelUp((($('modelNameInput') as HTMLInputElement)?.value || '내 두뇌')); cloudStat(`✅ 학습 완료! <button id="cloudInstallBtn" class="oc-primary">⬇️ 내 모델로 받기</button>`); wireCloudInstall(); }
-      else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat(`⚠️ 학습 실패: ${escapeHtml(s.message || s.stage)} · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>`); }
-      else cloudStat(`⏳ 학습 중… (${escapeHtml(s.stage)}) · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황</a>`);
+      else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(cloudPoll); cloudPoll = 0; cloudStat(`⚠️ 학습이 실패했어요. 잠시 후 다시 시도하거나 🆓 무료로 시작(코랩)을 써보세요.${s.message ? `<br><span class="muted small">${escapeHtml(String(s.message).slice(0, 120))}</span>` : ''}`); }
+      else cloudStat(jobProgressCard('학습', s.stage, secs, s.logs));
     }, 20000);
   } else if (r.needLogin) {
     cloudStat(`🔑 ${escapeHtml(r.error || '로그인이 필요해요')} — 가입은 무료예요.`); openAuth();
   } else if (r.gated) {
     cloudStat(`🗓️ ${escapeHtml(r.error)}`);
   } else {
-    // REST 자동실행 실패(Pro 필요 등) → 확실한 폴백 명령 제공
-    const cmd = r.command ? `<div class="muted small" style="margin-top:6px">아래 명령을 터미널에서 실행하면 됩니다 (hf CLI):</div><pre class="cmd-box">${escapeHtml(r.command)}</pre>` : '';
-    cloudStat(`⚠️ ${escapeHtml(r.error || '자동 실행 실패')}${cmd}`);
+    // ⚠️ 본인 HF 계정 결제가 필요한 경로 — 회원이 결제하지 않게 무료 경로로 유도 (결제 명령 대신 버튼)
+    cloudStat(`💡 이 경로는 <b>본인 HuggingFace 계정 결제</b>가 필요해요. 결제하실 필요 없습니다 — <b>회원으로 로그인하시면 우리 서버에서 무료로 학습</b>되고, 비밀번호가 없으시면 🆓 무료로 시작(코랩)을 이용하시면 됩니다.<div style="margin-top:8px;display:flex;gap:6px"><button id="cloudFreeBtn" class="oc-primary">🆓 무료로 시작 (코랩)</button><button id="cloudLoginBtn" class="cyc-btn ghost">🔑 로그인</button></div>`);
+    $('cloudFreeBtn')?.addEventListener('click', () => ($('hfTrainBtn') as HTMLElement)?.click());
+    $('cloudLoginBtn')?.addEventListener('click', () => openAuth());
   }
 });
 function wireCloudInstall() {
@@ -2713,19 +2741,17 @@ async function surgeryGo() {
   if (res.needsPro) return surgFail(`⚠️ ${escapeHtml('서버가 잠시 합성을 못 해요 — 🆓 무료로 직접 하기로 진행하세요')}`);
   if (!res.ok) return surgFail(`⚠️ ${escapeHtml(res.error || '시작 실패')}${cmd}`);
   let secs = 0;
-  const url = escAttr(res.url || res.modelRepo);
-  surgRunning(`🔪 합치는 중… <a href="${url}" target="_blank">진행상황 ↗</a><br><span class="muted small">GPU에서 진행돼요 · 보통 5~20분 (완료되면 '받기' 버튼)</span>`);
+  surgRunning(jobProgressCard('합성', 'SCHEDULING', 0));
   if (surgPoll) clearInterval(surgPoll);
   surgPoll = window.setInterval(async () => {
    try {
     secs += 12;
     if (secs > 4200) { clearInterval(surgPoll); surgPoll = 0; surgFail('⏱️ 작업이 너무 오래 걸려요(응답 없음). 취소하고 다시 시도해주세요.'); return; }   // 70분=작업 타임아웃(1h)+여유 → 무한폴링 차단
     const s: any = await connect.trainCloudStatus?.();
-    const mm = `<b>${Math.floor(secs / 60)}분 ${secs % 60}초</b> 경과`;
-    if (!s?.ok) { surgRunning(`<span class="cyc-spin"></span> 합치는 중… ${mm} <a href="${url}" target="_blank">진행상황 ↗</a>`); return; }
+    if (!s?.ok) { surgRunning(jobProgressCard('합성', '', secs, [])); return; }
     if (/COMPLETED|SUCCESS/i.test(s.stage)) { clearInterval(surgPoll); surgPoll = 0; surgFusionDone(); surgStat(`✅ 합성 성공! <button id="surgInstall" class="oc-primary">⬇️ 새 AI 받기</button>`); $('surgInstall')?.addEventListener('click', surgInstall); }
-    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(surgPoll); surgPoll = 0; surgFail(`⚠️ 합성 실패: ${escapeHtml(s.message || s.stage)}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">로그</a>` : ''}`); }
-    else surgRunning(`<span class="cyc-spin"></span> 합치는 중… (${escapeHtml(s.stage || '진행')}) · ${mm}${s.jobUrl ? ` · <a href="${escAttr(s.jobUrl)}" target="_blank">진행상황 ↗</a>` : ''}`);
+    else if (/ERROR|FAIL/i.test(s.stage)) { clearInterval(surgPoll); surgPoll = 0; surgFail(`⚠️ 합성이 실패했어요. 잠시 후 다시 시도하거나 🆓 무료로 직접 하기(Colab)를 써보세요.${s.message ? `<br><span class="muted small">${escapeHtml(String(s.message).slice(0, 120))}</span>` : ''}`); }
+    else surgRunning(jobProgressCard('합성', s.stage, secs, s.logs));
    } catch (e: any) { clearInterval(surgPoll); surgPoll = 0; surgFail(`⚠️ 진행 확인 중 오류: ${escapeHtml(String(e?.message || e))}`); }
   }, 12000);
  } catch (e: any) {
