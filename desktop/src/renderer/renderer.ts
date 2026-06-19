@@ -2485,6 +2485,11 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
     }, 20000);
   } else if (r.needLogin) {
     cloudStat(`🔑 ${escapeHtml(r.error || '로그인이 필요해요')} — 가입은 무료예요.`); openAuth();
+  } else if (r.needHf) {
+    // 🤗 회원 본인 HF 연동 필요 — 결과가 회원 계정에 저장됨(소유). 토큰 만들기 + 연동 안내
+    cloudStat(`🤗 ${escapeHtml(r.error || '본인 HuggingFace 연동이 필요해요(무료)')}<div style="margin-top:8px;display:flex;gap:6px"><button id="cloudHfTokBtn" class="oc-primary">🔑 무료 토큰 만들기 ↗</button><button id="cloudHfConnBtn" class="cyc-btn ghost">🗂️ 연동 열기</button></div>`);
+    $('cloudHfTokBtn')?.addEventListener('click', () => connect.openExternal?.('https://huggingface.co/settings/tokens'));
+    $('cloudHfConnBtn')?.addEventListener('click', () => { openOverlay('managePanel'); switchMtab('integ'); });
   } else if (r.gated) {
     cloudStat(`🗓️ ${escapeHtml(r.error)}`);
   } else {
@@ -2599,7 +2604,7 @@ function renderSurgery() {
        <span class="fuse-op">🔀</span>
        <input id="surgB" class="fuse-in" placeholder="${bIc}" value="${escAttr(_surg.b)}" title="${escAttr(bTip)}" autocomplete="off">`;
   const blendHtml = `<div class="surg-blend">
-      <div class="sb-head">${isTask ? (isSub ? '💪 빼는 세기' : '💪 더하는 세기') : '⚖️ 비율'}</div>
+      <div class="sb-head">${isTask ? (isSub ? '📉 빼기 강도 (λ)' : '📈 더하기 강도 (λ)') : '⚖️ 혼합 비율'}</div>
       <input type="range" id="surgBlend" min="0" max="${isTask ? 150 : 100}" value="${Math.round(_surg.t * 100)}">
       <div class="sb-val" id="sbVal" title="${isTask ? '능력 강도 λ (1.0=그대로)' : 'A:B 섞는 비율'}">${isTask ? _surg.t.toFixed(2) : `${Math.round((1 - _surg.t) * 100)}:${Math.round(_surg.t * 100)}`}</div></div>`;
   body.innerHTML = `<div class="surg-scope">${scopeIc} <b>${scopeNm}</b> <a id="surgPaperLink" class="surg-i" data-url="${paperUrl}" title="원리 논문 열기">ⓘ</a></div>
@@ -2735,6 +2740,7 @@ async function surgeryGo() {
   if (!res) return surgFail('⚠️ 응답이 없어요.');
   // 🔑 로그인 필요 → 로그인창 열기 (학습 경로와 동일)
   if (res.needLogin) { surgFail(`🔑 ${escapeHtml(res.error || '회원 로그인이 필요해요')}`); openAuth(); return; }
+  if (res.needHf) { surgFail(`🤗 ${escapeHtml(res.error || '본인 HuggingFace 연동이 필요해요(무료)')} · <a href="https://huggingface.co/settings/tokens" target="_blank">무료 토큰 만들기 ↗</a> → 🗂️ 연동에 입력`); return; }
   // 🗓️ 이번 달 횟수 다 씀 → 겁주지 말고 무료 경로 안내(surgFail이 🆓 버튼 띄움)
   if (res.gated) return surgFail(`🗓️ ${escapeHtml(res.error || '이번 달 합성 횟수를 다 썼어요')} · 🆓 무료로 직접 하기는 무제한이에요`);
   // 서버 장애로 못 도는 경우 — 회원에게 결제 오해 안 주고 무료 경로로

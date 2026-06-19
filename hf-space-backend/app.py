@@ -94,11 +94,12 @@ def verify_user(id_token, fallback_user_id):
     return fallback_user_id   # 키 없음 → 임시(userId 신뢰)
 
 # ── HF 헬퍼 ──
-def commit_dataset(repo, files):  # files: [(path, content_str)]
-    api.create_repo(repo, repo_type="dataset", private=True, exist_ok=True)
+def commit_dataset(repo, files, token=None, public=False):  # files: [(path, content_str)]. token=None이면 제공자
+    a = HfApi(token=token or HF_TOKEN)
+    a.create_repo(repo, repo_type="dataset", private=not public, exist_ok=True)
     for path, content in files:
-        api.upload_file(path_or_fileobj=io.BytesIO(content.encode()),
-                        path_in_repo=path, repo_id=repo, repo_type="dataset")
+        a.upload_file(path_or_fileobj=io.BytesIO(content.encode()),
+                      path_in_repo=path, repo_id=repo, repo_type="dataset", token=token or HF_TOKEN)
 
 def ensure_model_public(repo):
     api.create_repo(repo, repo_type="model", private=False, exist_ok=True)
@@ -184,23 +185,31 @@ async def train(req: Request):
     if used >= TRAIN_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 학습은 월 {TRAIN_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
-    out_owner, upload_token = upload_target(b)        # 🎁 회원 연동 시 회원 계정, 아니면 제공자
-    ds_repo = f"{prov}/cai-brain-{sid}"               # 데이터셋(잡 마운트)은 항상 제공자
-    out_repo = f"{out_owner}/cai-model-{sid}"         # 결과는 회원(소유) or 제공자
+    # 🎓 우리는 GPU 서버만 제공. 회원 HF 연동 시 → 데이터·모델이 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
+    user_tok = (b.get("userHfToken") or "").strip()
+    un = hf_whoami(user_tok) if user_tok else ""
+    if un:
+        job_token = user_tok; brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/cai-model"; mount_repo = f"{prov}/cai-train-script"
+    else:
+        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/cai-model-{sid}"; mount_repo = brain_repo
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gate_set(sid, g)
     try:
-        commit_dataset(ds_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
-        if out_owner == prov: ensure_model_public(out_repo)   # 제공자 계정만 미리 생성(회원 계정은 스크립트가 회원 토큰으로 생성)
+        if un:   # 회원 계정: 데이터는 회원 토큰으로 회원 계정, 스크립트는 공용(공개) 마운트
+            commit_dataset(mount_repo, [("train.py", TRAIN_SCRIPT)], public=True)
+            commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=user_tok)
+        else:    # 제공자 계정(구버전 호환): 데이터+스크립트 한 repo에
+            commit_dataset(brain_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
+            ensure_model_public(out_repo)
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/train.py"],
             "flavor": FREE_FLAVOR, "timeout": "1h",
-            "environment": {"DATASET_REPO": ds_repo, "DATASET_FILE": "brain.jsonl",
+            "environment": {"DATASET_REPO": brain_repo, "DATASET_FILE": "brain.jsonl",
                             "OUTPUT_REPO": out_repo, "BASE_MODEL": BASE_MODEL, "MAX_STEPS": "120"},
-            "secrets": {"HF_TOKEN": HF_TOKEN, "UPLOAD_TOKEN": upload_token},
-            "volumes": [{"type": "dataset", "source": ds_repo, "mountPath": "/data"}],
+            "secrets": {"HF_TOKEN": job_token},       # 회원 토큰(소유) or 제공자 토큰. GPU 컴퓨트는 제공자가 launch
+            "volumes": [{"type": "dataset", "source": mount_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")
         if not job_id:
@@ -238,25 +247,31 @@ async def merge(req: Request):
     if used >= MERGE_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 합성은 월 {MERGE_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
-    out_owner, upload_token = upload_target(b)        # 🎁 회원 연동 시 회원 계정, 아니면 제공자
-    surg_repo = f"{prov}/cai-surg-{sid}"              # 스크립트 마운트는 항상 제공자
-    # 🛡️ 결과 repo는 회원별로 격리(sid prefix) — 남의 repo 덮어쓰기 방지
+    # 🎓 GPU 서버만 제공. 회원 HF 연동 시 → 결과가 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
+    user_tok = (b.get("userHfToken") or "").strip()
+    un = hf_whoami(user_tok) if user_tok else ""
     nm = sanitize(b.get("outName") or "") or f"merged-{int(datetime.datetime.utcnow().timestamp())}"
-    out_repo = f"{out_owner}/cai-merge-{sid}-{nm}"    # 결과는 회원(소유) or 제공자
+    if un:
+        job_token = user_tok; out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
+    else:
+        job_token = HF_TOKEN; out_repo = f"{prov}/cai-merge-{sid}-{nm}"; mount_repo = f"{prov}/cai-surg-{sid}"
     # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
     g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gate_set(sid, g)
     try:
-        commit_dataset(surg_repo, [("merge_uv.py", MERGE_SCRIPT)])
-        if out_owner == prov: ensure_model_public(out_repo)   # 제공자 계정만 미리 생성(회원 계정은 스크립트가 생성)
+        if un:
+            commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)], public=True)   # 공용 스크립트(공개)
+        else:
+            commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)])
+            ensure_model_public(out_repo)
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/merge_uv.py"],
             "flavor": FREE_FLAVOR, "timeout": "1h",
             "environment": {"MODEL_A": model_a, "MODEL_B": model_b, "METHOD": method,
                             "MERGE_T": t, "OUTPUT_REPO": out_repo},
-            "secrets": {"HF_TOKEN": HF_TOKEN, "UPLOAD_TOKEN": upload_token},
-            "volumes": [{"type": "dataset", "source": surg_repo, "mountPath": "/data"}],
+            "secrets": {"HF_TOKEN": job_token},       # 회원 토큰(소유) or 제공자 토큰. GPU는 제공자 launch
+            "volumes": [{"type": "dataset", "source": mount_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")
         if not job_id:
