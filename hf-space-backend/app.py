@@ -58,9 +58,11 @@ def gate_set(sid, data):
                     path_in_repo=f"{sid}.json", repo_id=gate_ds(), repo_type="dataset")
 
 def verify_user(id_token, fallback_user_id):
-    # FIREBASE_API_KEY가 있으면 idToken을 Firebase로 검증해 진짜 uid를 뽑는다(스푸핑·캡 우회 차단).
+    # FIREBASE_API_KEY가 있으면 idToken을 '반드시' 검증해 진짜 uid를 뽑는다(스푸핑·캡 우회 차단).
     # 키가 없으면 임시로 클라이언트 userId를 신뢰(키 넣기 전까진 HF $20 캡이 최종 방어).
-    if FIREBASE_API_KEY and id_token:
+    if FIREBASE_API_KEY:
+        if not id_token:
+            return None   # 키 설정됨 → idToken 없으면 거부 (우회 차단)
         try:
             r = requests.post(
                 f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={FIREBASE_API_KEY}",
