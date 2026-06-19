@@ -57,6 +57,20 @@
 
 ## 🔴 회원 제보 추가 (2026-06-20)
 
+### [P1 · 🛠️ 수정대기] 앱 2벌 동시 실행 → 포트 1235 충돌 → "불러오는중" 영원 / code 1
+- **발견**(사장님 맥 테스트): 설치본 + 새 빌드가 동시에 떠서 둘 다 llama-server를 1235에 띄우려다 충돌. 한쪽은 "불러오는 중" 무한, 다른쪽 `code 1`. 같은 번들ID 2벌이라 `open`도 LaunchServices 혼란
+- **원인**: ① `app.requestSingleInstanceLock()` **없음** → 인스턴스 2개 허용 ② `killProc()`는 자기가 띄운 `_proc`만 죽임 → **남의/좀비 llama-server**가 1235 점유 시 못 치움 ③ 비정상 종료 후 좀비 서버 잔존
+- **근본 수정안(다음 빌드)**:
+  - [ ] **단일 인스턴스 락**: `app.requestSingleInstanceLock()` 실패 시 기존 창 포커스+종료
+  - [ ] **시작 시 1235 점유 정리**: 켜기 전 포트 LISTEN 잡으면 우리 llama-server면 kill 후 재기동(EADDRINUSE 우회)
+  - [ ] 모델 로드 전 헬스체크로 포트 선점 감지 → 친절 안내
+- **회원 임시 안내**: 앱을 ⌘Q로 완전히 끄고(메뉴바·Dock 잔상 확인) **하나만** 실행
+
+### [P2 · 🛠️] 유령 모델 목록 + 깨진 저양자화(IQ2) 빈 출력
+- **발견**: UI "내 모델"이 폴더에 없는 파일(gemma-4-e2b-it·Qwen3.5-9B)을 stale로 표시. 또 `gemma-4-E2B-it-UD-IQ2_M`(2비트)는 로드돼도 **빈 출력(finish=length, content='')** → "< 한 토큰 EOS" 진단
+- **수정안**: ① 모델 목록 폴더 재스캔 신뢰성(삭제된 파일 제거) ② 모델 첫 응답이 빈/깨짐이면 "이 모델 파일이 손상·과도양자화일 수 있어요" 안내 ③ IQ2 등 초저양자화 경고. 큰 모델(≥7GB)은 Metal OOM(code 1) 위험 → ngl 자동 축소/CPU 폴백(맥)
+
+
 ### [P0 · 🛠️ 수정대기] 채팅이 "context size 초과(HTTP 400)"로 막힘
 - **제보**(herrykim): 채팅창에 쓰기만 하면 `HTTP 400: request (8386 tokens) exceeds the available context size (8192 tokens)` → 무엇을 써도 에러
 - **원인**: llm.ts에 **히스토리 자동 트리밍·토큰 예산 로직이 없음**. 시스템 프롬프트+주입지식(두뇌/RAG)+누적 대화가 ctx(기본 8192)를 넘으면 llama-server가 400 거부. base 프롬프트가 이미 한도 근처면 한 글자만 써도 터짐
