@@ -8,6 +8,10 @@ on:
     tags: ['desktop-v*']
   workflow_dispatch:
 
+# 📦 릴리즈 생성/첨부 권한 (아티팩트 quota 우회 — 릴리즈에 직접 첨부)
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
