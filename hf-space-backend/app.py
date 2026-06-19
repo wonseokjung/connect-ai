@@ -14,8 +14,9 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")            # 🔑 Space Secret — 제
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "0101")  # 🎟️ 멤버십 코드
 FREE_FLAVOR = os.environ.get("FLAVOR", "l4x1")       # 무료/저가 GPU
 BASE_MODEL = "unsloth/llama-3.2-3b-instruct-bnb-4bit"
-TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "1"))   # 회원당 월 학습 캡
+TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "3"))   # 회원당 월 학습 캡 (클라이언트와 통일 = 3)
 MERGE_MONTHLY = int(os.environ.get("MERGE_MONTHLY", "3"))   # 회원당 월 합성 캡
+FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")   # 있으면 idToken 검증(권장) — 없으면 userId 신뢰(임시)
 
 app = FastAPI(title="Connect AI Backend")
 api = HfApi(token=HF_TOKEN)
@@ -55,6 +56,22 @@ def gate_get(sid):
 def gate_set(sid, data):
     api.upload_file(path_or_fileobj=io.BytesIO(json.dumps(data).encode()),
                     path_in_repo=f"{sid}.json", repo_id=gate_ds(), repo_type="dataset")
+
+def verify_user(id_token, fallback_user_id):
+    # FIREBASE_API_KEY가 있으면 idToken을 Firebase로 검증해 진짜 uid를 뽑는다(스푸핑·캡 우회 차단).
+    # 키가 없으면 임시로 클라이언트 userId를 신뢰(키 넣기 전까진 HF $20 캡이 최종 방어).
+    if FIREBASE_API_KEY and id_token:
+        try:
+            r = requests.post(
+                f"https://identitytoolkit.googleapis.com/v1/accounts:lookup?key={FIREBASE_API_KEY}",
+                json={"idToken": id_token}, timeout=10)
+            users = (r.json() or {}).get("users") or []
+            if users and users[0].get("localId"):
+                return users[0]["localId"]
+        except Exception:
+            pass
+        return None   # 키 있는데 검증 실패 → 거부
+    return fallback_user_id   # 키 없음 → 임시(userId 신뢰)
 
 # ── HF 헬퍼 ──
 def commit_dataset(repo, files):  # files: [(path, content_str)]
@@ -104,7 +121,7 @@ async def train(req: Request):
     access = str(b.get("accessCode", "")).strip()
     if access != ACCESS_CODE:
         return {"ok": False, "badCode": True, "error": "멤버십 코드가 틀렸어요. 멤버에게 공유된 코드를 입력하세요."}
-    user_id = b.get("userId") or ""
+    user_id = verify_user(b.get("idToken"), b.get("userId"))
     if not user_id:
         return {"ok": False, "needLogin": True, "error": "회원 식별이 필요해요. 앱에서 로그인해주세요."}
     jsonl = b.get("jsonl") or ""
@@ -112,15 +129,18 @@ async def train(req: Request):
         return {"ok": False, "error": "학습할 두뇌 데이터가 비어 있어요."}
     if not HF_TOKEN:
         return {"ok": False, "error": "서버 토큰 미설정(Space 시크릿 HF_TOKEN)."}
-    sid = sanitize(user_id)
-    g = gate_get(sid); m = month()
+    sid = sanitize(user_id); m = month()
+    g = gate_get(sid)
     used = (g.get("train", {}) or {}).get("count", 0) if g.get("train", {}).get("month") == m else 0
     if used >= TRAIN_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 학습은 월 {TRAIN_MONTHLY}회예요. 다음 달에 다시 가능해요."}
+    prov = provider()
+    ds_repo = f"{prov}/cai-brain-{sid}"
+    out_repo = f"{prov}/cai-model-{sid}"
+    # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
+    g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
+    gate_set(sid, g)
     try:
-        prov = provider()
-        ds_repo = f"{prov}/cai-brain-{sid[:24]}"
-        out_repo = f"{prov}/cai-model-{sid[:24]}"
         commit_dataset(ds_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
         ensure_model_public(out_repo)
         job = launch_job({
@@ -133,11 +153,14 @@ async def train(req: Request):
             "volumes": [{"type": "dataset", "source": ds_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")
-        g["train"] = {"month": m, "count": used + 1, "jobId": job_id, "outputRepo": out_repo, "namespace": prov}
-        gate_set(sid, g)
+        if not job_id:
+            raise RuntimeError("잡 ID를 받지 못했어요(HF Jobs 응답 이상).")
+        g["train"]["jobId"] = job_id; gate_set(sid, g)
         return {"ok": True, "jobId": job_id, "namespace": prov, "outputRepo": out_repo,
                 "modelRepo": f"https://huggingface.co/{out_repo}", "left": TRAIN_MONTHLY - used - 1}
     except Exception as e:
+        try: g["train"]["count"] = used; gate_set(sid, g)   # 🔙 롤백 — 잡 못 띄웠으면 카운트 복구
+        except Exception: pass
         return err_payload(e)
 
 # ── 🔪 POST /merge ──
@@ -150,7 +173,7 @@ async def merge(req: Request):
     access = str(b.get("accessCode", "")).strip()
     if access != ACCESS_CODE:
         return {"ok": False, "badCode": True, "error": "멤버십 코드가 틀렸어요. 멤버에게 공유된 코드를 입력하세요."}
-    user_id = b.get("userId") or ""
+    user_id = verify_user(b.get("idToken"), b.get("userId"))
     if not user_id:
         return {"ok": False, "needLogin": True, "error": "회원 식별이 필요해요. 앱에서 로그인해주세요."}
     model_a, model_b = b.get("modelA") or "", b.get("modelB") or ""
@@ -159,16 +182,20 @@ async def merge(req: Request):
     if not HF_TOKEN:
         return {"ok": False, "error": "서버 토큰 미설정(Space 시크릿 HF_TOKEN)."}
     method = str(b.get("method") or "slerp"); t = str(b.get("t") or "0.5")
-    sid = sanitize(user_id)
-    g = gate_get(sid); m = month()
+    sid = sanitize(user_id); m = month()
+    g = gate_get(sid)
     used = (g.get("merge", {}) or {}).get("count", 0) if g.get("merge", {}).get("month") == m else 0
     if used >= MERGE_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 합성은 월 {MERGE_MONTHLY}회예요. 다음 달에 다시 가능해요."}
+    prov = provider()
+    surg_repo = f"{prov}/cai-surg-{sid}"
+    # 🛡️ 결과 repo는 회원별로 격리(sid prefix) — 남의 repo 덮어쓰기 방지
+    nm = sanitize(b.get("outName") or "") or f"merged-{int(datetime.datetime.utcnow().timestamp())}"
+    out_repo = f"{prov}/cai-merge-{sid}-{nm}"
+    # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
+    g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
+    gate_set(sid, g)
     try:
-        prov = provider()
-        surg_repo = f"{prov}/cai-surg-{sid[:24]}"
-        safe = sanitize(b.get("outName") or f"merged-{int(datetime.datetime.utcnow().timestamp())}") or "merged"
-        out_repo = f"{prov}/{safe}"
         commit_dataset(surg_repo, [("merge_uv.py", MERGE_SCRIPT)])
         ensure_model_public(out_repo)
         job = launch_job({
@@ -181,11 +208,14 @@ async def merge(req: Request):
             "volumes": [{"type": "dataset", "source": surg_repo, "mountPath": "/data"}],
         })
         job_id = job.get("id") or job.get("jobId")
-        g["merge"] = {"month": m, "count": used + 1, "jobId": job_id, "outputRepo": out_repo, "namespace": prov}
-        gate_set(sid, g)
+        if not job_id:
+            raise RuntimeError("잡 ID를 받지 못했어요(HF Jobs 응답 이상).")
+        g["merge"]["jobId"] = job_id; gate_set(sid, g)
         return {"ok": True, "jobId": job_id, "namespace": prov, "outputRepo": out_repo,
                 "modelRepo": f"https://huggingface.co/{out_repo}", "left": MERGE_MONTHLY - used - 1}
     except Exception as e:
+        try: g["merge"]["count"] = used; gate_set(sid, g)   # 🔙 롤백
+        except Exception: pass
         return err_payload(e)
 
 def _status(sid, kind):

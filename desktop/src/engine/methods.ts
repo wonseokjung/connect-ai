@@ -103,7 +103,9 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
         '> 💎 멤버십은 앱에서 버튼 하나(우리 GPU). 여기선 **무료 Colab GPU**로 직접 — 누구나 AI를 *소유*.\n']),
     md(concept),
     code(['%%capture\n', '!pip install -q torch transformers huggingface_hub peft accelerate safetensors\n']),
-    md(['## 🔑 HuggingFace 로그인\n', 'write 토큰을 붙여넣으세요(결과 업로드용).\n']),
+    md(['## 🔑 HuggingFace 로그인 (무료)\n',
+        '결과를 저장할 **무료 HuggingFace 계정**이 필요해요(결제 X). 아래에서 1분이면 됩니다:\n',
+        '1. [huggingface.co 무료 가입](https://huggingface.co/join) → 2. [**write** 토큰 만들기](https://huggingface.co/settings/tokens) → 3. 아래 칸에 붙여넣기\n']),
     code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
     md(['## ⚙️ 설정 — 이 4개만 보면 돼요\n', '`MODEL_A`=원본 · `MODEL_B`=상대(능력) · `METHOD` · `SCALE`(강도)\n']),
     code([

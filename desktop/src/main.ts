@@ -1939,8 +1939,9 @@ ipcMain.handle('train:cloudInstall', async () => {
       // GGUF 없음 → 학습이 끝났는지(어댑터/safetensors 존재) 확인해 정확히 안내 (변환 실패 vs 아직 진행중 구분)
       let hasModel = false;
       try { const tr = await axios.get(`https://huggingface.co/api/models/${j.outRepo}/tree/main?recursive=1`, { timeout: 12000 }); hasModel = (tr.data || []).some((e: any) => /\.safetensors$|adapter_config\.json$|adapter_model/i.test(e.path || '')); } catch { /* */ }
-      if (hasModel) return { ok: false, adapterOnly: true, repo: `https://huggingface.co/${j.outRepo}`, error: '학습은 끝났는데 자동 GGUF 변환이 실패해 어댑터(safetensors)만 올라가 있어요. 🔁 다시 학습을 돌리면 GGUF까지 재시도해요. (어댑터 형식은 앱 내장 엔진에서 바로 못 켜요)' };
-      return { ok: false, error: '아직 GGUF가 없어요 — 학습이 진행 중이거나 막 끝난 직후일 수 있어요. 잠시 후 다시 시도하세요.' };
+      const isMerge = j.kind === 'merge';   // 🔪 합성/학습 문구 구분
+      if (hasModel) return { ok: false, adapterOnly: true, repo: `https://huggingface.co/${j.outRepo}`, error: isMerge ? '합성은 끝났는데 자동 GGUF 변환이 실패해 모델 파일(safetensors)만 올라가 있어요. 🔁 다시 합성하면 GGUF까지 재시도해요. (이 형식은 앱 내장 엔진에서 바로 못 켜요)' : '학습은 끝났는데 자동 GGUF 변환이 실패해 어댑터(safetensors)만 올라가 있어요. 🔁 다시 학습을 돌리면 GGUF까지 재시도해요. (어댑터 형식은 앱 내장 엔진에서 바로 못 켜요)' };
+      return { ok: false, error: `아직 GGUF가 없어요 — ${isMerge ? '합성' : '학습'}이 진행 중이거나 막 끝난 직후일 수 있어요. 잠시 후 다시 시도하세요.` };
     }
     const fp = (f as any).path || (f as any).rfilename || f;
     const p = await downloadGGUF(j.outRepo, fp, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo: j.outRepo, file: fp, ...pr }); } catch { /* */ } });
@@ -1959,7 +1960,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
     const user = await fbIdToken();
-    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '무료 합성은 회원 로그인 후 가능해요 (앱에서 로그인하세요).' };
+    if (fbApiKey() && !user && !hasHf) return { ok: false, needLogin: true, error: '무료 합성은 회원 로그인 후 가능해요 (앱에서 로그인하세요). 또는 🆓 무료로 직접 하기(Colab)로 결제 없이 합성하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName }, { timeout: 60000 });

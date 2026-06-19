@@ -2497,8 +2497,8 @@ function openSurgery(scope: 'merge' | 'task' = 'merge') {
 function surgStat(html: string) { const el = $('surgStatus'); if (el) { el.innerHTML = html; try { el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch { /* */ } } }
 // 실패 시: 메시지 + '← 다시' 버튼(폼 복원). 연출이 폼을 덮었어도 처음부터 다시 안 해도 됨(_surg 유지)
 function surgFail(html: string) {
-  // 💳 HF Pro/결제·토큰 때문에 막힌 거면 → 비용 0원 무료 Colab 합성으로 바로 유도 (비번 보유자가 막다른 에러에서 헤매지 않게)
-  const hfWall = /HF|Pro|크레딧|결제|허깅|토큰/i.test(html);
+  // 💳 결제·서버·횟수 때문에 막힌 거면 → 비용 0원 무료 Colab 합성으로 바로 유도 (막다른 에러에서 안 헤매게)
+  const hfWall = /HF Pro|크레딧|결제|허깅|HuggingFace|횟수|월 \d|서버가 잠시|무료로 직접/i.test(html);
   const freeBtn = hfWall ? `<button id="surgFreeFromFail" class="surg-free-btn" style="margin-top:8px">🆓 무료로 직접 하기 <span class="sfb-sub">Colab · 결제 없이</span></button>` : '';
   surgStat(`${html}<div style="margin-top:8px">${freeBtn}<button id="surgRetry" class="lf-ghost">← 다시 입력</button></div>`);
   $('surgRetry')?.addEventListener('click', () => renderSurgery());
@@ -2513,7 +2513,7 @@ async function surgeryFreeFromFail() {
   try { res = await connect.surgeryNotebook?.(a, b, _surg.method, _surg.t, name); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
   if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
   if (res.colab) connect.openExternal?.(res.colab);
-  surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요 · 결제 안 해도 됩니다</span>`);
+  surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요 · 결제 안 해도 됩니다<br>💡 <b>무료 HuggingFace 계정</b> 필요(1분 가입) — <a href="https://huggingface.co/settings/tokens" target="_blank">🔑 무료 토큰 만들기 ↗</a></span>`);
 }
 // 진행 중 상태 + ✕ 취소 버튼(매 틱 재생성되므로 매번 재연결)
 function surgRunning(html: string) {
@@ -2540,7 +2540,7 @@ async function surgeryFree() {
     const res: any = await connect.surgeryNotebook?.(r.a, r.b, _surg.method, _surg.t, nameRaw);
     if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
     if (res.colab) connect.openExternal?.(res.colab);
-    surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요${res.note ? ` · ${escapeHtml(res.note)}` : ''}</span>`);
+    surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">합성 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요${res.note ? ` · ${escapeHtml(res.note)}` : ''}<br>💡 <b>무료 HuggingFace 계정</b> 필요(1분 가입) — <a href="https://huggingface.co/settings/tokens" target="_blank">🔑 무료 토큰 만들기 ↗</a></span>`);
     hint('🆓 무료 Colab 노트북이 열렸어요 — "런타임 → 모두 실행"');
   } catch (e: any) { reportErr('무료합성', e); surgFail(`⚠️ ${escapeHtml(String(e?.message || e))}`); }
 }
@@ -2589,14 +2589,14 @@ function renderSurgery() {
     ${blendHtml}
     <div class="pw-row">
       <input id="surgName" class="fuse-in" placeholder="🏷️ 새 AI 이름" value="${escAttr(surgSuggestName())}" title="영어·숫자·하이픈만" autocomplete="off">
-      <input id="surgPw" class="surg-pw" type="password" placeholder="🔒" maxlength="8" title="비밀번호" autocomplete="off">
+      <input id="surgPw" class="surg-pw" type="password" placeholder="🔒 베타 비밀번호 (없으면 🆓)" maxlength="8" title="베타 비밀번호 — 받은 분만. 없으면 아래 🆓 무료로 하세요" autocomplete="off">
       <span class="surg-left" id="surgLeft" title="이번 달 남은 합성 횟수"></span>
     </div>
     <button class="cyc-btn primary surg-go" id="surgGo">💎 합성 시작 <span class="muted small">멤버십·원클릭</span></button>
     <button class="surg-free-btn" id="surgFreeBtn">🆓 무료로 직접 하기 <span class="sfb-sub">Colab·비번 없이</span></button>
     <div class="surg-status" id="surgStatus"></div>`;
   wireSurgery();
-  connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.textContent = `🎟️ ${u.left}/${u.limit}`; }).catch(() => {});
+  connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.innerHTML = u.left <= 0 ? `🗓️ 이번 달 다 씀 — <b>🆓 무료로</b>` : `🎟️ 이번 달 ${u.left}/${u.limit}회`; }).catch(() => {});
 }
 function short(repo: string) { return (repo || '').split('/').pop()?.replace(/-Instruct$/i, '') || repo; }
 function surgChips(models: string[], label: string) {
@@ -2705,7 +2705,12 @@ async function surgeryGo() {
   try { res = await connect.surgeryMerge?.(r.a, r.b, _surg.method, String(_surg.t), nameRaw, pw); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
   const cmd = res?.command ? `<div class="cmd-box">${escapeHtml(res.command)}</div>` : '';
   if (!res) return surgFail('⚠️ 응답이 없어요.');
-  if (res.needsPro) return surgFail(`💳 ${escapeHtml(res.error || 'HF Pro/크레딧이 필요해요')}${cmd}`);
+  // 🔑 로그인 필요 → 로그인창 열기 (학습 경로와 동일)
+  if (res.needLogin) { surgFail(`🔑 ${escapeHtml(res.error || '회원 로그인이 필요해요')}`); openAuth(); return; }
+  // 🗓️ 이번 달 횟수 다 씀 → 겁주지 말고 무료 경로 안내(surgFail이 🆓 버튼 띄움)
+  if (res.gated) return surgFail(`🗓️ ${escapeHtml(res.error || '이번 달 합성 횟수를 다 썼어요')} · 🆓 무료로 직접 하기는 무제한이에요`);
+  // 서버 장애로 못 도는 경우 — 회원에게 결제 오해 안 주고 무료 경로로
+  if (res.needsPro) return surgFail(`⚠️ ${escapeHtml('서버가 잠시 합성을 못 해요 — 🆓 무료로 직접 하기로 진행하세요')}`);
   if (!res.ok) return surgFail(`⚠️ ${escapeHtml(res.error || '시작 실패')}${cmd}`);
   let secs = 0;
   const url = escAttr(res.url || res.modelRepo);
@@ -2732,8 +2737,20 @@ async function surgeryGo() {
 async function surgInstall() {
   const b = $('surgInstall') as HTMLButtonElement; if (b) { b.disabled = true; b.textContent = '받는 중…'; }
   const r: any = await connect.trainCloudInstall?.();
-  if (r?.ok) { surgStat(`🎉 받았어요! 🤖 내 AI에서 "${escapeHtml((r.model || '').split('/').pop() || '합쳐진 모델')}"을 켜서 쓰세요.`); loadLocalAI?.(); }
-  else surgStat(`⚠️ ${escapeHtml(r?.error || '받기 실패')}`);
+  if (r?.ok) {
+    // 🎉 성공 — 바로 "내 AI 열기" 버튼으로 어디서 쓰는지 안내
+    surgStat(`🎉 받았어요! "${escapeHtml((r.model || '').split('/').pop() || '합쳐진 모델')}" 준비 완료.<div style="margin-top:8px"><button id="surgOpenAi" class="oc-primary">🤖 내 AI 열기</button></div>`);
+    loadLocalAI?.();
+    $('surgOpenAi')?.addEventListener('click', () => { closeOverlay('surgeryPanel'); openOverlay('aiPanel'); loadAiPanel?.(); });
+  } else if (r?.adapterOnly) {
+    // GGUF 변환 실패(safetensors만) — repo 링크 + 다시 받기 유지 (막다른 길 X)
+    surgStat(`⚠️ ${escapeHtml(r.error || '')}${r.repo ? `<br><a href="${escAttr(r.repo)}" target="_blank">🔗 HuggingFace에서 결과 보기 ↗</a>` : ''}<div style="margin-top:8px"><button id="surgInstall" class="oc-primary">⬇️ 다시 받기</button></div>`);
+    $('surgInstall')?.addEventListener('click', surgInstall);
+  } else {
+    // 진행 중/일시 오류 — 다시 받기 버튼 유지
+    surgStat(`⚠️ ${escapeHtml(r?.error || '받기 실패')}<div style="margin-top:8px"><button id="surgInstall" class="oc-primary">⬇️ 다시 받기</button></div>`);
+    $('surgInstall')?.addEventListener('click', surgInstall);
+  }
 }
 $('surgeryOpenBtn')?.addEventListener('click', () => openSurgery('merge'));
 
