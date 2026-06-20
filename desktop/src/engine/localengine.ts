@@ -10,7 +10,7 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 
 export const LOCAL_PORT = 1235;
 export const LOCAL_BASE = `http://127.0.0.1:${LOCAL_PORT}`;
@@ -111,6 +111,7 @@ export async function startLocalEngine(modelPath: string, force = false, ngl?: n
   emitStatus();
   try {
     await killProc();                               // 기존 서버 종료
+    killOrphans();                                  // 🧟 비정상 종료로 남은 좀비 서버가 포트 1235를 물고 있으면 회수
     if (seq !== _startSeq) return localStatus();    // 더 최신 요청이 들어왔으면 양보
 
     const bin = binPath();
@@ -272,6 +273,23 @@ export function diagCode(code: number | null): string {
   return '';
 }
 
+// 🧟 좀비 서버 회수 — 이전 실행이 비정상 종료되며 남긴 우리 llama-server가 포트 1235를 점유하면
+//    새 서버가 못 떠서 "불러오는 중" 무한이 된다(맥 테스트: 앱 강제종료 후 서버만 살아남음).
+//    포트 1235는 우리 전용이라 남은 점유자(우리 _proc 제외)는 안전하게 정리한다.
+function killOrphans(): void {
+  try {
+    const mine = _proc?.pid;
+    if (process.platform === 'win32') {
+      const out = execSync('netstat -ano -p tcp', { encoding: 'utf8', timeout: 3000 });
+      const pids = new Set<string>();
+      for (const line of out.split('\n')) { const m = line.match(/:1235\s+\S+\s+LISTENING\s+(\d+)/i); if (m) pids.add(m[1]); }
+      for (const pid of pids) if (Number(pid) !== mine) { try { execSync(`taskkill /F /PID ${pid}`, { timeout: 3000, stdio: 'ignore' }); } catch { /* */ } }
+    } else {
+      const out = execSync(`lsof -ti tcp:${LOCAL_PORT} 2>/dev/null || true`, { encoding: 'utf8', timeout: 3000, shell: '/bin/sh' });
+      for (const pid of out.split('\n').map(s => s.trim()).filter(Boolean)) if (Number(pid) !== mine) { try { execSync(`kill -9 ${pid}`, { timeout: 2000, stdio: 'ignore' }); } catch { /* */ } }
+    }
+  } catch { /* lsof/netstat 없거나 실패 — 무시 */ }
+}
 function killProc(): Promise<void> {
   return new Promise((resolve) => {
     const p = _proc; _proc = null;

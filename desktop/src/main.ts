@@ -144,6 +144,12 @@ if (SAFE_MODE) {
   app.commandLine.appendSwitch('disable-gpu-compositing');
   app.commandLine.appendSwitch('disable-software-rasterizer');
 }
+// 🔒 단일 인스턴스 — 앱이 2벌(설치본 + 다른 빌드, 또는 중복 실행)이 동시에 뜨면 둘 다 추론 서버를
+//    같은 포트(1235)에 띄우려다 충돌해 "불러오는 중" 무한 / "code 1"이 난다(맥 테스트에서 발견).
+//    두 번째 인스턴스는 즉시 종료하고, 기존 인스턴스의 창을 깨운다.
+if (!app.requestSingleInstanceLock()) { logDiag('이미 실행 중인 인스턴스가 있어 두 번째 인스턴스 종료'); app.exit(0); }
+app.on('second-instance', () => { try { showWindow(); } catch { /* */ } });
+
 // GPU/렌더러가 시작 직후 죽으면(흰 화면 → 즉시 종료) 자동으로 안전 모드 켜고 1회 재시작.
 // 정밀 조건: ① 진짜 크래시 reason 만(사용자 종료·강제 kill 제외) ② 실행 후 20초 이내(시작 시 GPU 초기화 충돌만).
 // 이미 안전 모드면 무한 루프 방지.

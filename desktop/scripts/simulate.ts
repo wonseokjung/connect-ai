@@ -3,7 +3,7 @@
 import { quickIntent, planServe } from '../src/engine/intent';
 import { parseTextTools } from '../src/engine/company';
 import { stripTools } from '../src/engine/tools';
-import { apiError, sanitizeContent, chooseModel } from '../src/engine/llm';
+import { apiError, sanitizeContent, chooseModel, ctxOverflow, trimForCtx } from '../src/engine/llm';
 import { diagCode } from '../src/engine/localengine';
 import { METHODS, buildMethodNotebook } from '../src/engine/methods';
 import { runTool, isDangerousCommand } from '../src/engine/tools';
@@ -273,6 +273,28 @@ ok('sanitize 여러 surrogate 연속 제거', sanitizeContent('a\uD800\uD801b') 
   fs.writeFileSync(BF, '{깨진 JSON 입니다');   // 본 파일 손상 시뮬
   ok('brain 손상 시 .bak 로 복구(통째 소실 방지)', allNotes().length === 1);
   for (const f of [BF, BF + '.bak', BF + '.tmp']) { try { fs.rmSync(f); } catch { /* */ } }
+}
+
+// ── 📏 문맥(context) 초과 자동 절삭 — herrykim 제보(대화 길어지면 HTTP 400으로 채팅 막힘) ──
+{
+  const err = (m: string) => ({ response: { data: { error: { message: m } } } });
+  ok('ctxOverflow 파싱(llama-server 문구)',
+    ctxOverflow(err('request (8386 tokens) exceeds the available context size (8192 tokens), try increasing it'))?.ctx === 8192);
+  ok('ctxOverflow 비초과 에러는 null', ctxOverflow(err('some other 400 error')) === null);
+  // system + 오래된 히스토리 10턴 + 마지막 user — 절삭 후 줄어야 하고 system·마지막 user는 남아야
+  const big: any[] = [{ role: 'system', content: 'S'.repeat(400) }];
+  for (let i = 0; i < 10; i++) { big.push({ role: 'user', content: 'U'.repeat(400) }); big.push({ role: 'assistant', content: 'A'.repeat(400) }); }
+  big.push({ role: 'user', content: '마지막질문'.repeat(20) });
+  const tot = (a: any[]) => a.reduce((s, m) => s + (typeof m.content === 'string' ? m.content.length : 0), 0);
+  const trimmed = trimForCtx(big, { req: 8400, ctx: 8192 });
+  ok('문맥 절삭으로 메시지 줄어듦', trimmed.length < big.length);
+  ok('문맥 절삭 후 system 유지', trimmed.some(m => m.role === 'system'));
+  ok('문맥 절삭 후 마지막 user 유지', trimmed[trimmed.length - 1]?.content === big[big.length - 1].content);
+  ok('문맥 절삭이 총량을 줄임', tot(trimmed) < tot(big));
+  // system 자체가 거대(주입지식 폭증) → system 내용까지 잘라 예산 안으로
+  const huge: any[] = [{ role: 'system', content: 'X'.repeat(40000) }, { role: 'user', content: '안녕' }];
+  const ht = trimForCtx(huge, { req: 16000, ctx: 4096 });
+  ok('거대 system도 잘라 총량 축소', tot(ht) < tot(huge) && ht.some(m => m.role === 'system'));
 }
 
 // ── 결과 ─────────────────────────────────────────────────────

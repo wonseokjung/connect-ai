@@ -166,6 +166,35 @@ function cleanMessages(messages: ChatMessage[]): ChatMessage[] {
   return dirty ? out : messages;
 }
 
+// 📏 문맥(context) 초과 에러 파싱 — llama-server: "request (8386 tokens) exceeds the available context size (8192 tokens)"
+//    대화·주입지식이 길어져 모델 한도를 넘으면 HTTP 400 → 채팅 전체가 막힌다(herrykim 제보). 실제 토큰 수를 뽑아 정밀 절삭.
+export function ctxOverflow(e: any): { req: number; ctx: number } | null {
+  const m = String(e?.response?.data?.error?.message || e?.response?.data?.error || e?.response?.data?.message || e?.message || '');
+  const mm = m.match(/\((\d+)\s*tokens?\)\s*exceeds[^()]*\((\d+)\s*tokens?\)/i);
+  return mm ? { req: +mm[1], ctx: +mm[2] } : null;
+}
+const msgChars = (m: ChatMessage) => typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length;
+// 문맥 초과 시: 이번 요청의 토큰/문자 실측 비율로 예산을 잡고, system·마지막 user는 지키되 오래된 히스토리부터 버린다.
+//   그래도 넘치면(주입지식 큰 system 등) system 내용을 끝부분부터 잘라 끝까지 맞춘다 → 에러 대신 "조금 잊고" 계속.
+export function trimForCtx(messages: ChatMessage[], ov: { req: number; ctx: number }): ChatMessage[] {
+  const budgetTok = Math.max(512, ov.ctx - 1024);                       // 출력 토큰 1024 예약
+  const totalChars = messages.reduce((s, m) => s + msgChars(m), 0) || 1;
+  const tpc = Math.max(0.05, ov.req / totalChars);                      // 토큰/문자(실측)
+  const budgetChars = Math.floor(budgetTok / tpc);
+  const sysIdx = messages.findIndex(m => m.role === 'system');
+  let lastUserIdx = -1; for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') { lastUserIdx = i; break; }
+  const keep = (i: number) => i === sysIdx || i === lastUserIdx;
+  // 1) 오래된 중간 히스토리부터 제거
+  const drop = new Set<number>(); let cur = totalChars;
+  for (let i = 0; i < messages.length && cur > budgetChars; i++) { if (keep(i)) continue; drop.add(i); cur -= msgChars(messages[i]); }
+  let out = messages.filter((_, i) => !drop.has(i));
+  // 2) 그래도 넘치면 system 내용을 끝부분부터 잘라 맞춘다(핵심 지시는 앞부분에 있음)
+  const over = out.reduce((s, m) => s + msgChars(m), 0) - budgetChars;
+  if (over > 0) out = out.map(m => (m.role === 'system' && typeof m.content === 'string' && m.content.length > over + 300)
+    ? { ...m, content: m.content.slice(0, m.content.length - over - 200) + '\n…(문맥이 길어 일부 생략됨)' } : m);
+  return out;
+}
+
 export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], tools: ToolSchema[], opts: ChatOpts = {}): Promise<{ content: string; reasoning: string; toolCalls: ToolUse[]; message: any }> {
   messages = cleanMessages(messages);   // 🧹 깨진 이모지 제거 → llama-server parse_error 500 방지
   const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
@@ -176,11 +205,15 @@ export async function completeWithTools(t: LlmTarget, messages: ChatMessage[], t
   try {
     r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
   } catch (e: any) {
-    // 🛠️ 일부 모델은 chat template이 도구 호출을 지원 안 해 tools 요청에 400/500을 낸다(llama-server --jinja).
-    //    → tools 빼고 재시도. 앱은 태그 기반 도구 폴백(parseTextTools)으로 그대로 동작한다. (사용자 "status code 400" 해결)
+    // 📏 문맥 초과(대화·주입지식이 모델 한도 넘음) → 오래된 히스토리 절삭 후 재시도(채팅 안 막히게)
+    const ov = ctxOverflow(e);
     const status = e?.response?.status;
-    if (status === 400 || status === 500) {
-      // tools 제거 + (템플릿이 빡빡하면) 메시지 평탄화로 재시도 → 어떤 모델이든 답하게
+    if (ov) {
+      body.messages = trimForCtx(messages, ov);
+      r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
+    } else if (status === 400 || status === 500) {
+      // 🛠️ 일부 모델은 chat template이 도구 호출을 지원 안 해 tools 요청에 400/500을 낸다(llama-server --jinja).
+      //    → tools 빼고 재시도. 앱은 태그 기반 도구 폴백(parseTextTools)으로 그대로 동작한다. (사용자 "status code 400" 해결)
       delete body.tools; delete body.tool_choice;
       if (isTemplateErr(e)) body.messages = flattenMessages(messages);
       r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any, headers });
@@ -230,8 +263,18 @@ export async function chat(t: LlmTarget, system: string, user: string, opts: Cha
 // 한 번의 모델 호출 결과 — text + 길이 한도로 잘렸는지(truncated)
 interface OneShot { text: string; truncated: boolean; }
 
-// 모델 1회 호출 (스트리밍/비스트리밍). finish_reason 'length' → truncated=true
+// 모델 1회 호출 — 문맥 초과(400)면 오래된 히스토리를 자동 절삭하고 1회 재시도(채팅이 막히지 않게).
 async function callOnce(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, stream: boolean): Promise<OneShot> {
+  try { return await callOnceRaw(t, messages, opts, stream); }
+  catch (e: any) {
+    const ov = ctxOverflow(e);
+    if (!ov) throw e;
+    const trimmed = trimForCtx(cleanMessages(messages), ov);
+    if (trimmed.length >= messages.length && trimmed.reduce((s, m) => s + msgChars(m), 0) >= messages.reduce((s, m) => s + msgChars(m), 0)) throw e;   // 못 줄였으면 원래 에러
+    return await callOnceRaw(t, trimmed, opts, stream);   // 절삭 후 재시도(이 시점엔 토큰 스트림 시작 전이라 안전)
+  }
+}
+async function callOnceRaw(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, stream: boolean): Promise<OneShot> {
   messages = cleanMessages(messages);   // 🧹 깨진 이모지 제거 → llama-server parse_error 500 방지
   if (t.engine === 'lmstudio' || t.engine === 'gemini') {
     // OpenAI 호환 (LM Studio 로컬 / Gemini 클라우드)
