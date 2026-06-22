@@ -170,8 +170,16 @@ function cleanMessages(messages: ChatMessage[]): ChatMessage[] {
 //    대화·주입지식이 길어져 모델 한도를 넘으면 HTTP 400 → 채팅 전체가 막힌다(herrykim 제보). 실제 토큰 수를 뽑아 정밀 절삭.
 export function ctxOverflow(e: any): { req: number; ctx: number } | null {
   const m = String(e?.response?.data?.error?.message || e?.response?.data?.error || e?.response?.data?.message || e?.message || '');
+  // 두 토큰 수가 다 있는 정밀형: "(8386 tokens) exceeds … (8192 tokens)"
   const mm = m.match(/\((\d+)\s*tokens?\)\s*exceeds[^()]*\((\d+)\s*tokens?\)/i);
-  return mm ? { req: +mm[1], ctx: +mm[2] } : null;
+  if (mm) return { req: +mm[1], ctx: +mm[2] };
+  // 변형 문구(토큰 수 일부/순서 다름)도 문맥초과로 인식 → 절삭 트리거. ctx 수만 있으면 req은 ctx로 근사.
+  if (/exceed[s]?\b[^.]*context|context (?:size|window|length)[^.]*exceed|n_ctx|too (?:long|many tokens)|prompt is too long/i.test(m)) {
+    const nums = (m.match(/(\d{3,})/g) || []).map(Number);
+    const ctx = nums.length ? Math.min(...nums) : 0;     // 보수적: 가장 작은 수를 ctx로
+    if (ctx) return { req: Math.max(...nums), ctx };
+  }
+  return null;
 }
 const msgChars = (m: ChatMessage) => typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content || '').length;
 // 문맥 초과 시: 이번 요청의 토큰/문자 실측 비율로 예산을 잡고, system·마지막 user는 지키되 오래된 히스토리부터 버린다.
@@ -183,6 +191,7 @@ export function trimForCtx(messages: ChatMessage[], ov: { req: number; ctx: numb
   const budgetChars = Math.floor(budgetTok / tpc);
   const sysIdx = messages.findIndex(m => m.role === 'system');
   let lastUserIdx = -1; for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === 'user') { lastUserIdx = i; break; }
+  if (lastUserIdx < 0) lastUserIdx = messages.length - 1;   // user 메시지가 없으면 마지막 메시지라도 보존(빈 배열 전송 방지)
   const keep = (i: number) => i === sysIdx || i === lastUserIdx;
   // 1) 오래된 중간 히스토리부터 제거
   const drop = new Set<number>(); let cur = totalChars;
@@ -328,9 +337,22 @@ export async function completeMessages(t: LlmTarget, messages: ChatMessage[], op
   return full;
 }
 
+// 🩹 스트림 요청(responseType:'stream')은 에러 본문(response.data)도 '스트림 객체'다 → JSON으로 못 읽어
+//    문맥초과 같은 에러 메시지를 못 뽑는다(채팅 스트리밍에서 자동 절삭이 안 먹던 원인). 스트림을 문자열로 버퍼링해 붙인다.
+async function bufferStreamError(e: any): Promise<any> {
+  const data = e?.response?.data;
+  if (data && typeof data.on === 'function') {
+    const txt = await new Promise<string>((resolve) => { let b = ''; data.on('data', (c: any) => { b += c; }); data.on('end', () => resolve(b)); data.on('error', () => resolve(b)); });
+    try { e.response.data = JSON.parse(txt); } catch { e.response.data = txt; }
+  }
+  return e;
+}
+
 // ── 스트리밍 파서 (Node response stream) — OpenAI SSE. finish_reason 'length' 감지 ──
 async function streamSSE(url: string, body: any, onToken: (t: string) => void, signal: AbortSignal | undefined, headers: any = {}): Promise<OneShot> {
-  const res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any, headers });
+  let res;
+  try { res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any, headers }); }
+  catch (e: any) { throw await bufferStreamError(e); }   // 400 등 에러 본문(스트림)을 문자열로 읽어 ctxOverflow 등이 감지하게
   let acc = '', truncated = false;
   const processLine = (line: string) => {
     const s = line.trim();
@@ -359,7 +381,9 @@ async function streamSSE(url: string, body: any, onToken: (t: string) => void, s
 }
 
 async function streamNdjson(url: string, body: any, onToken: (t: string) => void, signal: AbortSignal | undefined): Promise<OneShot> {
-  const res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any });
+  let res;
+  try { res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any }); }
+  catch (e: any) { throw await bufferStreamError(e); }
   let acc = '', truncated = false;
   const processLine = (line: string) => {
     const s = line.trim();

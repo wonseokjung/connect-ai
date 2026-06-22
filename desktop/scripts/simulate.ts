@@ -295,6 +295,12 @@ ok('sanitize 여러 surrogate 연속 제거', sanitizeContent('a\uD800\uD801b') 
   const huge: any[] = [{ role: 'system', content: 'X'.repeat(40000) }, { role: 'user', content: '안녕' }];
   const ht = trimForCtx(huge, { req: 16000, ctx: 4096 });
   ok('거대 system도 잘라 총량 축소', tot(ht) < tot(huge) && ht.some(m => m.role === 'system'));
+  // 변형 문구도 문맥초과로 인식(정밀 정규식 미스 대비)
+  ok('ctxOverflow 변형문구(too long) 인식', ctxOverflow(err('the prompt is too long: 9000 tokens, context size 8192'))?.ctx === 8192);
+  ok('ctxOverflow 일반 429는 무시', ctxOverflow(err('rate limit exceeded 429')) === null);
+  // user 메시지 없는(assistant만) 리스트도 빈 배열 안 만든다(#가드)
+  const noUser: any[] = [{ role: 'assistant', content: 'A'.repeat(9000) }];
+  ok('user없는 리스트도 빈배열 아님', trimForCtx(noUser, { req: 9000, ctx: 1024 }).length >= 1);
 }
 
 // ── 결과 ─────────────────────────────────────────────────────

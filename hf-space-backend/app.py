@@ -75,6 +75,24 @@ def gate_set(sid, data):
     api.upload_file(path_or_fileobj=io.BytesIO(json.dumps(data).encode()),
                     path_in_repo=f"{sid}.json", repo_id=gate_ds(), repo_type="dataset")
 
+def used_of(g, kind, m):
+    # 🛡️ 손상/레거시 게이트(kind가 None·非dict)도 500 안 나게 안전 추출
+    k = g.get(kind) or {}
+    if not isinstance(k, dict): return 0
+    return k.get("count", 0) if k.get("month") == m else 0
+
+# 🎁 회원이 본인 HF 토큰을 연동했으면 결과를 회원 계정에(소유). 토큰을 줬는데 검증 실패면(만료·일시오류)
+#    조용히 제공자 계정으로 떨어뜨리지 않는다(개인 데이터가 제공자 계정에 올라가는 사고 방지) → 명확히 거부.
+#    반환: (un 또는 "", 에러응답 또는 None). un=""이면 미연동(제공자 폴백 허용).
+def resolve_owner(body):
+    tok = (body.get("userHfToken") or "").strip()
+    if not tok:
+        return "", None
+    un = hf_whoami(tok)
+    if un:
+        return un, None
+    return "", {"ok": False, "error": "연동한 HuggingFace 토큰을 확인하지 못했어요(만료·권한·일시 오류). 🗂️ 연동에서 write 토큰을 다시 넣거나 잠시 후 다시 시도해 주세요."}
+
 def verify_user(id_token, fallback_user_id):
     # FIREBASE_API_KEY가 있으면 idToken을 '반드시' 검증해 진짜 uid를 뽑는다(스푸핑·캡 우회 차단).
     # 키가 없으면 임시로 클라이언트 userId를 신뢰(키 넣기 전까진 HF $20 캡이 최종 방어).
@@ -97,6 +115,13 @@ def verify_user(id_token, fallback_user_id):
 def commit_dataset(repo, files, token=None, public=False):  # files: [(path, content_str)]. token=None이면 제공자
     a = HfApi(token=token or HF_TOKEN)
     a.create_repo(repo, repo_type="dataset", private=not public, exist_ok=True)
+    if public:
+        # ⚠️ create_repo(exist_ok=True)는 '기존 private repo'를 public으로 안 바꾼다 → 회원 토큰 잡이 마운트 실패.
+        #    공용 스크립트는 반드시 공개로 강제(예전 founder-only 배포가 private로 만들어놨을 수 있음).
+        try: a.update_repo_visibility(repo, private=False, repo_type="dataset")
+        except Exception:
+            try: a.update_repo_settings(repo_id=repo, private=False, repo_type="dataset")
+            except Exception: pass
     for path, content in files:
         a.upload_file(path_or_fileobj=io.BytesIO(content.encode()),
                       path_in_repo=path, repo_id=repo, repo_type="dataset", token=token or HF_TOKEN)
@@ -181,24 +206,25 @@ async def train(req: Request):
         return {"ok": False, "error": "서버 토큰 미설정(Space 시크릿 HF_TOKEN)."}
     sid = sanitize(user_id); m = month()
     g = gate_get(sid)
-    used = (g.get("train", {}) or {}).get("count", 0) if g.get("train", {}).get("month") == m else 0
+    used = used_of(g, "train", m)
     if used >= TRAIN_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 학습은 월 {TRAIN_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
     # 🎓 우리는 GPU 서버만 제공. 회원 HF 연동 시 → 데이터·모델이 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
-    user_tok = (b.get("userHfToken") or "").strip()
-    un = hf_whoami(user_tok) if user_tok else ""
+    un, owner_err = resolve_owner(b)
+    if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부(개인데이터 제공자계정 업로드 방지)
+    rid = datetime.datetime.utcnow().strftime("%m%d-%H%M%S")   # 🆔 run id — 이전 학습 모델을 덮어쓰지 않게
     if un:
-        job_token = user_tok; brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/cai-model"; mount_repo = f"{prov}/cai-train-script"
+        job_token = (b.get("userHfToken") or "").strip(); brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/cai-model-{rid}"; mount_repo = f"{prov}/cai-train-script"
     else:
-        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/cai-model-{sid}"; mount_repo = brain_repo
+        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/cai-model-{sid}-{rid}"; mount_repo = brain_repo
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
-    gate_set(sid, g)
     try:
+        gate_set(sid, g)                                # reserve 도 try 안 — 쓰기 실패해도 500 대신 친절 에러
         if un:   # 회원 계정: 데이터는 회원 토큰으로 회원 계정, 스크립트는 공용(공개) 마운트
             commit_dataset(mount_repo, [("train.py", TRAIN_SCRIPT)], public=True)
-            commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=user_tok)
+            commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=job_token)   # 회원 토큰으로 회원 계정에
         else:    # 제공자 계정(구버전 호환): 데이터+스크립트 한 repo에
             commit_dataset(brain_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
             ensure_model_public(out_repo)
@@ -243,22 +269,22 @@ async def merge(req: Request):
     method = str(b.get("method") or "slerp"); t = str(b.get("t") or "0.5")
     sid = sanitize(user_id); m = month()
     g = gate_get(sid)
-    used = (g.get("merge", {}) or {}).get("count", 0) if g.get("merge", {}).get("month") == m else 0
+    used = used_of(g, "merge", m)
     if used >= MERGE_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 합성은 월 {MERGE_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
     # 🎓 GPU 서버만 제공. 회원 HF 연동 시 → 결과가 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
-    user_tok = (b.get("userHfToken") or "").strip()
-    un = hf_whoami(user_tok) if user_tok else ""
+    un, owner_err = resolve_owner(b)
+    if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부
     nm = sanitize(b.get("outName") or "") or f"merged-{int(datetime.datetime.utcnow().timestamp())}"
     if un:
-        job_token = user_tok; out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
+        job_token = (b.get("userHfToken") or "").strip(); out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
     else:
         job_token = HF_TOKEN; out_repo = f"{prov}/cai-merge-{sid}-{nm}"; mount_repo = f"{prov}/cai-surg-{sid}"
     # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
     g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
-    gate_set(sid, g)
     try:
+        gate_set(sid, g)                                # reserve 도 try 안 — 쓰기 실패해도 500 대신 친절 에러
         if un:
             commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)], public=True)   # 공용 스크립트(공개)
         else:
@@ -285,8 +311,8 @@ async def merge(req: Request):
         return err_payload(e)
 
 def _status(sid, kind):
-    g = gate_get(sid).get(kind, {})
-    if not g.get("jobId"):
+    g = gate_get(sid).get(kind) or {}                   # 🛡️ kind가 None/非dict여도 500 안 나게
+    if not isinstance(g, dict) or not g.get("jobId"):
         return {"ok": False, "error": "진행 중인 작업이 없어요."}
     try:
         s = job_status(g["jobId"])
