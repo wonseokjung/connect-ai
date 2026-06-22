@@ -1181,7 +1181,14 @@ function renderLocalStatus() {
   const el = $('localStatus'); if (!el) return;
   if (s.loading) { el.innerHTML = '⏳ 모델 로딩 중…'; el.className = 'local-status loading'; }
   else if (s.running) { el.innerHTML = `🟢 <b>${s.modelName}</b> 실행 중 <span class="ls-badge">LM Studio 불필요 · ${s.gpu === 'metal' ? 'GPU' : s.gpu || 'CPU'}</span> <button id="localStopBtn" class="upd-ghost">끄기</button>`; el.className = 'local-status on'; }
-  else if (s.error) { el.innerHTML = `⚠️ ${s.error}`; el.className = 'local-status err'; }
+  else if (s.error) {
+    // 🔌 내장 엔진이 이 PC와 안 맞아도 포기 않게 — LM Studio/Ollama에 모델 띄우면 앱이 자동 연결(폴백 길 안내)
+    el.innerHTML = `⚠️ ${s.error}`
+      + `<div class="ls-fallback muted small" style="margin-top:6px;line-height:1.5">💡 이 PC에서 내장 엔진이 안 켜지면 — <b>LM Studio</b>나 <b>Ollama</b>에 모델을 하나 띄워보세요. 앱이 <b>자동으로 연결</b>해요(설정의 "LLM 주소"는 비워두면 자동 감지).<br>`
+      + `<a href="#" data-ext="https://lmstudio.ai">LM Studio 받기 ↗</a> · <a href="#" data-ext="https://ollama.com">Ollama 받기 ↗</a></div>`;
+    el.className = 'local-status err';
+    el.querySelectorAll('a[data-ext]').forEach(a => a.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal?.((a as HTMLElement).dataset.ext || ''); }));
+  }
   else { el.innerHTML = '⚪ 내장 AI 꺼짐 — 아래에서 모델을 받아 <b>사용</b>을 누르세요.'; el.className = 'local-status'; }
   const stop = $('localStopBtn'); if (stop) stop.addEventListener('click', async () => { _localStatus = await connect.localStop?.(); renderLocalStatus(); loadLocalAI(); });
 }
