@@ -16,6 +16,7 @@ FREE_FLAVOR = os.environ.get("FLAVOR", "l4x1")       # 무료/저가 GPU
 BASE_MODEL = "unsloth/llama-3.2-3b-instruct-bnb-4bit"
 TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "3"))   # 회원당 월 학습 캡 (클라이언트와 통일 = 3)
 MERGE_MONTHLY = int(os.environ.get("MERGE_MONTHLY", "3"))   # 회원당 월 합성 캡
+GLOBAL_MONTHLY = int(os.environ.get("GLOBAL_MONTHLY", "60"))  # 💰 전체 월 잡 하드캡 — userId를 바꿔치기해도 이걸 못 넘음(비용 폭주 방지). $20 예산 안.
 FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")   # 있으면 idToken 검증(권장) — 없으면 userId 신뢰(임시)
 
 app = FastAPI(title="Connect AI Backend")
@@ -80,6 +81,24 @@ def used_of(g, kind, m):
     k = g.get(kind) or {}
     if not isinstance(k, dict): return 0
     return k.get("count", 0) if k.get("month") == m else 0
+
+# 💰 전체 월 잡 하드캡 — per-user 캡이 우회돼도(예: FIREBASE_API_KEY 미설정으로 userId 위조) 총비용을 막는다.
+#    잡 띄우기 직전에 선점, 실패 시 롤백. (read-modify-write라 경합은 있으나 비용 '상한'으로서 충분)
+GLOBAL_KEY = "__global__"
+def global_reserve(m):
+    g = gate_get(GLOBAL_KEY)
+    used = g.get("count", 0) if g.get("month") == m else 0
+    if used >= GLOBAL_MONTHLY:
+        return False
+    gate_set(GLOBAL_KEY, {"month": m, "count": used + 1})
+    return True
+def global_rollback(m):
+    try:
+        g = gate_get(GLOBAL_KEY)
+        if g.get("month") == m and g.get("count", 0) > 0:
+            gate_set(GLOBAL_KEY, {"month": m, "count": g["count"] - 1})
+    except Exception:
+        pass
 
 # 🎁 회원이 본인 HF 토큰을 연동했으면 결과를 회원 계정에(소유). 토큰을 줬는데 검증 실패면(만료·일시오류)
 #    조용히 제공자 계정으로 떨어뜨리지 않는다(개인 데이터가 제공자 계정에 올라가는 사고 방지) → 명확히 거부.
@@ -205,6 +224,7 @@ async def train(req: Request):
     if not HF_TOKEN:
         return {"ok": False, "error": "서버 토큰 미설정(Space 시크릿 HF_TOKEN)."}
     sid = sanitize(user_id); m = month()
+    if sid == GLOBAL_KEY: return {"ok": False, "error": "잘못된 사용자 ID."}   # 전역 카운터 파일 충돌·조작 방지
     g = gate_get(sid)
     used = used_of(g, "train", m)
     if used >= TRAIN_MONTHLY:
@@ -220,8 +240,13 @@ async def train(req: Request):
         job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/cai-model-{sid}-{rid}"; mount_repo = brain_repo
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
+    gres = False
     try:
         gate_set(sid, g)                                # reserve 도 try 안 — 쓰기 실패해도 500 대신 친절 에러
+        if not global_reserve(m):                       # 💰 전체 월 한도 — 비용 폭주 방지
+            g["train"]["count"] = used; gate_set(sid, g)   # per-user 롤백
+            return {"ok": False, "gated": True, "error": "이번 달 무료 서버 전체 한도에 도달했어요. 다음 달에 다시 가능해요(운영자가 한도를 늘릴 수 있어요)."}
+        gres = True
         if un:   # 회원 계정: 데이터는 회원 토큰으로 회원 계정, 스크립트는 공용(공개) 마운트
             commit_dataset(mount_repo, [("train.py", TRAIN_SCRIPT)], public=True)
             commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=job_token)   # 회원 토큰으로 회원 계정에
@@ -246,6 +271,7 @@ async def train(req: Request):
     except Exception as e:
         try: g["train"]["count"] = used; gate_set(sid, g)   # 🔙 롤백 — 잡 못 띄웠으면 카운트 복구
         except Exception: pass
+        if gres: global_rollback(m)                         # 💰 전역 카운트도 복구(예약 성공했을 때만)
         return err_payload(e)
 
 # ── 🔪 POST /merge ──
@@ -268,6 +294,7 @@ async def merge(req: Request):
         return {"ok": False, "error": "서버 토큰 미설정(Space 시크릿 HF_TOKEN)."}
     method = str(b.get("method") or "slerp"); t = str(b.get("t") or "0.5")
     sid = sanitize(user_id); m = month()
+    if sid == GLOBAL_KEY: return {"ok": False, "error": "잘못된 사용자 ID."}   # 전역 카운터 파일 충돌·조작 방지
     g = gate_get(sid)
     used = used_of(g, "merge", m)
     if used >= MERGE_MONTHLY:
@@ -276,15 +303,22 @@ async def merge(req: Request):
     # 🎓 GPU 서버만 제공. 회원 HF 연동 시 → 결과가 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
     un, owner_err = resolve_owner(b)
     if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부
-    nm = sanitize(b.get("outName") or "") or f"merged-{int(datetime.datetime.utcnow().timestamp())}"
+    rid = datetime.datetime.utcnow().strftime("%m%d-%H%M%S")   # 🆔 이전 합성 결과를 덮어쓰지 않게(#3)
+    nm = sanitize(b.get("outName") or "")
+    nm = f"{nm}-{rid}" if nm else f"merged-{rid}"
     if un:
         job_token = (b.get("userHfToken") or "").strip(); out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
     else:
         job_token = HF_TOKEN; out_repo = f"{prov}/cai-merge-{sid}-{nm}"; mount_repo = f"{prov}/cai-surg-{sid}"
     # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
     g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
+    gres = False
     try:
         gate_set(sid, g)                                # reserve 도 try 안 — 쓰기 실패해도 500 대신 친절 에러
+        if not global_reserve(m):                       # 💰 전체 월 한도 — 비용 폭주 방지
+            g["merge"]["count"] = used; gate_set(sid, g)
+            return {"ok": False, "gated": True, "error": "이번 달 무료 서버 전체 한도에 도달했어요. 다음 달에 다시 가능해요(운영자가 한도를 늘릴 수 있어요)."}
+        gres = True
         if un:
             commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)], public=True)   # 공용 스크립트(공개)
         else:
@@ -308,6 +342,7 @@ async def merge(req: Request):
     except Exception as e:
         try: g["merge"]["count"] = used; gate_set(sid, g)   # 🔙 롤백
         except Exception: pass
+        if gres: global_rollback(m)                         # 💰 전역 카운트도 복구(예약 성공했을 때만)
         return err_payload(e)
 
 def _status(sid, kind):

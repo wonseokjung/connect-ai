@@ -65,5 +65,19 @@ try:
 finally:
     app.hf_whoami = _orig
 
+# ── 전역 월 캡(#2 비용 하드캡): in-memory 게이트로 시뮬 ──
+_store = {}
+app.gate_get = lambda sid: _store.get(sid, {})
+app.gate_set = lambda sid, data: _store.__setitem__(sid, data)
+app.GLOBAL_MONTHLY = 3
+M2 = app.month()
+ok("global_reserve 1~3회 통과", all(app.global_reserve(M2) for _ in range(3)))
+ok("global_reserve 4회째 거부(하드캡)", app.global_reserve(M2) is False)
+app.global_rollback(M2)                                   # 1칸 복구
+ok("rollback 후 다시 1회 통과", app.global_reserve(M2) is True)
+ok("전역 카운트 정확", _store[app.GLOBAL_KEY]["count"] == 3)
+_store.clear()
+ok("월 바뀌면 리셋", (app.gate_set(app.GLOBAL_KEY, {"month": "2000-01", "count": 99}), app.global_reserve(M2))[1] is True)
+
 print(f"\n🧪 백엔드 로직 시뮬: {P} 통과 · {F} 실패")
 sys.exit(1 if F else 0)
