@@ -49,8 +49,8 @@ interface Config {
   autoSync: boolean; lastSyncCount: number; lastTrainHintCount: number;   // 🔄 자동 루프(GitHub 자동 커밋 + 학습 추천)
   lastCloudTrainAt?: number; cloudJob?: any; trainBaseModel?: string; brainModelName?: string;   // ☁️ 클라우드 학습(HF Jobs)
   gpuUsage?: { month: string; train: number; surgery: number };   // 🔒 GPU 기능 월 사용량 (학습·수술 각각 월 3회)
-  stats?: { trains: number; datasets: number; fusions: number };   // 🎒 누적 전적 — 학습(레벨업)·데이터셋·합성 횟수 (인벤토리/광장 프로필용)
-  createdModels?: Record<string, { id: string; name?: string; avatar?: string; personality?: string; method?: 'train' | 'fusion'; baseModel?: string; createdAt?: number }>;   // 🧬 내 AI 팀 — 학습·합성으로 만든 모델 캐릭터(이름·얼굴·성격)
+  stats?: { trains: number; datasets: number; fusions: number };   // 🎒 누적 전적 — 학습(레벨업)·데이터셋·진화 횟수 (인벤토리/광장 프로필용)
+  createdModels?: Record<string, { id: string; name?: string; avatar?: string; personality?: string; method?: 'train' | 'fusion'; baseModel?: string; createdAt?: number }>;   // 🧬 내 AI 팀 — 학습·진화으로 만든 모델 캐릭터(이름·얼굴·성격)
   trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
@@ -1762,7 +1762,7 @@ function scriptText(name: string): string {
 }
 function uvScriptText(): string { return scriptText('train_qlora_uv.py'); }
 // 제공자가 배포 후 채우는 기본 백엔드 (비우면 사용자 토큰 직접 모드). config.trainBackendUrl 로 덮어쓰기 가능.
-const DEFAULT_TRAIN_BACKEND = 'https://wonseokjayjung-connectai.hf.space';   // ☁️ Connect AI 학습·합성 백엔드 (HF Space 문지기 — /train·/merge·/trainStatus·/mergeStatus). GCP 불필요, 토큰·잡 전부 HF.
+const DEFAULT_TRAIN_BACKEND = 'https://wonseokjayjung-connectai.hf.space';   // ☁️ Connect AI 학습·진화 백엔드 (HF Space 문지기 — /train·/merge·/trainStatus·/mergeStatus). GCP 불필요, 토큰·잡 전부 HF.
 const trainBackendBase = (c: Config) => ((c.trainBackendUrl || DEFAULT_TRAIN_BACKEND || '').replace(/\/+$/, ''));
 function installId(): string { const c = loadConfig() as any; if (c.installId) return c.installId; const id = 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); saveConfig({ installId: id } as any); return id; }
 function brainToJsonl(): string { const notes = allNotes(); return notes.map(n => JSON.stringify({ instruction: '다음 내용에 대해 알려줘.', output: (n.text || '').slice(0, 1200) })).join('\n'); }
@@ -1800,14 +1800,14 @@ function gpuGate(password: string, kind: GpuKind): { ok: boolean; error?: string
 function gpuUse(kind: GpuKind, password = '') { if (isGpuAdmin(password)) return; const c = loadConfig(); const m = gpuMonth(); const u: any = (c.gpuUsage && (c.gpuUsage as any).month === m) ? c.gpuUsage : { month: m, train: 0, surgery: 0 }; saveConfig({ gpuUsage: { month: m, train: u.train || 0, surgery: u.surgery || 0, [kind]: (u[kind] || 0) + 1 } as any }); }
 ipcMain.handle('gpu:usage', (_e, kind: GpuKind = 'train') => { const used = gpuUsageOf(kind); return { used, limit: GPU_MONTHLY_LIMIT, left: Math.max(0, GPU_MONTHLY_LIMIT - used) }; });
 
-// 🎒 누적 전적 — 학습 1회 = 데이터셋 1개 + 레벨업, 합성 1회 = fusion. 인벤토리/광장 프로필의 원천.
+// 🎒 누적 전적 — 학습 1회 = 데이터셋 1개 + 레벨업, 진화 1회 = fusion. 인벤토리/광장 프로필의 원천.
 function bumpStat(kind: 'train' | 'fusion') {
   const c = loadConfig(); const s = c.stats || { trains: 0, datasets: 0, fusions: 0 };
   if (kind === 'train') saveConfig({ stats: { trains: (s.trains || 0) + 1, datasets: (s.datasets || 0) + 1, fusions: s.fusions || 0 } });
   else saveConfig({ stats: { trains: s.trains || 0, datasets: s.datasets || 0, fusions: (s.fusions || 0) + 1 } });
   if (plaza) void pushMyProfile(plaza.uid);   // 🎒 전적이 늘면 광장 프로필도 즉시 갱신
 }
-// 🎒 내 AI 보유 현황 — 로컬 모델 + 내 HF 모델 합산(보유), 누적 전적(데이터셋·합성·학습) 결합
+// 🎒 내 AI 보유 현황 — 로컬 모델 + 내 HF 모델 합산(보유), 누적 전적(데이터셋·진화·학습) 결합
 async function gatherInventory() {
   const c = loadConfig();
   const localList = (() => { try { return listLocalModels(modelsDir()); } catch { return []; } })();
@@ -1827,7 +1827,7 @@ async function gatherInventory() {
   return { models, localModels: localCount, hfModels: hfModels.length, datasets, fusions, trains, totalLevel: trains + fusions, topModel };
 }
 ipcMain.handle('inventory:get', () => gatherInventory());
-// 🧬 내 AI 팀 — 학습/합성으로 만든 모델을 캐릭터로 기록
+// 🧬 내 AI 팀 — 학습/진화으로 만든 모델을 캐릭터로 기록
 function recordCreatedModel(method: 'train' | 'fusion', id: string, name?: string, baseModel?: string) {
   if (!id) return;
   const c = loadConfig(); const cm = { ...(c.createdModels || {}) };
@@ -1927,7 +1927,7 @@ ipcMain.handle('train:cloudStatus', async () => {
   const c = loadConfig(); const backend = trainBackendBase(c); const j = c.cloudJob;
   if (backend && j?.backend) {
     const user = await fbIdToken(); const userId = user?.uid || installId();
-    const ep = j.kind === 'merge' ? 'mergeStatus' : 'trainStatus';   // 🔪 합성/학습 각자 게이트 조회
+    const ep = j.kind === 'merge' ? 'mergeStatus' : 'trainStatus';   // 🔪 진화/학습 각자 게이트 조회
     try { const r = await axios.get(`${backend}/${ep}`, { params: { userId }, timeout: 15000 }); if (r.data?.outputRepo) saveConfig({ cloudJob: { ...j, outRepo: r.data.outputRepo } }); return r.data; }
     catch (e: any) { return { ok: false, error: e?.response?.data?.error || e?.message || String(e) }; }
   }
@@ -1946,9 +1946,9 @@ ipcMain.handle('train:cloudInstall', async () => {
       // GGUF 없음 → 학습이 끝났는지(어댑터/safetensors 존재) 확인해 정확히 안내 (변환 실패 vs 아직 진행중 구분)
       let hasModel = false;
       try { const tr = await axios.get(`https://huggingface.co/api/models/${j.outRepo}/tree/main?recursive=1`, { timeout: 12000 }); hasModel = (tr.data || []).some((e: any) => /\.safetensors$|adapter_config\.json$|adapter_model/i.test(e.path || '')); } catch { /* */ }
-      const isMerge = j.kind === 'merge';   // 🔪 합성/학습 문구 구분
-      if (hasModel) return { ok: false, adapterOnly: true, repo: `https://huggingface.co/${j.outRepo}`, error: isMerge ? '합성은 끝났는데 자동 GGUF 변환이 실패해 모델 파일(safetensors)만 올라가 있어요. 🔁 다시 합성하면 GGUF까지 재시도해요. (이 형식은 앱 내장 엔진에서 바로 못 켜요)' : '학습은 끝났는데 자동 GGUF 변환이 실패해 어댑터(safetensors)만 올라가 있어요. 🔁 다시 학습을 돌리면 GGUF까지 재시도해요. (어댑터 형식은 앱 내장 엔진에서 바로 못 켜요)' };
-      return { ok: false, error: `아직 GGUF가 없어요 — ${isMerge ? '합성' : '학습'}이 진행 중이거나 막 끝난 직후일 수 있어요. 잠시 후 다시 시도하세요.` };
+      const isMerge = j.kind === 'merge';   // 🔪 진화/학습 문구 구분
+      if (hasModel) return { ok: false, adapterOnly: true, repo: `https://huggingface.co/${j.outRepo}`, error: isMerge ? '진화은 끝났는데 자동 GGUF 변환이 실패해 모델 파일(safetensors)만 올라가 있어요. 🔁 다시 진화하면 GGUF까지 재시도해요. (이 형식은 앱 내장 엔진에서 바로 못 켜요)' : '학습은 끝났는데 자동 GGUF 변환이 실패해 어댑터(safetensors)만 올라가 있어요. 🔁 다시 학습을 돌리면 GGUF까지 재시도해요. (어댑터 형식은 앱 내장 엔진에서 바로 못 켜요)' };
+      return { ok: false, error: `아직 GGUF가 없어요 — ${isMerge ? '진화' : '학습'}이 진행 중이거나 막 끝난 직후일 수 있어요. 잠시 후 다시 시도하세요.` };
     }
     const fp = (f as any).path || (f as any).rfilename || f;
     const p = await downloadGGUF(j.outRepo, fp, modelsDir(), (pr) => { try { win?.webContents.send('hf:progress', { repo: j.outRepo, file: fp, ...pr }); } catch { /* */ } });
@@ -1967,7 +1967,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
     const user = await fbIdToken();
-    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 합성됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
+    if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 진화됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName, userHfToken: connOf('huggingface').HF_TOKEN || '' }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유)
@@ -1976,14 +1976,14 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드 거절(코드·로그인·캡) + 본인 HF 없음 → 그대로 안내
       } catch (e: any) {
         const st = e?.response?.status;
-        if (!hasHf) return { ok: false, error: `합성 서버가 잠시 불안정해요(${st || '네트워크'}). 잠시 후 다시 시도하거나 🆓 무료로 직접 하기(Colab)를 쓰세요.` };
+        if (!hasHf) return { ok: false, error: `진화 서버가 잠시 불안정해요(${st || '네트워크'}). 잠시 후 다시 시도하거나 🆓 무료로 직접 하기(Colab)를 쓰세요.` };
         // 본인 HF 토큰 있으면 아래 직접 모드로 폴백(파워유저)
       }
     }
   }
   // ── 직접 모드(백엔드 미설정/불안정 + 파워유저) — 본인 HF Pro 토큰 ──
   const h = connOf('huggingface');
-  if (!h.HF_TOKEN) return { ok: false, error: '💎 무료 서버 합성은 회원 로그인이 필요해요. 또는 🆓 무료로 직접 하기(Colab)로 결제 없이 합성하세요.' };
+  if (!h.HF_TOKEN) return { ok: false, error: '💎 무료 서버 진화은 회원 로그인이 필요해요. 또는 🆓 무료로 직접 하기(Colab)로 결제 없이 진화하세요.' };
   const me = await hfUsername(h.HF_TOKEN);
   if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
   const script = scriptText('merge_uv.py');
@@ -2000,7 +2000,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   if (job.ok && job.jobId) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', outRepo, outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { kind: 'merge', id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }   // 기존 상태/설치 UI 재사용
   return { ...job, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
-// 🆓 무료 합성 — 비멤버용. 같은 합성을 Colab 무료 GPU에서 직접(노트북 생성→깃→Colab 원클릭). 비번·GPU 게이트 없음.
+// 🆓 무료 진화 — 비멤버용. 같은 진화을 Colab 무료 GPU에서 직접(노트북 생성→깃→Colab 원클릭). 비번·GPU 게이트 없음.
 ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method = 'task_add', scale = 1.0, outName = '') => {
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요.' };
   const g = connOf('github'), h = connOf('huggingface');
@@ -2011,14 +2011,14 @@ ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method =
   const nb = buildSurgeryNotebook(method, modelA, modelB, Number(scale) || 1.0, outRepo);
   const fileName = `connect-ai/surgery-${method}.ipynb`;
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
-    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 합성 노트북 (${method})`);
+    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 진화 노트북 (${method})`);
     if (r.ok && r.url) return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, outRepo };
   }
   const out = path.join(os.homedir(), 'Desktop', `connect-ai-surgery-${method}.ipynb`);
   try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', outRepo, note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
-// 🚫 진행 중(또는 멈춘) 클라우드 작업 취소 — 학습·합성 공용(cloudJob 하나 공유)
+// 🚫 진행 중(또는 멈춘) 클라우드 작업 취소 — 학습·진화 공용(cloudJob 하나 공유)
 ipcMain.handle('cloud:cancel', async () => {
   const c: any = loadConfig(); const j = c.cloudJob; const h = connOf('huggingface');
   let cancelled = false;

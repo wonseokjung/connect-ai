@@ -368,13 +368,13 @@
       <div class="ai-sec">우리 팀 <span class="muted small" style="font-weight:400">— 카드 클릭=관리 · 미리보기 클릭=사무실</span></div>
       <div class="office-preview" id="officePreview" title="누르면 사무실 크게 보기"></div>
       <div class="team-roster" id="teamRoster"></div>
-      <div class="ai-sec">🧬 내가 만든 AI <span class="muted small" style="font-weight:400">— 🌱학습·🧬합성으로 모은 캐릭터 · 클릭해서 꾸미기</span></div>
+      <div class="ai-sec">🧬 내가 만든 AI <span class="muted small" style="font-weight:400">— 🌱학습·🧬진화으로 모은 캐릭터 · 클릭해서 꾸미기</span></div>
       <div class="created-models" id="createdModels"></div>
       <div class="ai-sec">공통 두뇌 <span class="muted" style="font-weight:400;text-transform:none;letter-spacing:0">— 전용 두뇌 없는 캐릭터들의 기본</span></div>
       <div class="ai-current" id="aiCurrent"></div>
       <div class="ai-sec">내 모델</div>
       <div class="local-models" id="localModels"></div>
-      <button class="surgery-entry" id="surgeryOpenBtn"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 합성소</b><span>두 두뇌를 하나로 — 합치기</span></span><span class="se-arr">→</span></button>
+      <button class="surgery-entry" id="surgeryOpenBtn"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 진화소</b><span>두 두뇌를 하나로 — 합치기</span></span><span class="se-arr">→</span></button>
       <div class="ai-sec">검색</div>
       <div class="hf-search">
         <input id="hfQuery" placeholder="qwen, llama, gemma…" autocomplete="off" />
@@ -415,10 +415,10 @@
       </details>
     </div>
   </div>
-  <!-- 🔪 AI 합성소 — 두 모델을 GPU(HF Jobs)에서 합치기. 코랩 불필요. -->
+  <!-- 🔪 AI 진화소 — 두 모델을 GPU(HF Jobs)에서 합치기. 코랩 불필요. -->
   <div class="overlay hidden" id="surgeryPanel">
     <div class="overlay-card surgery-card">
-      <div class="overlay-head"><button class="overlay-back" data-close="surgeryPanel" title="뒤로 — 입력한 내용은 저장돼요">← 뒤로</button>🔪 AI 합성소 <span class="surg-beta">BETA</span><span class="surg-saved" title="입력한 모델·이름·강도는 자동 저장돼요 (앱을 꺼도 유지)">💾 자동저장</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
+      <div class="overlay-head"><button class="overlay-back" data-close="surgeryPanel" title="뒤로 — 입력한 내용은 저장돼요">← 뒤로</button>🔪 AI 진화소 <span class="surg-beta">BETA</span><span class="surg-saved" title="입력한 모델·이름·강도는 자동 저장돼요 (앱을 꺼도 유지)">💾 자동저장</span><button class="overlay-x" data-close="surgeryPanel">✕</button></div>
       <div class="surg-body" id="surgBody"></div>
     </div>
   </div>
@@ -457,7 +457,7 @@
       <div class="manage-tabs">
         <button class="btab active" data-btab="short">⚡ 단기 기억</button>
         <button class="btab" data-btab="long">🌱 장기 기억 <span class="beta">BETA</span></button>
-        <button class="btab" data-btab="surgery">🧬 AI 합성 <span class="beta">BETA</span></button>
+        <button class="btab" data-btab="surgery">🧬 AI 진화 <span class="beta">BETA</span></button>
       </div>
       <!-- 단기 기억 = GitHub 동기화 -->
       <div class="bsec" id="bsec-short">
@@ -618,32 +618,32 @@
         </details>
       </div>
 
-      <!-- 🧬 AI 합성 = weight surgery (학습 없이 가중치 직접 조작) -->
+      <!-- 🧬 AI 진화 = weight surgery (학습 없이 가중치 직접 조작) -->
       <div class="bsec hidden" id="bsec-surgery">
-        <!-- 🧬 게임 히어로 — 합성소 -->
+        <!-- 🧬 게임 히어로 — 진화소 -->
         <div class="game-hero gh-purple">
           <div class="gh-emoji">🧬</div>
           <div class="gh-mid">
-            <div class="gh-cap">AI 합성소</div>
+            <div class="gh-cap">AI 진화소</div>
             <div class="gh-big">두 AI를 하나로 합치기</div>
             <div class="gh-sub">내가 만든 AI 둘을 합쳐 더 똑똑한 AI로</div>
           </div>
-          <button class="gh-go" id="ghHeroFuse">⚡ 합성</button>
+          <button class="gh-go" id="ghHeroFuse">⚡ 진화</button>
         </div>
-        <!-- 📚 아래는 '배우기' 영역 — 위 히어로(합성 실행)와 역할이 다름 -->
+        <!-- 📚 아래는 '배우기' 영역 — 위 히어로(진화 실행)와 역할이 다름 -->
         <details class="tab-tools" open>
           <summary>📚 원리 배우기 — 논문 실습 (무료)</summary>
-        <div class="muted small" style="margin:4px 0 8px">📄 = 논문으로 배우기 · 🔒 = 앱에서 직접 합성</div>
+        <div class="muted small" style="margin:4px 0 8px">📄 = 논문으로 배우기 · 🔒 = 앱에서 직접 진화</div>
         <div class="surg-grid">
           <div class="surg-card" data-nb="model_merging" title="두 AI 가중치를 섞어 둘 다 잘하는 모델 — SLERP·mergekit">
             <div class="surg-emoji">🧬</div>
             <div class="surg-t">모델 합치기</div>
-            <button class="surg-try" data-try="slerp">🔒 합성</button>
+            <button class="surg-try" data-try="slerp">🔒 진화</button>
           </div>
           <div class="surg-card" data-nb="task_arithmetic" title="능력=벡터. 학습모델−원본으로 능력만 추출·이식 — Editing Models with Task Arithmetic (2212.04089)">
             <div class="surg-emoji">➗</div>
             <div class="surg-t">Task Arithmetic</div>
-            <button class="surg-try" data-try="task_add">🔒 합성</button>
+            <button class="surg-try" data-try="task_add">🔒 진화</button>
           </div>
           <div class="surg-card" data-nb="lora" title="작은 어댑터(LoRA)만 학습해 내 지식·말투를 체득 — 장기기억의 원리">
             <div class="surg-emoji">🎓</div>
