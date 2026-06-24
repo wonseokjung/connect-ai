@@ -93,7 +93,7 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
   const isBlend = !method.startsWith('task');   // slerp/blend 등
   const title = isBlend ? '🔀 두 AI 섞기 (Blend)' : isSub ? '➖ 능력 빼기 (Task Arithmetic · Negation)' : '➕ 능력 더하기 (Task Arithmetic · Addition)';
   const concept = isBlend
-    ? ['## 🔀 두 AI를 섞어 새 AI 만들기\n', '`결과 = 원본 + 강도×(상대 − 원본)` — 두 모델 가중치를 섞습니다.\n']
+    ? ['## 🌐 두 AI를 섞어 새 AI 만들기 — SLERP(구면 선형 보간)\n', '**SLERP**: 두 가중치를 직선이 아니라 **구면(곡면)을 따라** 부드럽게 섞어요. 원조는 컴퓨터그래픽스 논문 **K. Shoemake, SIGGRAPH 1985** (3D 회전 보간) — 그걸 모델 병합에 가져온 거예요.\n']
     : isSub
       ? ['## ➖ 능력 빼기 — Task Arithmetic (Negation)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 능력모델 − 강도×τ` → 그 능력만 지워 원본 쪽으로.\n']
       : ['## ➕ 능력 더하기 — Task Arithmetic (Addition)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 원본 + 강도×τ` → 원본이 그 능력을 획득.\n'];
@@ -129,13 +129,31 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
       'base_id, other_id = (MODEL_B, MODEL_A) if METHOD == "task_sub" else (MODEL_A, MODEL_B)\n',
       'print("📥 두 모델 로딩…")\n',
       'base = load(base_id); other = load(other_id)\n', '\n',
-      '# 핵심: 결과 = base + SCALE×(other − base)  (Task Arithmetic / 블렌드 공통, 구조 무관)\n',
+      '# 🌐 SLERP(구면 선형 보간) — Shoemake 1985. 두 가중치를 구면을 따라 t만큼 보간.\n',
+      'def slerp(a, b, t):\n',
+      '    af, bf = a.flatten().float(), b.flatten().float()\n',
+      '    na, nb = af.norm(), bf.norm()\n',
+      '    if na < 1e-8 or nb < 1e-8:\n',
+      '        return torch.lerp(a.float(), b.float(), t).to(a.dtype)\n',
+      '    dot = ((af / na) * (bf / nb)).sum().clamp(-1.0, 1.0)\n',
+      '    theta = torch.arccos(dot)\n',
+      '    if theta < 1e-4:                      # 거의 평행 → 직선 보간으로 안전 폴백\n',
+      '        return torch.lerp(a.float(), b.float(), t).to(a.dtype)\n',
+      '    st = torch.sin(theta)\n',
+      '    out = (torch.sin((1 - t) * theta) / st) * af + (torch.sin(t * theta) / st) * bf\n',
+      '    return out.reshape(a.shape).to(a.dtype)\n', '\n',
+      '# blend=SLERP(구면) · task=Task Arithmetic(base + λ(other−base)) — 구조 무관\n',
       'o = dict(other.named_parameters()); applied = 0\n',
+      'is_task = METHOD.startswith("task")\n',
       'with torch.no_grad():\n',
       '    for n, p in base.named_parameters():\n',
       '        q = o.get(n)\n',
-      '        if q is not None and q.shape == p.shape:\n',
-      '            p.add_((q.data.to(p.dtype) - p.data) * float(SCALE)); applied += 1\n',
+      '        if q is None or q.shape != p.shape: continue\n',
+      '        if is_task:\n',
+      '            p.add_((q.data.to(p.dtype) - p.data) * float(SCALE))           # ➕➖ 능력 더하기/빼기\n',
+      '        else:\n',
+      '            p.copy_(slerp(p.data, q.data.to(p.dtype), float(SCALE)))        # 🌐 SLERP 섞기\n',
+      '        applied += 1\n',
       'print(f"✅ {applied}개 가중치에 적용 (방식={METHOD}, 강도={SCALE})")\n', '\n',
       '# 결과를 내 HuggingFace에 업로드\n',
       'base.push_to_hub(OUTPUT)\n',

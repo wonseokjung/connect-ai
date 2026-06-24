@@ -5,7 +5,7 @@ import { parseTextTools } from '../src/engine/company';
 import { stripTools } from '../src/engine/tools';
 import { apiError, sanitizeContent, chooseModel, ctxOverflow, trimForCtx } from '../src/engine/llm';
 import { diagCode } from '../src/engine/localengine';
-import { METHODS, buildMethodNotebook } from '../src/engine/methods';
+import { METHODS, buildMethodNotebook, buildSurgeryNotebook } from '../src/engine/methods';
 import { runTool, isDangerousCommand } from '../src/engine/tools';
 import { setBrainFile, addNote, allNotes } from '../src/engine/brain';
 import * as fs from 'fs';
@@ -301,6 +301,20 @@ ok('sanitize 여러 surrogate 연속 제거', sanitizeContent('a\uD800\uD801b') 
   // user 메시지 없는(assistant만) 리스트도 빈 배열 안 만든다(#가드)
   const noUser: any[] = [{ role: 'assistant', content: 'A'.repeat(9000) }];
   ok('user없는 리스트도 빈배열 아님', trimForCtx(noUser, { req: 9000, ctx: 1024 }).length >= 1);
+}
+
+// ── 🧬 무료 Colab 진화 노트북 — 유효 JSON + 방식별 코드(라이브 강의용) ──
+{
+  const slerpNb = buildSurgeryNotebook('slerp', 'A/x', 'B/y', 0.5, 'me/out');
+  const taskNb = buildSurgeryNotebook('task_add', 'A/x', 'B/y', 1.0, 'me/out');
+  let slerpJson: any = null, taskJson: any = null;
+  try { slerpJson = JSON.parse(slerpNb); } catch { /* */ }
+  try { taskJson = JSON.parse(taskNb); } catch { /* */ }
+  ok('진화 노트북(slerp) 유효 JSON', !!slerpJson && Array.isArray(slerpJson.cells));
+  ok('진화 노트북(task) 유효 JSON', !!taskJson && Array.isArray(taskJson.cells));
+  ok('slerp 노트북에 진짜 SLERP 코드(구면보간)', /def slerp/.test(slerpNb) && /arccos/.test(slerpNb));
+  ok('task 노트북은 Task Arithmetic(논문 2212.04089)', /2212\.04089/.test(taskNb));
+  ok('노트북에 GPU(T4) 가속 설정', /T4/.test(slerpNb));
 }
 
 // ── 결과 ─────────────────────────────────────────────────────
