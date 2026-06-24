@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' file: data: https:; script-src 'self'; connect-src *;" />
+<title>매출 대시보드 — Connect AI</title>
+<link rel="stylesheet" href="./revenue-dashboard.css" />
+</head>
+<body>
+  <!-- Glyph rain background -->
+  <div class="glyph-rain" id="glyphRain"></div>
+
+  <div class="wrap">
+    <header class="hero">
+      <div class="hero-mark">💎</div>
+      <div class="hero-info">
+        <div class="eyebrow">CONNECT AI · BUSINESS COMMAND CENTER</div>
+        <h1>비즈니스 리포트</h1>
+        <div class="hero-sub">
+          내 웹사이트·채널 라이브 + PayPal 매출 실시간 · <span class="live">LIVE</span>
+          <span style="margin-left:8px;color:var(--text-3);font-size:.8rem" id="generated"></span>
+        </div>
+      </div>
+      <div class="hero-actions">
+        <button class="btn brief" id="briefBtn">🎙️ AI 브리핑</button>
+        <button class="btn" id="refreshBtn">🔄 새로고침</button>
+        <button class="btn" id="settingsBtn">⚙️ 설정</button>
+      </div>
+    </header>
+
+    <!-- 🎙️ AI 비서 브리핑 (쇼케이스) -->
+    <div class="ai-brief hidden" id="aiBrief">
+      <div class="ab-orb" id="abOrb">🤖</div>
+      <div class="ab-main"><div class="ab-label">AI 비서 · 비즈니스 브리핑</div><div class="ab-text" id="abText"></div></div>
+    </div>
+
+    <!-- 🤖 자율 운영 현황 — 지금 일하는 에이전트 · 오늘의 작전 -->
+    <section class="ops-live hidden" id="opsLive">
+      <div class="ops-live-head">
+        <div class="ops-live-pulse"><span class="opl-dot"></span><span id="oplState">자율 운영 중</span></div>
+        <div class="ops-live-meta"><span id="oplRuns">0회 분석</span><span class="opl-sep">·</span><span id="oplNext">다음 점검 대기</span><button class="opl-stop" id="oplStop" title="자율 운영 멈추기">⏸ 중지</button></div>
+      </div>
+      <div class="ops-live-summary" id="oplSummary"></div>
+      <div class="opl-activity hidden" id="oplActivity"></div>
+      <div class="opl-feed hidden" id="oplFeed"></div>
+      <div class="ops-live-grid">
+        <div class="opl-col">
+          <div class="opl-h">지금 일하는 에이전트</div>
+          <div class="opl-agents" id="oplAgents"></div>
+        </div>
+        <div class="opl-col">
+          <div class="opl-h">오늘의 작전</div>
+          <div class="opl-actions" id="oplActions"></div>
+        </div>
+      </div>
+      <div class="opl-shipped hidden" id="oplShippedWrap">
+        <div class="opl-h" style="display:flex;align-items:center">🚀 실제로 처리한 일 (SHIPPED)<button class="opl-clear" id="oplClear" title="지난 기록 비우기">🧹 비우기</button></div>
+        <div class="opl-ships" id="oplShipped"></div>
+      </div>
+    </section>
+
+    <!-- 내 비즈니스 — 등록 웹사이트/채널 라이브 -->
+    <section class="biz-section hidden" id="bizSection">
+      <div class="biz-head"><span class="biz-mark">🧭</span><div><div class="eyebrow">MY BUSINESS · LIVE</div><h2 style="margin:2px 0 0;font-size:1.3rem">내 비즈니스</h2></div></div>
+      <div class="biz-grid" id="bizGrid"></div>
+    </section>
+
+    <div id="emptyArea" class="hidden"></div>
+
+    <div class="kpi-strip">
+      <div class="kpi today">
+        <div class="kpi-label">오늘 매출</div>
+        <div class="kpi-value" id="kpiToday" data-last="0">0.00</div>
+        <div class="kpi-unit"><span id="curLabel">USD</span></div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">지난 7일</div>
+        <div class="kpi-value" id="kpiWeek" data-last="0">0.00</div>
+        <div class="kpi-unit">7-day rolling</div>
+      </div>
+      <div class="kpi month">
+        <div class="kpi-label">이번 달 (30일)</div>
+        <div class="kpi-value" id="kpiMonth" data-last="0">0.00</div>
+        <div class="kpi-sub" id="kpiMonthSub">—</div>
+      </div>
+      <div class="kpi">
+        <div class="kpi-label">순매출 / 거래수</div>
+        <div class="kpi-value" id="kpiNet" data-last="0">0.00</div>
+        <div class="kpi-unit"><span id="kpiCount" data-last="0">0</span>건</div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <div class="section">
+          <h2>30일 일별 매출 추이</h2>
+          <div class="spark-wrap">
+            <svg class="spark-svg" id="sparkSvg" viewBox="0 0 800 160" preserveAspectRatio="none"></svg>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section">
+          <h2>프로젝트 구성</h2>
+          <div class="donut-wrap">
+            <div class="donut-rel">
+              <svg class="donut-svg" id="donutSvg" viewBox="0 0 200 200"></svg>
+              <div class="donut-center">
+                <div class="label">Total</div>
+                <div class="val" id="donutCenterVal" data-last="0">0</div>
+              </div>
+            </div>
+            <div class="donut-legend" id="donutLegend"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 📺 유튜브 라이브 -->
+    <section class="cc-section hidden" id="ytSection">
+      <div class="biz-head"><span class="biz-mark">📺</span><div><div class="eyebrow">YOUTUBE · LIVE</div><h2 style="margin:2px 0 0;font-size:1.3rem" id="ytTitle">유튜브 채널</h2></div></div>
+      <div class="kpi-strip" style="margin-top:14px">
+        <div class="kpi today"><div class="kpi-label">구독자</div><div class="kpi-value" id="ytSubs" data-last="0">0</div></div>
+        <div class="kpi"><div class="kpi-label">총 조회수</div><div class="kpi-value" id="ytViews" data-last="0">0</div></div>
+        <div class="kpi"><div class="kpi-label">영상 수</div><div class="kpi-value" id="ytVideos" data-last="0">0</div></div>
+        <div class="kpi month"><div class="kpi-label">평균 시청률</div><div class="kpi-value" id="ytAvgPct" data-last="0">0</div><div class="kpi-unit">%</div></div>
+      </div>
+      <div class="yt-vids" id="ytVids"></div>
+    </section>
+
+    <!-- ⚡ 깃허브 개발 활동 -->
+    <section class="cc-section hidden" id="ghSection">
+      <div class="biz-head"><span class="biz-mark">⚡</span><div><div class="eyebrow">DEV · GITHUB</div><h2 style="margin:2px 0 0;font-size:1.3rem" id="ghRepo">개발 활동</h2></div></div>
+      <div class="card" style="margin-top:14px"><div class="section">
+        <h2>커밋 활동 (일별)</h2>
+        <div class="spark-wrap"><svg class="spark-svg" id="ghSpark" viewBox="0 0 800 120" preserveAspectRatio="none"></svg></div>
+        <div class="gh-feed" id="ghFeed"></div>
+      </div></div>
+    </section>
+
+    <div class="row" style="margin-top:20px">
+      <div class="card">
+        <div class="section">
+          <h2>프로젝트별 상세</h2>
+          <div id="projBars"></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="section">
+          <h2>최근 거래</h2>
+          <div class="feed" id="feed">
+            <div class="skeleton" style="height:60px;margin-bottom:10px"></div>
+            <div class="skeleton" style="height:60px;margin-bottom:10px"></div>
+            <div class="skeleton" style="height:60px"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="burst" id="burst"></div>
+  <script src="./revenue-dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,541 @@
+name: Build Connect AI Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_url:
+        description: URL for Connect-AI-0.4.8-arm64-mac.zip
+        required: false
+        type: string
+      baseline_sha256:
+        description: Optional SHA-256 for the baseline zip
+        required: false
+        type: string
+      publish_release:
+        description: Upload artifacts to the matching GitHub Release
+        required: false
+        default: false
+        type: boolean
+  push:
+    tags:
+      - 'desktop-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  mac-arm64:
+    name: macOS arm64 signed DMG
+    runs-on: macos-14
+    timeout-minutes: 90
+    env:
+      CONNECT_AI_REQUIRE_GITHUB_OPERATOR_READINESS: '1'
+      CONNECT_AI_ZIP: ${{ runner.temp }}/Connect-AI-0.4.8-arm64-mac.zip
+      CONNECT_AI_ZIP_SHA256: ${{ github.event.inputs.baseline_sha256 || vars.CONNECT_AI_BASELINE_SHA256 }}
+      CONNECT_AI_BASELINE_URL: ${{ github.event.inputs.baseline_url || vars.CONNECT_AI_BASELINE_URL }}
+      CONNECT_AI_BASELINE_TOKEN: ${{ secrets.CONNECT_AI_BASELINE_TOKEN }}
+      GH_TOKEN: ${{ secrets.CONNECT_AI_RELEASE_AUDIT_TOKEN || github.token }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_KEYCHAIN_PROFILE: ${{ secrets.APPLE_KEYCHAIN_PROFILE }}
+      BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+      P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+    defaults:
+      run:
+        working-directory: desktop
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.12.0'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify release environment contract
+        run: npm run verify:release-env-contract
+
+      - name: Release environment checklist
+        run: npm run release:env-check:process:strict
+
+      - name: Write release setup plan
+        if: always()
+        run: npm run release:setup-plan
+
+      - name: Verify release setup plan
+        if: always()
+        run: npm run verify:setup-plan:strict:report
+
+      - name: Write release unblock plan
+        if: always()
+        run: npm run release:unblock-plan
+
+      - name: Verify release unblock plan
+        if: always()
+        run: npm run verify:unblock-plan:strict:report
+
+      - name: Write release credential handoff
+        if: always()
+        run: npm run release:credential-handoff
+
+      - name: Verify release credential handoff
+        if: always()
+        run: npm run verify:credential-handoff:strict:report
+
+      - name: Write release env bootstrap
+        if: always()
+        run: npm run release:env-bootstrap
+
+      - name: Verify release env bootstrap
+        if: always()
+        run: npm run verify:env-bootstrap:strict:report
+
+      - name: GitHub repository setup report
+        if: always()
+        run: npm run release:github-setup:process:strict:report
+
+      - name: Upload release environment diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-ai-desktop-release-env
+          path: |
+            desktop/release/release-env-contract-report.json
+            desktop/release/release-env-report.process.json
+            desktop/release/release-setup-plan.json
+            desktop/release/RELEASE_SETUP_PLAN.md
+            desktop/release/release-setup-plan-report.strict.json
+            desktop/release/release-unblock-plan.json
+            desktop/release/RELEASE_UNBLOCK_PLAN.md
+            desktop/release/release-unblock-plan-report.strict.json
+            desktop/release/release-credential-handoff.json
+            desktop/release/RELEASE_CREDENTIAL_HANDOFF.md
+            desktop/release/release-credential-handoff-report.strict.json
+            desktop/release/release-env-bootstrap.json
+            desktop/release/RELEASE_ENV_BOOTSTRAP.md
+            desktop/release/release-env.local.template
+            desktop/release/release-env-bootstrap-report.strict.json
+            desktop/release/github-release-setup-report.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Verify release tag
+        run: npm run verify:release-tag
+
+      - name: Download baseline app zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${CONNECT_AI_BASELINE_URL}" ]; then
+            echo "::error::Set workflow input baseline_url or repository variable CONNECT_AI_BASELINE_URL."
+            exit 1
+          fi
+          mkdir -p "$(dirname "${CONNECT_AI_ZIP}")"
+          if [ -n "${CONNECT_AI_BASELINE_TOKEN}" ]; then
+            curl -fL --retry 3 --retry-delay 5 \
+              -H "Authorization: Bearer ${CONNECT_AI_BASELINE_TOKEN}" \
+              -o "${CONNECT_AI_ZIP}" \
+              "${CONNECT_AI_BASELINE_URL}"
+          else
+            curl -fL --retry 3 --retry-delay 5 \
+              -o "${CONNECT_AI_ZIP}" \
+              "${CONNECT_AI_BASELINE_URL}"
+          fi
+          ls -lh "${CONNECT_AI_ZIP}"
+
+      - name: Export baseline evidence
+        run: npm run release:baseline-export
+
+      - name: Verify baseline export evidence
+        run: npm run verify:baseline-export:strict:report
+
+      - name: Release operator checklist
+        run: npm run release:operator-checklist:strict
+
+      - name: Prepare Apple signing credentials
+        run: node scripts/setup-macos-signing.mjs --import-p12 --restore-api-key --check --strict
+
+      - name: Post-signing operator checklist
+        run: npm run release:operator-checklist:strict
+
+      - name: GitHub repository configuration checklist
+        run: npm run release:operator-checklist:github:strict
+
+      - name: Refresh release setup plan
+        if: always()
+        run: npm run release:setup-plan
+
+      - name: Verify release setup plan
+        if: always()
+        run: npm run verify:setup-plan:strict:report
+
+      - name: Production release runbook report
+        if: always()
+        run: npm run release:operator-runbook:process:strict:report
+
+      - name: Verify production release runbook report
+        if: always()
+        run: npm run verify:operator-runbook-report:strict:report
+
+      - name: GitHub Release publish plan
+        if: always()
+        run: npm run release:publish-assets:plan
+
+      - name: Verify GitHub Release publish plan
+        if: always()
+        run: npm run verify:github-release-publish-plan:strict:report
+
+      - name: Production readiness summary
+        if: always()
+        run: npm run release:readiness-summary:strict:report
+
+      - name: Verify production readiness summary
+        if: always()
+        run: npm run verify:readiness-summary-report:strict:report
+
+      - name: Release unblock plan
+        if: always()
+        run: npm run release:unblock-plan
+
+      - name: Verify release unblock plan
+        if: always()
+        run: npm run verify:unblock-plan:strict
+
+      - name: Release credential handoff
+        if: always()
+        run: npm run release:credential-handoff
+
+      - name: Verify release credential handoff
+        if: always()
+        run: npm run verify:credential-handoff:strict:report
+
+      - name: Release env bootstrap
+        if: always()
+        run: |
+          npm run release:env-bootstrap
+          npm run verify:env-bootstrap:strict:report
+
+      - name: Release publication seal
+        if: always()
+        run: npm run release:publication-seal:strict:report
+
+      - name: Verify release publication seal
+        if: always()
+        run: npm run verify:publication-seal-report:strict:report
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Smoke test
+        run: npm run smoke
+
+      - name: Build signed DMG
+        run: npm run dist
+
+      - name: Strict release verification
+        run: npm run verify:release
+
+      - name: Refresh release status graph
+        if: always()
+        run: npm run release:status-refresh
+
+      - name: Verify release status graph
+        if: always()
+        run: npm run verify:status-refresh-report:strict:report
+
+      - name: Engineering readiness summary
+        if: always()
+        run: npm run release:engineering-readiness
+
+      - name: GitHub Release remediation plan
+        if: always()
+        run: |
+          npm run release:github-release-remediation-plan
+          npm run release:asset-manifest
+          npm run verify:github-release-remediation-plan:strict:report
+          npm run release:github-release-remediation-apply:plan
+          npm run verify:github-release-remediation-apply-plan:strict:report
+          npm run release:asset-manifest
+
+      - name: Refresh release setup plan after readiness summary
+        if: always()
+        run: npm run release:setup-plan
+
+      - name: Verify release setup plan after readiness summary
+        if: always()
+        run: npm run verify:setup-plan:strict:report
+
+      - name: Commercial cutover plan
+        if: always()
+        run: npm run release:commercial-cutover:final
+
+      - name: Verify commercial cutover plan
+        if: always()
+        run: npm run verify:commercial-cutover:strict:report
+
+      - name: Verify commercial release readiness
+        if: always()
+        run: npm run verify:commercial-release:strict:report
+
+      - name: Finalize commercial release status
+        if: always()
+        run: npm run release:commercial-finalize
+
+      - name: Release preflight
+        run: |
+          npm run release:preflight:strict:report
+          npm run release:preflight:strict
+
+      - name: Upload preflight diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-ai-desktop-preflight
+          path: |
+            desktop/release/preflight-report.strict.json
+            desktop/release/release-env-contract-report.json
+            desktop/release/release-env-bootstrap.json
+            desktop/release/RELEASE_ENV_BOOTSTRAP.md
+            desktop/release/release-env.local.template
+            desktop/release/release-env-bootstrap-report.strict.json
+            desktop/release/temp-cleanup-report.json
+            desktop/release/status-refresh-report.json
+            desktop/release/status-refresh-report-verification.strict.json
+            desktop/release/github-release-assets-report.strict.json
+            desktop/release/github-release-remediation-plan.json
+            desktop/release/GITHUB_RELEASE_REMEDIATION_PLAN.md
+            desktop/release/github-release-remediation-plan-report.json
+            desktop/release/github-release-remediation-plan-report.strict.json
+            desktop/release/github-release-remediation-apply-plan.json
+            desktop/release/github-release-remediation-apply-plan-report.strict.json
+            desktop/release/release-env-report.process.json
+            desktop/release/operator-readiness.json
+            desktop/release/operator-readiness.github.json
+            desktop/release/signing-readiness.json
+            desktop/release/github-release-setup-report.json
+            desktop/release/github-release-publish-plan.json
+            desktop/release/github-release-publish-plan-report.strict.json
+            desktop/release/production-release-runbook-report.json
+            desktop/release/production-release-runbook-report-verification.strict.json
+            desktop/release/production-readiness-summary.json
+            desktop/release/PRODUCTION_READINESS_SUMMARY.md
+            desktop/release/production-readiness-summary-verification.strict.json
+            desktop/release/engineering-readiness-report.json
+            desktop/release/ENGINEERING_READINESS.md
+            desktop/release/commercial-cutover-plan.json
+            desktop/release/COMMERCIAL_CUTOVER_PLAN.md
+            desktop/release/commercial-cutover-plan-report.strict.json
+            desktop/release/commercial-release-readiness-report.strict.json
+            desktop/release/commercial-finalization-report.json
+            desktop/release/COMMERCIAL_FINALIZATION.md
+            desktop/release/commercial-finalization-report-verification.strict.json
+            desktop/release/release-setup-plan.json
+            desktop/release/RELEASE_SETUP_PLAN.md
+            desktop/release/release-setup-plan-report.strict.json
+            desktop/release/release-unblock-plan.json
+            desktop/release/RELEASE_UNBLOCK_PLAN.md
+            desktop/release/release-unblock-plan-report.json
+            desktop/release/release-unblock-plan-report.strict.json
+            desktop/release/release-credential-handoff.json
+            desktop/release/RELEASE_CREDENTIAL_HANDOFF.md
+            desktop/release/release-credential-handoff-report.json
+            desktop/release/release-credential-handoff-report.strict.json
+            desktop/release/release-publication-seal.json
+            desktop/release/RELEASE_PUBLICATION_SEAL.md
+            desktop/release/release-publication-seal-verification.strict.json
+            desktop/release/baseline-export-report.json
+            desktop/release/baseline-export-report-verification.strict.json
+            desktop/release/BASELINE_EXPORT.md
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-ai-desktop-mac-arm64
+          path: |
+            desktop/release/Connect-AI-0.4.8-mac-arm64.dmg
+            desktop/release/Connect-AI-0.4.8-mac-arm64.dmg.blockmap
+            desktop/release/latest-mac.yml
+            desktop/release/preflight-report.strict.json
+            desktop/release/release-manifest.json
+            desktop/release/release-tag-report.json
+            desktop/release/baseline-freshness-report.json
+            desktop/release/BASELINE_FRESHNESS.md
+            desktop/release/baseline-export-report.json
+            desktop/release/baseline-export-report-verification.strict.json
+            desktop/release/BASELINE_EXPORT.md
+            desktop/release/installed-app-parity-report.json
+            desktop/release/ui-parity-report.json
+            desktop/release/performance-parity-report.json
+            desktop/release/macos-security-contract.json
+            desktop/release/ipc-security-report.json
+            desktop/release/security-audit-report.json
+            desktop/release/dmg-install-experience.json
+            desktop/release/release-launch-smoke.json
+            desktop/release/release-launch-smoke.log
+            desktop/release/release-dmg-launch-smoke.json
+            desktop/release/release-dmg-launch-smoke.log
+            desktop/release/provenance.json
+            desktop/release/RELEASE_NOTES.md
+            desktop/release/SHA256SUMS.txt
+            desktop/release/SHA512SUMS.txt
+            desktop/release/update-channel-report.json
+            desktop/release/release-env-contract-report.json
+            desktop/release/release-env-bootstrap.json
+            desktop/release/RELEASE_ENV_BOOTSTRAP.md
+            desktop/release/release-env.local.template
+            desktop/release/release-env-bootstrap-report.strict.json
+            desktop/release/temp-cleanup-report.json
+            desktop/release/status-refresh-report.json
+            desktop/release/status-refresh-report-verification.strict.json
+            desktop/release/github-release-assets-report.strict.json
+            desktop/release/github-release-remediation-plan.json
+            desktop/release/GITHUB_RELEASE_REMEDIATION_PLAN.md
+            desktop/release/github-release-remediation-plan-report.json
+            desktop/release/github-release-remediation-plan-report.strict.json
+            desktop/release/github-release-remediation-apply-plan.json
+            desktop/release/github-release-remediation-apply-plan-report.strict.json
+            desktop/release/release-env-report.process.json
+            desktop/release/secret-hygiene-report.json
+            desktop/release/sbom.cdx.json
+            desktop/release/sbom.spdx.json
+            desktop/release/evidence-report.strict.json
+            desktop/release/operator-readiness.json
+            desktop/release/operator-readiness.github.json
+            desktop/release/signing-readiness.json
+            desktop/release/github-release-publish-plan.json
+            desktop/release/github-release-publish-plan-report.strict.json
+            desktop/release/production-release-runbook-report.json
+            desktop/release/production-release-runbook-report-verification.strict.json
+            desktop/release/production-readiness-summary.json
+            desktop/release/PRODUCTION_READINESS_SUMMARY.md
+            desktop/release/production-readiness-summary-verification.strict.json
+            desktop/release/engineering-readiness-report.json
+            desktop/release/ENGINEERING_READINESS.md
+            desktop/release/commercial-cutover-plan.json
+            desktop/release/COMMERCIAL_CUTOVER_PLAN.md
+            desktop/release/commercial-cutover-plan-report.strict.json
+            desktop/release/commercial-release-readiness-report.strict.json
+            desktop/release/commercial-finalization-report.json
+            desktop/release/COMMERCIAL_FINALIZATION.md
+            desktop/release/commercial-finalization-report-verification.strict.json
+            desktop/release/release-decision.strict.json
+            desktop/release/release-setup-plan.json
+            desktop/release/RELEASE_SETUP_PLAN.md
+            desktop/release/release-setup-plan-report.strict.json
+            desktop/release/release-unblock-plan.json
+            desktop/release/RELEASE_UNBLOCK_PLAN.md
+            desktop/release/release-unblock-plan-report.json
+            desktop/release/release-unblock-plan-report.strict.json
+            desktop/release/release-credential-handoff.json
+            desktop/release/RELEASE_CREDENTIAL_HANDOFF.md
+            desktop/release/release-credential-handoff-report.json
+            desktop/release/release-credential-handoff-report.strict.json
+            desktop/release/release-publication-seal.json
+            desktop/release/RELEASE_PUBLICATION_SEAL.md
+            desktop/release/release-publication-seal-verification.strict.json
+            desktop/release/release-promotion-plan.json
+            desktop/release/RELEASE_PROMOTION_PLAN.md
+            desktop/release/release-asset-manifest.json
+            desktop/release/asset-manifest-report.strict.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          else
+            TAG="desktop-v$(node -p "require('./package.json').version")"
+          fi
+          npm run release:publish-assets -- --tag "${TAG}"
+
+      - name: Verify published GitHub Release assets
+        if: startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run verify:github-release-assets:strict
+
+      - name: Refresh GitHub Release remediation plan after publication
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: |
+          npm run release:github-release-remediation-plan
+          npm run release:asset-manifest
+          npm run verify:github-release-remediation-plan:strict:report
+          npm run release:github-release-remediation-apply:plan
+          npm run verify:github-release-remediation-apply-plan:strict:report
+          npm run release:asset-manifest
+
+      - name: Refresh production readiness after publication
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: npm run release:readiness-summary:strict:report
+
+      - name: Verify production readiness after publication
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: npm run verify:readiness-summary-report:strict:report
+
+      - name: Refresh publication seal after publication
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: npm run release:publication-seal:strict:report
+
+      - name: Verify published release readiness
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: npm run verify:publication-seal:published
+
+      - name: Finalize commercial release status after publication
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        run: npm run release:commercial-finalize:commercial
+
+      - name: Upload publication verification report
+        if: always() && (startsWith(github.ref, 'refs/tags/desktop-v') || github.event.inputs.publish_release == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: connect-ai-desktop-github-release-verification
+          path: |
+            desktop/release/github-release-assets-report.strict.json
+            desktop/release/github-release-publish-plan.json
+            desktop/release/github-release-publish-plan-report.strict.json
+            desktop/release/github-release-remediation-plan.json
+            desktop/release/GITHUB_RELEASE_REMEDIATION_PLAN.md
+            desktop/release/github-release-remediation-plan-report.strict.json
+            desktop/release/github-release-remediation-apply-plan.json
+            desktop/release/github-release-remediation-apply-plan-report.strict.json
+            desktop/release/baseline-freshness-report.json
+            desktop/release/BASELINE_FRESHNESS.md
+            desktop/release/baseline-export-report.json
+            desktop/release/baseline-export-report-verification.strict.json
+            desktop/release/BASELINE_EXPORT.md
+            desktop/release/production-readiness-summary.json
+            desktop/release/PRODUCTION_READINESS_SUMMARY.md
+            desktop/release/production-readiness-summary-verification.strict.json
+            desktop/release/engineering-readiness-report.json
+            desktop/release/ENGINEERING_READINESS.md
+            desktop/release/commercial-cutover-plan.json
+            desktop/release/COMMERCIAL_CUTOVER_PLAN.md
+            desktop/release/commercial-cutover-plan-report.strict.json
+            desktop/release/commercial-release-readiness-report.strict.json
+            desktop/release/commercial-finalization-report.json
+            desktop/release/COMMERCIAL_FINALIZATION.md
+            desktop/release/commercial-finalization-report-verification.strict.json
+            desktop/release/release-publication-seal.json
+            desktop/release/RELEASE_PUBLICATION_SEAL.md
+          if-no-files-found: error
+          retention-days: 30

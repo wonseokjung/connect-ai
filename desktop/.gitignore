@@ -1,0 +1,14 @@
+node_modules/
+out/
+dist/
+release/
+.connect-ai-dev-toolchain/
+*.log
+.env.release.local
+.env.release.*.local
+*.p12
+*.p8
+AuthKey_*.p8
+*.keychain-db
+build/icon.iconset/
+build/icon_1024.png

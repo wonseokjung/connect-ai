@@ -1,0 +1,1345 @@
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  /* 🧬 뉴럴 바이오 — 딥 틸-블랙 + 바이오루미네선트 초록/청록 글로우 테두리 */
+  --bg:#000000;--bg2:#040705;--surface:rgba(0,30,17,.78);--surface2:rgba(0,48,27,.62);
+  --border:rgba(0,255,160,.18);--border2:rgba(0,255,160,.3);
+  --text:#B6C4BE;--text-bright:#FFFFFF;--text-dim:#86A096;
+  --accent:#00FF41;--accent2:#00c47a;--accent3:#00ffb0;
+  --accent-glow:rgba(0,255,130,.28);--accent2-glow:rgba(0,210,130,.22);
+  --input-bg:rgba(0,16,9,.9);--code-bg:#020805;
+  --green:#00FF41;--yellow:#ffab40;--cyan:#00e5ff;--red:#ff5252;--violet:#a78bfa;
+}
+/* v2.86: corp-on no longer flips to amber — the whole app shares the
+   matrix black + green identity now. Kept the body.corp-on hook because
+   other CSS rules (agent-board layout, corporate-mode chrome) still bind
+   to it; we just stop overriding the palette. */
+body.corp-on { /* color overrides removed — see :root above */ }
+/* v2.89.90 — 항상 다크 강제. 이전엔 body.vscode-light에서 색 변수 swap했는데,
+   3700줄 CSS의 컴포넌트 절반 이상이 var() 안 쓰고 #c9d1d9, #7c7f8a 같은
+   다크 전용 회색을 하드코딩 → 라이트 모드에선 텍스트가 유령처럼 안 보였음.
+   1000+ 군데 마이그레이션 대신 Connect AI는 안티그래비티 라이트 모드에서도
+   자기 정체성(매트릭스 블랙+그린) 유지. Cursor Chat·Copilot Chat·Warp 방식.
+   color-scheme: dark는 스크롤바·기본 폼 위젯·autofill까지 다크로 렌더. */
+html { color-scheme: dark; }
+html,body{height:100%;font-family:'SF Pro Display',-apple-system,BlinkMacSystemFont,'Segoe UI',system-ui,sans-serif;font-size:13px;background:var(--bg);color:var(--text);display:flex;flex-direction:column;overflow:hidden;min-height:0}
+
+/* AURORA BACKGROUND — v2.89.91: 정적 그라데이션. 이전엔 20초 회전 애니메이션
+   상시 실행으로 산만함·CPU 낭비. 색감만 남기고 모션 제거. */
+body::before{content:'';position:fixed;top:-50%;left:-50%;width:200%;height:200%;background:radial-gradient(ellipse at 20% 50%,rgba(124,106,255,.06) 0%,transparent 50%),radial-gradient(ellipse at 80% 20%,rgba(224,64,251,.04) 0%,transparent 50%),radial-gradient(ellipse at 50% 80%,rgba(0,229,255,.03) 0%,transparent 50%);z-index:0;pointer-events:none}
+
+/* HEADER — v2.89.91: headerGlow 펄스 애니메이션 제거(상시 깜빡임). 그라데이션
+   라인은 그대로 두고 opacity만 정적으로 .45 고정. */
+.header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(2,12,9,.82);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--border);flex-shrink:0;position:relative;z-index:10}
+.header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 5%,var(--accent) 30%,var(--accent2) 50%,var(--accent3) 70%,transparent 95%);opacity:.45}
+.thinking-bar{height:2px;background:transparent;position:relative;overflow:hidden;flex-shrink:0;z-index:10}
+.thinking-bar.active{background:rgba(124,106,255,.1)}
+.thinking-bar.active::after{content:'';position:absolute;top:0;left:-40%;width:40%;height:100%;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),var(--accent3),transparent);animation:thinkSlide 1.5s ease-in-out infinite}
+@keyframes thinkSlide{0%{left:-40%}100%{left:100%}}
+.header-left{display:flex;align-items:center;gap:8px}
+.logo{width:26px;height:26px;border-radius:6px;background:#050505;border:1px solid rgba(0,255,65,.3);display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--accent);box-shadow:0 0 15px rgba(0,255,65,.15);animation:logoPulse 3s ease-in-out infinite;position:relative;text-shadow:0 0 8px var(--accent);transition:color .35s,border-color .35s,box-shadow .35s,text-shadow .35s}
+/* 1인 기업 모드 ON = 골드 럭셔리 톤. 로고도 같이 골드로 빛나야 통일감 있음.
+   주의: logoPulse 키프레임이 box-shadow를 매 프레임 형광녹색으로 덮어쓰기
+   때문에 정적 box-shadow override만으로는 안 먹힘. 별도 corpLogoPulse
+   키프레임으로 애니메이션 자체를 골드로 교체. */
+body.corp-on .logo{color:#FBBF24;border-color:rgba(251,191,36,.45);text-shadow:0 0 10px #FBBF24;animation:corpLogoPulse 3s ease-in-out infinite}
+body.corp-on .logo::after{background:#FBBF24;animation:corpLogoPulse 3s ease-in-out infinite}
+body.corp-on .brand{background:linear-gradient(135deg,#fff 35%,#FBBF24 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+@keyframes corpLogoPulse{0%,100%{box-shadow:0 0 12px rgba(251,191,36,.18)}50%{box-shadow:0 0 28px rgba(251,191,36,.42)}}
+.logo::after{content:'';position:absolute;inset:-1px;border-radius:7px;background:var(--accent);opacity:.2;filter:blur(3px);animation:logoPulse 3s ease-in-out infinite}
+@keyframes logoPulse{0%,100%{box-shadow:0 0 10px rgba(0,255,65,.1)}50%{box-shadow:0 0 25px rgba(0,255,65,.3)}}
+.brand{font-weight:800;font-size:14px;color:var(--text-bright);letter-spacing:-.5px;background:linear-gradient(135deg,#fff 40%,var(--accent) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.header-right{display:flex;align-items:center;gap:5px}
+select{background:rgba(3,18,12,.9);color:var(--text-bright);border:1px solid var(--border2);padding:5px 8px;border-radius:8px;font-size:10px;font-family:inherit;cursor:pointer;outline:none;max-width:120px;transition:all .3s;backdrop-filter:blur(8px)}
+select:hover,select:focus{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.btn-icon{background:rgba(4,20,13,.72);border:1px solid var(--border2);color:var(--text-dim);width:28px;height:28px;border-radius:8px;font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .3s;backdrop-filter:blur(8px);position:relative;overflow:hidden}
+.more-wrap{position:relative;display:inline-block}
+.more-menu{position:absolute;right:0;top:36px;background:var(--bg2);border:1px solid var(--border2);border-radius:8px;padding:4px;box-shadow:0 8px 24px rgba(0,0,0,.5);z-index:100;min-width:180px;display:flex;flex-direction:column;gap:2px}
+.more-menu[hidden]{display:none}
+.more-item{background:transparent;border:none;color:var(--text);text-align:left;padding:8px 12px;border-radius:6px;cursor:pointer;font-size:12px;font-family:inherit;transition:all .15s;white-space:nowrap}
+.more-item:hover{background:var(--surface2);color:var(--accent)}
+.btn-icon::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,var(--accent-glow),var(--accent2-glow));opacity:0;transition:opacity .3s}
+.btn-icon:hover{color:var(--text-bright);border-color:var(--accent);transform:translateY(-1px);box-shadow:0 4px 15px var(--accent-glow)}
+.btn-icon:hover::before{opacity:1}
+/* 24시간 자율 사이클이 백그라운드에서 진행 중일 때 — 👔 버튼이 펄스로 빛남.
+   1인 기업 = 골드 톤이라 펄스 색도 골드로 통일 (이전엔 메인 앱 --accent를
+   따라 형광 녹색이었음). */
+#corporateBtn.autocycle-active{color:var(--text-bright);border-color:#FBBF24;animation:btnAutoPulse 2.4s ease-in-out infinite}
+#corporateBtn.autocycle-active::after{content:'';position:absolute;top:-2px;right:-2px;width:8px;height:8px;border-radius:50%;background:#FBBF24;box-shadow:0 0 10px #FBBF24,0 0 20px rgba(251,191,36,.35);animation:btnDotBlink 1.4s ease-in-out infinite;z-index:2}
+@keyframes btnAutoPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,255,65,.45)}50%{box-shadow:0 0 0 6px rgba(0,255,65,0)}}
+@keyframes btnDotBlink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.7)}}
+
+/* CHAT */
+.chat{flex:1;overflow-y:auto;padding:16px 14px;display:flex;flex-direction:column;gap:16px;position:relative;z-index:1;min-height:0}
+.chat::-webkit-scrollbar{width:2px}.chat::-webkit-scrollbar-track{background:transparent}.chat::-webkit-scrollbar-thumb{background:var(--accent);border-radius:2px;opacity:.5}
+
+/* MESSAGES */
+.msg{display:flex;flex-direction:column;gap:5px;animation:msgIn .5s cubic-bezier(.16,1,.3,1)}
+.msg-head{display:flex;align-items:center;gap:7px;font-weight:600;font-size:11px;color:var(--text)}
+.msg-time{font-weight:400;font-size:10px;color:var(--text-dim);margin-left:auto}
+.av{width:22px;height:22px;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0}
+.av-user{background:var(--surface2);color:var(--text);border:1px solid var(--border2)}
+.av-ai{background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;box-shadow:0 0 10px rgba(124,106,255,.3)}
+.msg-body{padding-left:29px;line-height:1.75;color:var(--text);white-space:pre-wrap;word-break:break-word;font-size:13px}
+.msg-user .msg-body{background:var(--surface);border:1px solid var(--border2);border-radius:14px;padding:10px 14px;margin-left:29px;color:var(--text-bright);backdrop-filter:blur(8px)}
+/* Brain injection card — fired on /api/brain-inject */
+.inject-card{padding:0}
+/* 스킬팩 카드 — 에이전트 색상(--ag-color)으로 banner glow 톤만 다르게 */
+.skill-card .skill-banner{background:linear-gradient(135deg,color-mix(in srgb,var(--ag-color,#5DE0E6) 18%,transparent),color-mix(in srgb,var(--ag-color,#5DE0E6) 4%,transparent) 60%,rgba(255,178,102,.06));border-color:color-mix(in srgb,var(--ag-color,#5DE0E6) 45%,transparent);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px color-mix(in srgb,var(--ag-color,#5DE0E6) 22%,transparent)}
+.skill-card .skill-header{color:var(--ag-color,#5DE0E6);text-shadow:0 0 10px color-mix(in srgb,var(--ag-color,#5DE0E6) 55%,transparent)}
+.inject-card .inject-banner{position:relative;overflow:hidden;background:linear-gradient(135deg,rgba(93,224,230,.16),rgba(93,224,230,.04) 60%,rgba(255,178,102,.08));border:1px solid rgba(93,224,230,.4);border-radius:14px;padding:16px 20px;box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18);animation:injectIn .55s cubic-bezier(.16,1,.3,1)}
+@keyframes injectIn{from{opacity:0;transform:translateY(10px) scale(.98);box-shadow:0 0 60px rgba(93,224,230,.5)}to{opacity:1;transform:translateY(0) scale(1);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 28px rgba(93,224,230,.18)}}
+.inject-card .inject-sweep{position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(93,224,230,.18),transparent);animation:injectSweep 1.5s ease-in-out;pointer-events:none}
+@keyframes injectSweep{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.inject-card .inject-header{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2.5px;color:#5DE0E6;margin-bottom:10px;text-shadow:0 0 10px rgba(93,224,230,.5);position:relative;z-index:1}
+.inject-card .inject-bar{height:3px;background:rgba(93,224,230,.12);border-radius:2px;overflow:hidden;margin-bottom:14px;position:relative;z-index:1}
+.inject-card .inject-bar-fill{height:100%;background:linear-gradient(90deg,#5DE0E6,#FFB266);border-radius:2px;transform-origin:left;animation:injectFill 1.4s cubic-bezier(.16,1,.3,1)}
+@keyframes injectFill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+.inject-card .inject-title{font-size:15px;font-weight:700;color:#e8e9ee;margin-bottom:3px;position:relative;z-index:1}
+.inject-card .inject-path{font-family:'SF Mono',monospace;font-size:11px;color:#7c7f8a;margin-bottom:12px;position:relative;z-index:1;word-break:break-all}
+.inject-card .inject-quote{font-size:13px;color:#5DE0E6;font-weight:600;letter-spacing:.3px;position:relative;z-index:1;display:flex;align-items:center;gap:6px}
+.inject-card .inject-quote::before{content:'';width:14px;height:1px;background:linear-gradient(90deg,#5DE0E6,transparent);flex-shrink:0}
+.msg-body pre{background:var(--code-bg);border:1px solid var(--border2);border-radius:10px;padding:14px 16px;overflow-x:auto;margin:8px 0;font-size:12px;line-height:1.6;color:#c9d1d9;position:relative}
+/* v2.89.92 — 코드블록 매트릭스 스캔라인. 매우 미세한 가로줄(rgba .025)이
+   터미널 CRT 느낌을 줌. opacity 절제 — 가독성 안 해침. */
+.msg-body pre::before{content:'';position:absolute;inset:0;border-radius:10px;background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,255,65,.025) 3px,rgba(0,255,65,.025) 4px);pointer-events:none;mix-blend-mode:overlay}
+.msg-body pre::-webkit-scrollbar{height:6px}
+.msg-body pre::-webkit-scrollbar-track{background:rgba(0,0,0,.2);border-radius:4px}
+.msg-body pre::-webkit-scrollbar-thumb{background:rgba(0,255,65,.25);border-radius:4px}
+.msg-body pre::-webkit-scrollbar-thumb:hover{background:rgba(0,255,65,.55)}
+.msg-body code{font-family:'SF Mono','JetBrains Mono','Fira Code','Menlo',monospace;font-size:11.5px}
+/* v2.89.92 — 인라인 code 박스 매트릭스 톤으로 통일. 이전엔 보라(124,106,255)
+   기반이라 그린 액센트 텍스트와 색감 충돌. */
+.msg-body :not(pre)>code{background:rgba(0,255,65,.06);color:var(--accent);padding:2px 7px;border-radius:5px;border:1px solid rgba(0,255,65,.18);font-weight:500}
+.msg-body a{color:var(--accent);text-decoration:none}
+.msg-body a:hover{text-decoration:underline}
+.code-wrap{position:relative}
+.code-lang{position:absolute;top:0;left:14px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;padding:2px 10px;border-radius:0 0 6px 6px;font-size:9px;font-family:'SF Mono',monospace;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+.copy-btn{position:absolute;top:8px;right:8px;background:var(--surface2);border:1px solid var(--border2);color:var(--text-dim);padding:4px 12px;border-radius:6px;font-size:10px;cursor:pointer;opacity:0;transition:all .3s;font-family:inherit;z-index:1;backdrop-filter:blur(8px)}
+.code-wrap:hover .copy-btn{opacity:1}.copy-btn:hover{background:var(--accent);color:#fff;border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.copy-btn.copied{background:var(--green);color:#fff;border-color:var(--green);opacity:1}
+
+/* BADGES */
+.file-badge{background:rgba(255,171,64,.05);border:1px solid rgba(255,171,64,.2);border-radius:10px 10px 0 0;border-bottom:none;padding:8px 14px;font-size:11px;font-weight:700;color:var(--yellow);display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
+.edit-badge{background:rgba(0,229,255,.05);border:1px solid rgba(0,229,255,.2);border-radius:10px 10px 0 0;border-bottom:none;padding:8px 14px;font-size:11px;font-weight:700;color:var(--cyan);display:flex;align-items:center;gap:6px;backdrop-filter:blur(8px)}
+.cmd-badge{background:rgba(124,106,255,.05);border:1px solid rgba(124,106,255,.25);border-radius:10px;padding:10px 14px;margin:8px 0;font-size:12px;color:var(--accent);font-family:'SF Mono','Menlo',monospace;display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
+.msg-error .msg-body{color:var(--red);text-shadow:0 0 20px rgba(255,82,82,.2)}
+/* v2.89.53 — chat markdown 렌더링 (heading/blockquote/list/table/hr) */
+.chat-h1{font-size:20px;font-weight:800;color:var(--text-bright);margin:18px 0 10px;padding-bottom:8px;border-bottom:2px solid rgba(124,106,255,.35);letter-spacing:-.3px}
+.chat-h2{font-size:16.5px;font-weight:700;color:var(--text-bright);margin:14px 0 8px;letter-spacing:-.2px}
+.chat-h3{font-size:14.5px;font-weight:700;color:var(--text-bright);margin:12px 0 6px;letter-spacing:-.1px}
+.chat-bq{border-left:3px solid rgba(124,106,255,.55);background:rgba(124,106,255,.06);padding:8px 12px;margin:6px 0;border-radius:0 8px 8px 0;color:var(--text);font-size:12.5px;line-height:1.6}
+.chat-bq strong{color:var(--accent)}
+.chat-hr{border:none;height:1px;background:linear-gradient(90deg,transparent,rgba(124,106,255,.4),transparent);margin:14px 0}
+.chat-ul,.chat-ol{margin:6px 0 6px 18px;padding:0;color:var(--text);font-size:12.5px;line-height:1.65}
+.chat-ul li,.chat-ol li{margin:3px 0}
+.chat-ul li::marker{color:var(--accent)}
+.chat-ol li::marker{color:var(--accent);font-weight:700}
+.chat-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:11.5px;background:rgba(0,0,0,.18)}
+.chat-table th{background:rgba(124,106,255,.12);color:var(--text);font-weight:700;padding:6px 8px;text-align:left;border:1px solid rgba(255,255,255,.08)}
+.chat-table td{padding:5px 8px;border:1px solid rgba(255,255,255,.06);color:var(--text);vertical-align:top}
+.chat-table tr:hover td{background:rgba(124,106,255,.04)}
+
+/* WELCOME */
+.welcome{text-align:center;padding:0 20px 20px;position:relative}
+.welcome-logo{width:56px;height:56px;border-radius:16px;margin:0 auto 16px;background:#050505;border:1px solid rgba(0,255,65,.3);display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--accent);box-shadow:inset 0 0 15px rgba(0,255,65,.1), 0 0 30px rgba(0,255,65,.2);animation:welcomeFloat 4s ease-in-out infinite;position:relative;text-shadow:0 0 15px var(--accent);transition:color .35s,border-color .35s,box-shadow .35s,text-shadow .35s}
+.welcome-logo::before{content:'';position:absolute;inset:-2px;border-radius:18px;background:var(--accent);opacity:.15;filter:blur(8px);animation:pulseGlow 3s linear infinite;transition:background .35s}
+/* 1인 기업 모드 ON — 가운데 ✦ 로고도 골드 럭셔리 톤 */
+body.corp-on .welcome-logo{color:#FBBF24;border-color:rgba(251,191,36,.45);box-shadow:inset 0 0 15px rgba(251,191,36,.18), 0 0 36px rgba(251,191,36,.32);text-shadow:0 0 18px #FBBF24}
+body.corp-on .welcome-logo::before{background:#FBBF24}
+@keyframes pulseGlow{0%,100%{opacity:.15;filter:blur(8px)}50%{opacity:.3;filter:blur(12px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes welcomeFloat{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-6px) scale(1.03)}}
+.welcome-title{font-size:22px;font-weight:900;letter-spacing:-1px;color:var(--text-bright);margin-bottom:8px}
+@keyframes gradText{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.welcome-sub{color:var(--text-dim);font-size:12px;line-height:1.7;margin-bottom:18px;letter-spacing:-.2px}
+.quick-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:14px;padding:0 10px}
+.qa-btn{background:var(--surface);border:1px solid var(--border2);color:var(--text);padding:7px 12px;border-radius:18px;font-size:11px;cursor:pointer;font-family:inherit;transition:all .25s;backdrop-filter:blur(8px)}
+.qa-btn:hover{color:var(--text-bright);border-color:var(--accent);background:var(--surface2);transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow)}
+.ag-badge{display:inline-flex;align-items:center;gap:5px;background:linear-gradient(135deg,rgba(66,133,244,.15),rgba(0,255,102,.1));border:1px solid rgba(66,133,244,.35);color:#4285F4;padding:4px 12px;border-radius:14px;font-size:10px;font-weight:600;letter-spacing:.3px;margin-bottom:14px;text-transform:uppercase;box-shadow:0 0 16px rgba(66,133,244,.15)}
+/* === Onboarding wizard card === */
+.onboard-card{margin:18px auto 8px;max-width:520px;background:linear-gradient(180deg,rgba(0,18,5,.6),rgba(0,8,2,.85));border:1px solid var(--border2);border-radius:14px;padding:18px 20px;text-align:left;position:relative;overflow:hidden}
+.onboard-card::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 0% 0%,var(--accent-glow) 0%,transparent 50%);opacity:.4;pointer-events:none}
+.onboard-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;position:relative}
+.onboard-title{font-size:13px;font-weight:700;color:var(--text-bright);letter-spacing:.2px}
+.onboard-skip{background:transparent;border:none;color:var(--text-dim);font-size:10px;cursor:pointer;padding:4px 8px;border-radius:6px}
+.onboard-skip:hover{color:var(--text);background:var(--surface)}
+.onboard-progress{display:flex;gap:6px;margin-bottom:14px}
+.onboard-dot{flex:1;height:3px;background:var(--border2);border-radius:2px;transition:background .25s}
+.onboard-dot.done{background:var(--accent);box-shadow:0 0 6px var(--accent-glow)}
+.onboard-dot.active{background:var(--accent2);box-shadow:0 0 8px var(--accent-glow)}
+.onboard-step-label{font-family:'SF Mono',monospace;font-size:9px;color:var(--text-dim);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:6px}
+.onboard-step-title{font-size:14px;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.onboard-step-body{font-size:11.5px;color:var(--text);line-height:1.55;margin-bottom:12px}
+.onboard-step-body code{background:var(--surface);padding:1px 5px;border-radius:3px;font-family:'SF Mono',monospace;font-size:10.5px;color:var(--accent)}
+.onboard-step-body a{color:var(--accent);text-decoration:none;border-bottom:1px dashed var(--accent)}
+.onboard-input{width:100%;background:var(--input-bg);border:1px solid var(--border2);color:var(--text);padding:8px 10px;border-radius:7px;font-family:inherit;font-size:11px;margin-bottom:8px}
+.onboard-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-glow)}
+.onboard-actions{display:flex;gap:8px;flex-wrap:wrap}
+.onboard-btn{background:var(--accent);border:none;color:#000;padding:8px 14px;border-radius:7px;font-weight:700;font-size:11px;cursor:pointer;transition:all .2s;font-family:inherit}
+.onboard-btn:hover{transform:translateY(-1px);box-shadow:0 4px 12px var(--accent-glow);filter:brightness(1.1)}
+.onboard-btn.secondary{background:transparent;border:1px solid var(--border2);color:var(--text-dim)}
+.onboard-btn.secondary:hover{color:var(--text);border-color:var(--accent)}
+.onboard-result{font-size:11px;color:var(--text);padding:8px 10px;background:var(--surface);border-left:2px solid var(--accent);border-radius:0 6px 6px 0;margin-top:8px}
+.onboard-result.error{border-left-color:#ff5252;color:#ff8a8a}
+/* Header Status Bar (folder + github status, always visible) */
+.status-bar{display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(8,8,12,.85);border-bottom:1px solid var(--border);font-size:10px;color:var(--text-dim);backdrop-filter:blur(12px);flex-shrink:0;z-index:9}
+.status-bar .status-item{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:8px;cursor:pointer;transition:all .2s;border:1px solid transparent}
+.status-bar .status-item:hover{background:var(--surface2);color:var(--text);border-color:var(--border2)}
+.status-bar .status-item.warn{color:#ffab40}
+.status-bar .status-item.warn:hover{border-color:rgba(255,171,64,.3);background:rgba(255,171,64,.08)}
+.status-bar .status-item.ok{color:#00cc44}
+.status-bar .status-item.syncing{color:#00b7ff}
+.status-bar .status-item.syncing .status-icon{animation:spin 1.4s linear infinite}
+.status-bar .sep{opacity:.3}
+.status-bar .ag-mini{margin-left:auto;color:#4285F4;font-size:9px;font-weight:600;letter-spacing:.4px;opacity:.7}
+
+/* LOADING */
+.loading-wrap{padding-left:29px;padding-top:6px;display:flex;align-items:center;gap:10px}
+.loading-dots{display:flex;gap:4px}
+.loading-dots span{width:6px;height:6px;border-radius:50%;background:var(--accent);animation:dotBounce 1.4s ease-in-out infinite}
+.loading-dots span:nth-child(2){animation-delay:.2s;background:var(--accent2)}
+.loading-dots span:nth-child(3){animation-delay:.4s;background:var(--accent3)}
+
+/* ===== v2.89.99 — 매트릭스 브랜드 미래지향 로더 (멀티-단계 터미널 스타일) ===== */
+.ml-loader{margin-left:29px;margin-top:8px;background:linear-gradient(180deg,rgba(0,15,5,.85),rgba(0,5,2,.95));border:1px solid rgba(0,255,65,.25);border-radius:12px;padding:14px 16px 12px;position:relative;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4),0 0 22px rgba(0,255,65,.08);max-width:520px}
+.ml-loader::before{content:'';position:absolute;top:0;left:-30%;width:30%;height:100%;background:linear-gradient(90deg,transparent,rgba(0,255,65,.07),transparent);animation:mlScan 2.6s linear infinite;pointer-events:none}
+@keyframes mlScan{0%{left:-30%}100%{left:130%}}
+.ml-loader::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,255,65,.025) 3px,rgba(0,255,65,.025) 4px);pointer-events:none;mix-blend-mode:overlay;border-radius:12px}
+.ml-head{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:9.5px;letter-spacing:2px;color:rgba(0,255,65,.65);text-transform:uppercase;text-shadow:0 0 8px rgba(0,255,65,.35)}
+.ml-head-dot{width:6px;height:6px;border-radius:50%;background:#00FF41;box-shadow:0 0 10px #00FF41;animation:mlHeadDot 1.2s ease-in-out infinite}
+@keyframes mlHeadDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+.ml-head-bar{flex:1;height:1px;background:linear-gradient(90deg,rgba(0,255,65,.35),transparent)}
+.ml-head-spinner{width:11px;height:11px;border:1.5px solid rgba(0,255,65,.18);border-top-color:#00FF41;border-radius:50%;animation:mlSpin .9s linear infinite}
+@keyframes mlSpin{to{transform:rotate(360deg)}}
+.ml-steps{display:flex;flex-direction:column;gap:5px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:11.5px;line-height:1.4}
+.ml-step{display:flex;align-items:center;gap:9px;color:rgba(0,255,65,.4);transition:all .35s ease;letter-spacing:.2px}
+.ml-step .ml-mark{width:14px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;flex-shrink:0;transition:all .35s}
+.ml-step .ml-label{flex:1}
+.ml-step.done{color:rgba(150,255,180,.8)}
+.ml-step.done .ml-mark{color:#00FF41;text-shadow:0 0 8px rgba(0,255,65,.55)}
+.ml-step.active{color:#fff;text-shadow:0 0 12px rgba(0,255,65,.4)}
+.ml-step.active .ml-mark{color:#00FF41;text-shadow:0 0 12px #00FF41,0 0 18px rgba(0,255,65,.5);animation:mlMarkPulse 1.1s ease-in-out infinite}
+@keyframes mlMarkPulse{0%,100%{opacity:1}50%{opacity:.55}}
+.ml-step.pending{color:rgba(140,160,150,.35)}
+.ml-step.pending .ml-mark{color:rgba(0,255,65,.25)}
+.ml-bar{margin-top:11px;height:2px;background:rgba(0,255,65,.07);border-radius:2px;overflow:hidden;position:relative}
+.ml-bar-fill{position:absolute;left:0;top:0;height:100%;width:0;background:linear-gradient(90deg,var(--accent),#00e5ff,var(--accent));background-size:200% 100%;border-radius:2px;box-shadow:0 0 10px rgba(0,255,65,.55);transition:width .55s cubic-bezier(.16,1,.3,1);animation:mlBarFlow 2.2s linear infinite}
+@keyframes mlBarFlow{0%{background-position:200% 0}100%{background-position:0 0}}
+.ml-meta{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-family:'SF Mono',monospace;font-size:9px;letter-spacing:1.2px;color:rgba(0,255,65,.45);text-transform:uppercase}
+.ml-meta-elapsed{color:rgba(0,255,65,.55);text-shadow:0 0 6px rgba(0,255,65,.3)}
+@keyframes dotBounce{0%,80%,100%{transform:scale(.6);opacity:.4}40%{transform:scale(1.2);opacity:1}}
+.loading-text{font-size:11px;color:var(--text-dim);animation:pulse 2s ease-in-out infinite;letter-spacing:.3px}
+
+/* INPUT */
+.input-wrap{padding:8px 14px 14px;flex-shrink:0;position:relative;z-index:1}
+.input-box{background:var(--input-bg);border:1px solid var(--border2);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;transition:all .3s;position:relative;backdrop-filter:blur(12px)}
+.input-box:focus-within{border-color:var(--accent);box-shadow:0 0 24px rgba(0,255,65,.15);animation:focusPulse 3s infinite}
+@keyframes focusPulse{0%,100%{box-shadow:0 0 20px rgba(0,255,65,.08)}50%{box-shadow:0 0 28px rgba(0,255,65,.2)}}
+textarea{width:100%;background:transparent;border:none;color:var(--text-bright);font-family:inherit;font-size:13px;line-height:1.5;resize:none;outline:none;min-height:22px;max-height:150px}
+textarea::placeholder{color:var(--text-dim)}
+.input-footer{display:flex;align-items:center;justify-content:space-between}
+.input-hint{font-size:10px;color:var(--text-dim)}
+.input-btns{display:flex;gap:5px}
+.send-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .2s;box-shadow:0 2px 12px rgba(124,106,255,.35);position:relative;overflow:hidden}
+.send-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(255,255,255,.15));opacity:0;transition:opacity .3s}
+.send-btn:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 6px 24px rgba(124,106,255,.45)}
+.send-btn:hover::after{opacity:1}
+.send-btn:active{transform:scale(.92)}.send-btn:disabled{opacity:.2;cursor:not-allowed;transform:none;box-shadow:none}
+.stop-btn{background:var(--red);border:none;color:#fff;width:32px;height:32px;border-radius:10px;cursor:pointer;display:none;align-items:center;justify-content:center;font-size:11px;box-shadow:0 0 12px rgba(255,82,82,.3)}
+.stop-btn.visible{display:flex}
+@keyframes msgIn{from{opacity:0;transform:translateY(12px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+@keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.stream-active{position:relative}
+/* v2.89.92 — 매트릭스 스트리밍 강화 — 본문에 미세한 그린 텍스트섀도 펄스를
+   주어 "지금 글자가 살아 흘러나오고 있다" 감각. 펄스 진폭 작게(.18)·주기
+   2.4초로 절제. 너무 강하면 가독성 해침. */
+.stream-active .msg-body{animation:streamGhostPulse 2.4s ease-in-out infinite}
+@keyframes streamGhostPulse{0%,100%{text-shadow:0 0 0 transparent}50%{text-shadow:0 0 10px rgba(0,255,65,.18)}}
+/* 매트릭스 커서 — 폭·높이 그대로, 글로우만 강화하고 step-end → infinite로
+   자연스럽게. 글자색 그린이 아니라 액센트(=브랜드)와 동일하게 var(--accent). */
+.stream-active::after{content:'';display:inline-block;width:2px;height:14px;background:var(--accent);margin-left:3px;animation:blink .9s step-end infinite;vertical-align:text-bottom;border-radius:1px;box-shadow:0 0 10px var(--accent),0 0 18px rgba(0,255,65,.4)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
+/* 스트리밍 중인 마지막 코드블록만 펄스 — 가독성 위해 진폭 줄임. */
+.stream-active .code-wrap:last-child{border:1px solid var(--accent);animation:codePulse 2.6s ease-in-out infinite}
+.stream-active .code-wrap:last-child pre{box-shadow:inset 0 0 22px rgba(0,255,65,.04)}
+@keyframes codePulse{0%,100%{box-shadow:0 0 12px var(--accent-glow)}50%{box-shadow:0 0 24px var(--accent-glow)}}
+.main-view{flex:1;display:flex;flex-direction:column;overflow:hidden;transition:all .5s cubic-bezier(.16,1,.3,1);min-height:0;max-height:100%}
+body.init .main-view{justify-content:center;margin-top:-6vh}
+body.init .chat{flex:0 0 auto;overflow:visible;padding-bottom:15px}
+body.init .input-wrap{max-width:680px;width:100%;margin:0 auto;transform:none;transition:all .5s cubic-bezier(.16,1,.3,1)}
+
+/* ATTACHMENT */
+.attach-btn{background:transparent;border:1px solid var(--border2);color:var(--text-dim);width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:16px;transition:all .3s;flex-shrink:0}
+.attach-btn:hover{color:var(--accent);border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow);transform:translateY(-1px)}
+.attach-preview{display:none;gap:6px;padding:0 0 6px;flex-wrap:wrap}
+.attach-preview.visible{display:flex}
+.attach-chip{display:flex;align-items:center;gap:5px;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:4px 10px;font-size:10px;color:var(--text);animation:msgIn .3s ease}
+.attach-chip .chip-icon{font-size:12px}
+.attach-chip .chip-name{max-width:100px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.attach-chip .chip-remove{cursor:pointer;color:var(--text-dim);font-size:12px;margin-left:2px;transition:color .2s}
+.attach-chip .chip-remove:hover{color:var(--red)}
+.attach-thumb{width:28px;height:28px;border-radius:5px;object-fit:cover;border:1px solid var(--border2)}
+
+/* REGENERATE BUTTON */
+.regen-btn{display:inline-flex;align-items:center;gap:4px;background:transparent;border:none;color:var(--text-dim);padding:4px 6px;border-radius:4px;font-size:11px;cursor:pointer;transition:color 0.2s;font-family:inherit;margin-top:6px;margin-left:29px;opacity:0.7}
+.regen-btn:hover{color:var(--text);opacity:1}
+
+/* SYNTAX HIGHLIGHTING */
+.msg-body pre .kw{color:#c792ea}
+.msg-body pre .str{color:#c3e88d}
+.msg-body pre .num{color:#f78c6c}
+.msg-body pre .cm{color:#546e7a;font-style:italic}
+.msg-body pre .fn{color:#82aaff}
+.msg-body pre .tag{color:#f07178}
+.msg-body pre .attr{color:#ffcb6b}
+.msg-body pre .op{color:#89ddff}
+.msg-body pre .type{color:#ffcb6b}
+
+/* ============================================================
+   1인 기업 모드 — Agent Board
+   ============================================================ */
+/* Agent board: hidden by default. Click 👔 in the header to show the team.
+   Once visible, click any character card to open that agent's panel.
+   Coexists with the office full-screen view — both stay open together. */
+/* v2.82: agent board moved out of the chat sidebar into the full dashboard.
+   Force-hidden here so legacy state (corp-on body class) doesn't bring it
+   back. The team grid lives in 회사 둘러보기 → "우리 회사 에이전트 팀" now. */
+.agent-board{display:none !important;background:linear-gradient(180deg,rgba(8,10,15,.95),rgba(5,7,11,.92));border-bottom:1px solid var(--border);padding:8px 12px 10px;position:relative;z-index:8;flex-shrink:0;backdrop-filter:blur(12px);transition:padding .25s ease}
+body.corp-on .agent-board{display:block;animation:abSlideIn .45s cubic-bezier(.16,1,.3,1)}
+.agent-board.collapsed{padding-bottom:8px}
+.agent-board.collapsed .ab-head{margin-bottom:0}
+.agent-board.collapsed .ab-grid,.agent-board.collapsed .ab-svg{display:none}
+.agent-board.collapsed .ab-mini-strip{display:flex}
+.agent-board.collapsed .ab-chevron{transform:rotate(-90deg)}
+
+@keyframes abSlideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+/* Header is now a clickable button (collapse toggle). Reset native styles. */
+.ab-head{display:flex;align-items:center;gap:8px;margin-bottom:9px;font-size:10px;letter-spacing:.5px;width:100%;background:transparent;border:none;color:inherit;padding:2px 0;cursor:pointer;text-align:left;font-family:inherit}
+.ab-head:hover .ab-title,.ab-head:hover .ab-chevron{color:var(--accent)}
+.ab-chevron{display:inline-flex;align-items:center;justify-content:center;width:14px;height:14px;font-size:10px;color:var(--text-dim);transition:transform .25s ease,color .2s}
+/* Collapsed-only emoji strip — shows team status without taking the grid's space */
+.ab-mini-strip{display:none;flex:1;align-items:center;gap:5px;justify-content:flex-start;margin-left:6px;overflow:hidden}
+.ab-mini-dot{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.03);border:1px solid var(--border2);font-size:11px;line-height:1;flex-shrink:0;transition:all .2s;position:relative}
+.ab-mini-dot.thinking{border-color:#ffab40;box-shadow:0 0 6px rgba(255,171,64,.5)}
+.ab-mini-dot.working{border-color:var(--ag-color,var(--accent));box-shadow:0 0 8px var(--ag-color-glow,var(--accent-glow))}
+.ab-mini-dot.done{border-color:#00cc77;opacity:.85}
+.ab-mini-dot.idle{opacity:.45}
+.ab-title{font-family:'SF Mono','JetBrains Mono',monospace;color:var(--text-bright);font-weight:700;text-transform:uppercase;letter-spacing:1.5px;font-size:10px;transition:color .2s}
+.ab-title .ab-sub{color:var(--text-dim);font-weight:400;letter-spacing:.5px;text-transform:none;margin-left:4px}
+.ab-folder{font-family:'SF Mono',monospace;color:var(--text-dim);font-size:9.5px;cursor:pointer;padding:3px 8px;border-radius:6px;border:1px solid transparent;transition:all .2s}
+.ab-folder:hover{color:var(--accent);border-color:var(--border2);background:var(--surface2)}
+.ab-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(74px,1fr));gap:6px;position:relative;z-index:2}
+.ab-svg{position:absolute;left:12px;right:12px;top:36px;bottom:12px;width:calc(100% - 24px);height:calc(100% - 48px);pointer-events:none;z-index:1;opacity:0;transition:opacity .3s}
+body.corp-dispatching .ab-svg{opacity:1}
+.ab-card{position:relative;background:var(--surface);border:1px solid var(--border2);border-radius:10px;padding:9px 6px 7px;display:flex;flex-direction:column;align-items:center;gap:3px;transition:all .35s cubic-bezier(.16,1,.3,1);overflow:hidden;backdrop-filter:blur(8px);cursor:pointer;min-height:64px}
+.ab-card::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 60%,var(--ag-color,var(--accent)) 200%);opacity:0;transition:opacity .4s;pointer-events:none}
+.ab-card:hover{transform:translateY(-1px);border-color:var(--ag-color,var(--accent));box-shadow:0 4px 14px var(--accent-glow)}
+.ab-card.thinking::before{opacity:.18;animation:cardPulse 1.6s ease-in-out infinite}
+.ab-card.working{border-color:var(--ag-color,var(--accent));box-shadow:0 0 18px var(--ag-color-glow,var(--accent-glow)),inset 0 0 12px rgba(0,0,0,.3)}
+.ab-card.working::before{opacity:.2}
+.ab-card.working::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 4px,var(--ag-color,var(--accent)) 4px,var(--ag-color,var(--accent)) 4.5px);opacity:.06;animation:cardScan 2.2s linear infinite;pointer-events:none}
+.ab-card.done{border-color:var(--ag-color,var(--accent));opacity:.85}
+.ab-card.done::before{opacity:.08}
+.ab-card.idle{opacity:.55}
+@keyframes cardPulse{0%,100%{opacity:.05}50%{opacity:.25}}
+@keyframes cardScan{from{background-position:0 0}to{background-position:0 -40px}}
+.ab-emoji{font-size:18px;line-height:1;filter:drop-shadow(0 0 6px var(--ag-color-glow,transparent))}
+.ab-card.idle .ab-emoji{filter:grayscale(.4) brightness(.8)}
+.ab-portrait{width:22px;height:22px;border-radius:50%;object-fit:cover;border:1.5px solid var(--ag-color,rgba(255,255,255,.2));box-shadow:0 0 6px var(--ag-color-glow,transparent);flex-shrink:0}
+.ab-card.idle .ab-portrait{filter:grayscale(.4) brightness(.8)}
+.ab-card.working .ab-portrait,.ab-card.thinking .ab-portrait{box-shadow:0 0 10px var(--ag-color-glow,var(--accent-glow))}
+.ab-name{font-family:'SF Mono','JetBrains Mono',monospace;font-size:9px;font-weight:700;color:var(--text-bright);letter-spacing:.6px;text-transform:uppercase}
+.ab-status{font-family:'SF Mono',monospace;font-size:8px;color:var(--text-dim);letter-spacing:.4px;text-transform:uppercase}
+.ab-card.thinking .ab-status{color:#ffab40}
+.ab-card.working .ab-status{color:var(--ag-color,var(--accent))}
+.ab-card.done .ab-status{color:#00cc77}
+.ab-card .ab-led{position:absolute;top:6px;right:6px;width:5px;height:5px;border-radius:50%;background:var(--text-dim);opacity:.4;transition:all .3s}
+.ab-card.thinking .ab-led{background:#ffab40;animation:ledBlink 1s ease-in-out infinite;box-shadow:0 0 6px #ffab40}
+.ab-card.working .ab-led{background:var(--ag-color,var(--accent));animation:ledBlink .7s ease-in-out infinite;box-shadow:0 0 8px var(--ag-color,var(--accent))}
+.ab-card.done .ab-led{background:#00cc77;opacity:1;box-shadow:0 0 6px #00cc77}
+@keyframes ledBlink{0%,100%{opacity:1}50%{opacity:.35}}
+.ab-task-toast{position:absolute;left:50%;bottom:calc(100% + 4px);transform:translateX(-50%);background:rgba(8,10,15,.96);border:1px solid var(--ag-color,var(--accent));border-radius:6px;padding:4px 8px;font-size:9.5px;color:var(--text-bright);white-space:nowrap;max-width:240px;overflow:hidden;text-overflow:ellipsis;font-family:'SF Mono',monospace;z-index:5;box-shadow:0 4px 14px rgba(0,0,0,.5),0 0 12px var(--ag-color-glow,var(--accent-glow));animation:toastIn .4s cubic-bezier(.16,1,.3,1)}
+@keyframes toastIn{from{opacity:0;transform:translateX(-50%) translateY(4px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+.ab-svg .ab-beam{stroke:var(--accent);stroke-width:1.5;fill:none;stroke-dasharray:4 6;opacity:.65;filter:drop-shadow(0 0 4px var(--accent))}
+.ab-svg .ab-beam.dispatching{animation:beamFlow 1.2s linear}
+@keyframes beamFlow{0%{stroke-dashoffset:60;opacity:0}20%{opacity:1}100%{stroke-dashoffset:0;opacity:.65}}
+
+/* ===== v2.89.106-107 — 대화 세션 아카이브 패널 (매트릭스 브랜드) ===== */
+.sessions-backdrop{position:fixed;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,.86),rgba(0,0,0,.97));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);z-index:9998;display:flex;align-items:center;justify-content:center;animation:sessFade .3s cubic-bezier(.16,1,.3,1);padding:20px}
+@keyframes sessFade{from{opacity:0}to{opacity:1}}
+.sessions-card{position:relative;width:min(540px,100%);max-height:84vh;background:linear-gradient(180deg,rgba(8,12,8,.97),rgba(2,4,2,.99));border:1px solid rgba(0,255,65,.32);border-radius:14px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 40px 100px rgba(0,0,0,.75),0 0 80px rgba(0,255,65,.15),inset 0 0 0 1px rgba(255,255,255,.02);animation:sessIn .42s cubic-bezier(.16,1,.3,1)}
+@keyframes sessIn{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.sessions-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 5%,#00FF41 50%,transparent 95%);opacity:.7;animation:sessTopGlow 3s ease-in-out infinite alternate}
+@keyframes sessTopGlow{0%{opacity:.35}100%{opacity:.85}}
+.sessions-card::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,255,65,.018) 3px,rgba(0,255,65,.018) 4px);pointer-events:none;border-radius:14px}
+.sessions-head{display:flex;align-items:center;justify-content:space-between;padding:16px 20px 0;flex-shrink:0;position:relative;z-index:1}
+.sessions-eyebrow{font-family:'SF Mono','Consolas',monospace;font-size:10px;letter-spacing:2.6px;color:#00FF41;text-shadow:0 0 8px rgba(0,255,65,.5);text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.sessions-eyebrow::before{content:'';width:6px;height:6px;border-radius:50%;background:#00FF41;box-shadow:0 0 10px #00FF41;animation:sessDot 1.4s ease-in-out infinite}
+@keyframes sessDot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.85)}}
+.sessions-close{background:transparent;border:none;color:var(--text-dim);font-size:14px;cursor:pointer;padding:6px 10px;border-radius:6px;transition:all .15s;font-family:'SF Mono',monospace}
+.sessions-close:hover{background:rgba(239,68,68,.12);color:#EF4444}
+.sessions-subhead{padding:6px 20px 14px;font-family:'SF Mono','Consolas',monospace;font-size:10.5px;color:rgba(0,255,65,.6);letter-spacing:.8px;border-bottom:1px solid rgba(0,255,65,.12);position:relative;z-index:1}
+.sessions-count{color:#fff;font-weight:700;font-size:12px;text-shadow:0 0 6px rgba(0,255,65,.4);padding:0 3px}
+.sessions-current{color:#FBBF24;font-weight:600;text-shadow:0 0 6px rgba(251,191,36,.4)}
+.sessions-current-ws{color:#fff;font-weight:600;text-shadow:0 0 6px rgba(0,255,65,.45);font-family:inherit}
+/* v2.89.108 — 검색·탭·그룹 */
+.sessions-toolbar{display:flex;gap:8px;padding:0 20px 10px;align-items:center;position:relative;z-index:1}
+.sessions-search{flex:1;background:rgba(0,0,0,.55);border:1px solid rgba(0,255,65,.2);border-radius:8px;color:#fff;font-family:'SF Mono','Consolas',monospace;font-size:12px;padding:8px 12px;outline:none;transition:all .2s;letter-spacing:.3px}
+.sessions-search::placeholder{color:rgba(255,255,255,.35)}
+.sessions-search:focus{border-color:#00FF41;box-shadow:0 0 14px rgba(0,255,65,.25);background:rgba(0,15,5,.75)}
+.sessions-tabs{display:flex;gap:0;background:rgba(0,0,0,.4);border:1px solid rgba(0,255,65,.18);border-radius:8px;padding:2px;flex-shrink:0}
+.sessions-tab{background:transparent;border:none;color:rgba(255,255,255,.6);font-family:'SF Mono','Consolas',monospace;font-size:10.5px;letter-spacing:.4px;padding:6px 11px;border-radius:6px;cursor:pointer;transition:all .15s}
+.sessions-tab:hover{color:#fff}
+.sessions-tab.active{background:rgba(0,255,65,.15);color:#00FF41;text-shadow:0 0 6px rgba(0,255,65,.45)}
+.sessions-group{padding:0;margin:0;animation:sessGroupIn .35s cubic-bezier(.16,1,.3,1)}
+@keyframes sessGroupIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.sessions-group-head{display:flex;align-items:center;gap:8px;padding:10px 18px 6px;font-family:'SF Mono','Consolas',monospace;font-size:10.5px;letter-spacing:1.2px;color:rgba(255,255,255,.55);text-transform:uppercase;cursor:pointer;border-top:1px solid rgba(0,255,65,.07);user-select:none;transition:color .15s}
+.sessions-group-head:first-child{border-top:none}
+.sessions-group-head:hover{color:rgba(0,255,65,.85)}
+.sessions-group-head.current{color:#00FF41;text-shadow:0 0 6px rgba(0,255,65,.4);background:linear-gradient(90deg,rgba(0,255,65,.05),transparent 60%)}
+.sgh-icon{font-size:13px;line-height:1;flex-shrink:0;font-family:inherit}
+.sgh-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sessions-group-count{background:rgba(0,255,65,.15);color:#00FF41;font-size:9.5px;font-weight:700;padding:2px 7px;border-radius:9px;letter-spacing:.3px;text-shadow:0 0 4px rgba(0,255,65,.35)}
+.sessions-group-head.current .sessions-group-count{background:rgba(0,255,65,.25)}
+.sgh-toggle{font-size:10px;color:rgba(255,255,255,.45);transition:transform .25s;flex-shrink:0;font-family:inherit}
+.sessions-group.collapsed .sgh-toggle{transform:rotate(-90deg)}
+.sessions-group.collapsed .sessions-group-body{display:none}
+.sessions-group-body{padding:2px 0 8px}
+.sessions-time-bucket{padding:0}
+.sessions-time-label{font-family:'SF Mono','Consolas',monospace;font-size:9.5px;letter-spacing:1.5px;color:rgba(255,255,255,.4);padding:6px 18px 2px;text-transform:uppercase}
+.session-ws-tag{display:inline-block;margin-left:8px;font-size:9.5px;color:rgba(0,255,65,.6);background:rgba(0,255,65,.08);border:1px solid rgba(0,255,65,.18);border-radius:4px;padding:1px 6px;letter-spacing:.3px}
+.session-preview{font-size:11px;color:rgba(255,255,255,.55);margin-top:3px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;font-family:'Inter','SF Pro Display',-apple-system,system-ui,sans-serif;letter-spacing:.1px}
+.session-actions{display:flex;flex-direction:column;gap:2px;flex-shrink:0;align-self:flex-start;margin-top:-2px}
+.session-rename{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:11px;padding:5px 7px;border-radius:5px;transition:all .15s;opacity:.4}
+.session-row:hover .session-rename{opacity:.85}
+.session-rename:hover{background:rgba(0,255,65,.12);color:#00FF41}
+.sessions-body{overflow-y:auto;flex:1;padding:8px 0;min-height:0;position:relative;z-index:1}
+.sessions-body::-webkit-scrollbar{width:6px}
+.sessions-body::-webkit-scrollbar-thumb{background:rgba(0,255,65,.3);border-radius:3px}
+.sessions-body::-webkit-scrollbar-thumb:hover{background:rgba(0,255,65,.5)}
+.session-row{padding:0;cursor:pointer;border-left:2px solid transparent;transition:all .18s cubic-bezier(.16,1,.3,1);position:relative}
+.session-line{display:flex;align-items:flex-start;gap:10px;padding:11px 18px}
+.session-row:hover{background:rgba(0,255,65,.04);border-left-color:#00FF41}
+.session-row:hover .session-marker{color:#00FF41;text-shadow:0 0 8px rgba(0,255,65,.6)}
+.session-row.active{background:linear-gradient(90deg,rgba(251,191,36,.08),rgba(251,191,36,.02) 60%);border-left-color:#FBBF24}
+.session-row.active .session-marker{color:#FBBF24;text-shadow:0 0 8px rgba(251,191,36,.5)}
+.session-marker{font-family:'SF Mono','Consolas',monospace;font-size:14px;color:rgba(0,255,65,.45);font-weight:700;line-height:1.4;flex-shrink:0;transition:all .18s}
+.session-meta{flex:1;min-width:0}
+.session-title-row{display:flex;align-items:center;gap:8px;min-width:0}
+.session-title{font-size:13px;color:var(--text-bright);font-weight:500;line-height:1.35;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.session-active-badge{font-family:'SF Mono','Consolas',monospace;font-size:8.5px;letter-spacing:1.2px;color:#FBBF24;background:rgba(251,191,36,.1);border:1px solid rgba(251,191,36,.35);padding:1px 6px;border-radius:3px;text-transform:uppercase;flex-shrink:0;text-shadow:0 0 4px rgba(251,191,36,.5)}
+.session-sub{font-size:10.5px;color:var(--text-dim);margin-top:3px;font-family:'SF Mono','Consolas',monospace;letter-spacing:.4px}
+.session-del{background:transparent;border:none;color:var(--text-dim);cursor:pointer;font-size:13px;padding:6px 8px;border-radius:6px;flex-shrink:0;transition:all .15s;opacity:.4;align-self:flex-start;margin-top:-2px}
+.session-row:hover .session-del{opacity:.85}
+.session-del:hover{background:rgba(239,68,68,.18);color:#EF4444}
+.sessions-empty{padding:48px 28px;text-align:center;color:var(--text-dim)}
+.sessions-empty-glyph{font-size:42px;color:rgba(0,255,65,.35);margin-bottom:14px;font-family:'SF Mono',monospace;animation:sessEmptyPulse 2.4s ease-in-out infinite}
+@keyframes sessEmptyPulse{0%,100%{opacity:.45;transform:scale(1)}50%{opacity:.75;transform:scale(1.05)}}
+.sessions-empty-title{font-size:14px;color:var(--text-bright);font-weight:600;margin-bottom:8px;letter-spacing:-.1px}
+.sessions-empty-hint{font-size:11.5px;color:var(--text-dim);line-height:1.7;font-family:'SF Mono','Consolas',monospace;letter-spacing:.3px}
+.sessions-foot{padding:10px 20px;border-top:1px solid rgba(0,255,65,.12);font-family:'SF Mono','Consolas',monospace;font-size:9.5px;color:rgba(255,255,255,.35);letter-spacing:.7px;text-align:center;flex-shrink:0;position:relative;z-index:1}
+
+/* ===== v2.89.107 — 비활성(OPT-IN) 에이전트 카드. 회색 톤. =====
+   잠긴(Luna) 카드와는 다른 색 — locked=보라(채용 인증 필요), inactive=회색(간단 토글). */
+.ab-card.inactive{opacity:.78;border-color:rgba(255,255,255,.18);background:linear-gradient(180deg,rgba(20,22,26,.82),rgba(10,12,15,.92));cursor:pointer;position:relative}
+.ab-card.inactive::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0,transparent 5px,rgba(255,255,255,.025) 5px,rgba(255,255,255,.025) 7px);pointer-events:none;border-radius:10px}
+.ab-card.inactive .ab-emoji,.ab-card.inactive .ab-portrait{filter:grayscale(.6) brightness(.7) contrast(1.05)}
+.ab-card.inactive .ab-name{color:rgba(255,255,255,.6)}
+.ab-card.inactive .ab-status{color:rgba(255,255,255,.55);font-weight:600;letter-spacing:.4px;font-size:9px}
+.ab-card.inactive .ab-led{background:rgba(255,255,255,.4);box-shadow:0 0 6px rgba(255,255,255,.2)}
+.ab-card.inactive:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.5);box-shadow:0 0 18px rgba(255,255,255,.15);opacity:.95}
+
+/* ===== v2.89.106 — 잠긴 에이전트 (입사 준비중) — 사이드바·대쉬보드 동일 보라 통일 ===== */
+.ab-card.locked{opacity:.95;border-color:rgba(167,139,250,.4);background:linear-gradient(180deg,rgba(12,8,18,.85),rgba(6,4,10,.92));cursor:pointer;position:relative}
+.ab-card.locked::before{content:'';position:absolute;inset:0;background:repeating-linear-gradient(135deg,transparent 0,transparent 5px,rgba(167,139,250,.05) 5px,rgba(167,139,250,.05) 7px);pointer-events:none;border-radius:10px}
+.ab-card.locked .ab-emoji,.ab-card.locked .ab-portrait{filter:grayscale(.85) brightness(.55) contrast(1.1)}
+.ab-card.locked .ab-name{color:rgba(167,139,250,.8)}
+.ab-card.locked .ab-status{color:#A78BFA;font-weight:700;letter-spacing:.5px;text-shadow:0 0 8px rgba(167,139,250,.45);animation:lockedPulse 2.4s ease-in-out infinite}
+.ab-card.locked .ab-led{background:#A78BFA;box-shadow:0 0 8px #A78BFA;animation:ledBlink 1.4s ease-in-out infinite}
+.ab-card.locked:hover{transform:translateY(-1px);border-color:#A78BFA;box-shadow:0 0 22px rgba(167,139,250,.4)}
+.ab-card.locked .ab-lock-icon{position:absolute;top:6px;right:6px;font-size:11px;opacity:.85;text-shadow:0 0 6px rgba(167,139,250,.65);z-index:2}
+@keyframes lockedPulse{0%,100%{opacity:.7}50%{opacity:1}}
+
+/* ===== v2.89.95 — PIN 입력 모달 (미래지향, 힌트 없음) ===== */
+.pin-overlay{position:fixed;inset:0;background:radial-gradient(ellipse at center,rgba(0,0,0,.85),rgba(0,0,0,.96));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:9999;display:flex;align-items:center;justify-content:center;animation:pinFade .35s ease-out}
+@keyframes pinFade{from{opacity:0}to{opacity:1}}
+.pin-overlay::before{content:'';position:absolute;inset:0;background:radial-gradient(circle at 50% 50%,rgba(0,255,65,.06) 0%,transparent 60%);pointer-events:none}
+.pin-overlay::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,255,65,.03) 3px,rgba(0,255,65,.03) 4px);pointer-events:none;mix-blend-mode:overlay}
+.pin-card{position:relative;background:linear-gradient(180deg,rgba(8,10,8,.97),rgba(2,4,2,.99));border:1px solid rgba(0,255,65,.35);border-radius:18px;padding:38px 42px 32px;max-width:380px;width:88vw;text-align:center;box-shadow:0 0 90px rgba(0,255,65,.2),0 30px 80px rgba(0,0,0,.7);animation:pinIn .55s cubic-bezier(.16,1,.3,1)}
+@keyframes pinIn{from{opacity:0;transform:translateY(20px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+.pin-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#00FF41,#00e5ff,#00FF41,transparent);border-radius:18px 18px 0 0;animation:pinLine 2.2s ease-in-out infinite}
+@keyframes pinLine{0%,100%{opacity:.5}50%{opacity:1}}
+.pin-brand{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;letter-spacing:3.5px;color:rgba(0,255,65,.6);text-transform:uppercase;margin-bottom:8px}
+.pin-icon{font-size:48px;margin:6px 0 12px;filter:drop-shadow(0 0 18px rgba(0,255,65,.45));animation:pinIconFloat 3.5s ease-in-out infinite}
+@keyframes pinIconFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.pin-title{font-size:18px;font-weight:700;color:#fff;margin-bottom:4px;letter-spacing:-.2px}
+.pin-sub{font-size:12px;color:var(--text-dim);margin-bottom:24px;line-height:1.5}
+.pin-input-row{display:flex;gap:10px;justify-content:center;margin-bottom:18px}
+.pin-digit{width:48px;height:60px;background:linear-gradient(180deg,rgba(0,20,5,.7),rgba(0,8,2,.85));border:1.5px solid rgba(0,255,65,.25);border-radius:10px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:28px;font-weight:700;color:#00FF41;text-align:center;outline:none;text-shadow:0 0 12px rgba(0,255,65,.55);caret-color:transparent;transition:all .2s;-moz-appearance:textfield}
+.pin-digit::-webkit-inner-spin-button,.pin-digit::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.pin-digit:focus{border-color:#00FF41;box-shadow:0 0 18px rgba(0,255,65,.4),inset 0 0 12px rgba(0,255,65,.08);transform:translateY(-1px)}
+.pin-digit.filled{background:linear-gradient(180deg,rgba(0,40,12,.85),rgba(0,18,5,.95));border-color:rgba(0,255,65,.55)}
+.pin-digit.error{border-color:#ff5252;color:#ff5252;text-shadow:0 0 12px rgba(255,82,82,.55);animation:pinShake .4s ease-in-out}
+@keyframes pinShake{0%,100%{transform:translateX(0)}25%{transform:translateX(-6px)}75%{transform:translateX(6px)}}
+.pin-status{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:var(--text-dim);min-height:14px;margin-bottom:14px;transition:color .2s}
+.pin-status.ok{color:#00FF41}
+.pin-status.err{color:#ff5252}
+.pin-cancel{background:transparent;border:1px solid rgba(255,255,255,.12);color:var(--text-dim);font-family:inherit;font-size:11px;padding:8px 18px;border-radius:8px;cursor:pointer;letter-spacing:.5px;transition:all .2s}
+.pin-cancel:hover{border-color:rgba(255,255,255,.3);color:var(--text-bright)}
+
+/* ===== Agent-tagged messages ===== */
+.msg.msg-agent{position:relative}
+.msg-agent .av{background:rgba(20,22,28,.85);color:var(--ag-color,var(--accent));border:1px solid var(--ag-color,var(--accent));box-shadow:0 0 10px var(--ag-color-glow,var(--accent-glow))}
+.msg-agent .ag-tag{font-family:'SF Mono','JetBrains Mono',monospace;font-size:9.5px;font-weight:700;color:var(--ag-color,var(--accent));letter-spacing:1px;text-transform:uppercase;padding:1px 7px;border:1px solid var(--ag-color,var(--accent));border-radius:5px;background:rgba(0,0,0,.3);margin-left:2px}
+.msg-agent .ag-task{font-size:10px;color:var(--text-dim);margin-left:4px;font-weight:400}
+.msg-agent .msg-body{border-left:2px solid var(--ag-color,var(--accent));padding-left:12px;margin-left:23px}
+.msg-agent.streaming .msg-body{box-shadow:inset 0 0 18px var(--ag-color-glow,transparent)}
+.msg-agent .ag-elapsed{font-size:9px;color:var(--text-dim);margin-left:auto;font-family:'SF Mono',monospace;opacity:.6}
+
+/* ===== CEO Brief Card (작업 분배 시작 알림) — v2.89.102 매트릭스 터미널 재작업 =====
+   이전: 검은 알약(pill) + 좌측 컬러 보더 → "버튼 같다, 보기 안 좋다" 사용자 피드백.
+   이후: 터미널 로그 라인 스타일. 모노스페이스 + 화살표 prefix + 에이전트 컬러 글로우.
+   매트릭스 ml-loader / report-card 와 같은 비주얼 언어로 통일. */
+.brief-card{background:linear-gradient(180deg,rgba(0,15,5,.85),rgba(0,5,2,.95));border:1px solid rgba(0,255,65,.25);border-radius:12px;padding:14px 16px 12px;margin-left:29px;animation:msgIn .5s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.4),0 0 22px rgba(0,255,65,.08);max-width:520px}
+.brief-card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent 5%,var(--accent) 50%,transparent 95%);opacity:.6;animation:briefTopGlow 3s ease-in-out infinite alternate}
+@keyframes briefTopGlow{0%{opacity:.25}100%{opacity:.7}}
+.brief-card::after{content:'';position:absolute;inset:0;background:repeating-linear-gradient(0deg,transparent 0,transparent 3px,rgba(0,255,65,.025) 3px,rgba(0,255,65,.025) 4px);pointer-events:none;mix-blend-mode:overlay;border-radius:12px}
+.brief-head{font-family:'SF Mono','Consolas',monospace;font-size:10px;letter-spacing:2.4px;color:var(--accent);margin-bottom:10px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow);display:flex;align-items:center;gap:8px;position:relative;z-index:1}
+.brief-head::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent);animation:mlHeadDot 1.2s ease-in-out infinite}
+.brief-text{font-size:13px;line-height:1.65;color:var(--text-bright);margin-bottom:12px;font-weight:500;position:relative;z-index:1;padding-left:2px;border-left:2px solid rgba(0,255,65,.25);padding-left:10px}
+.brief-tasks{display:flex;flex-direction:column;gap:4px;margin-top:10px;position:relative;z-index:1;border-top:1px dashed rgba(0,255,65,.15);padding-top:10px}
+.brief-task{display:flex;align-items:flex-start;gap:8px;font-size:12px;line-height:1.55;color:var(--text-bright);padding:4px 0 4px 4px;background:transparent;border:none;border-radius:0;font-family:'SF Mono','Consolas',monospace;animation:briefTaskIn .4s ease-out backwards;position:relative}
+.brief-task::before{content:'›';color:var(--ag-color,var(--accent));font-weight:700;font-size:14px;line-height:1.4;flex-shrink:0;text-shadow:0 0 6px var(--ag-color,var(--accent));opacity:.85}
+.brief-task .bt-emoji{font-size:14px;line-height:1.4;flex-shrink:0;filter:drop-shadow(0 0 4px var(--ag-color,transparent))}
+.brief-task .bt-name{font-size:9.5px;font-weight:700;color:var(--ag-color,var(--accent));letter-spacing:.6px;text-transform:uppercase;flex-shrink:0;line-height:1.7;text-shadow:0 0 6px var(--ag-color,transparent);padding:0 6px;border:1px solid currentColor;border-radius:3px;background:rgba(0,0,0,.3)}
+.brief-task .bt-text{flex:1;color:var(--text);font-size:12px;font-family:'Inter','SF Pro Display',-apple-system,system-ui,sans-serif;font-weight:400}
+@keyframes briefTaskIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+
+/* ===== CEO Final Report Card ===== */
+.report-card{background:linear-gradient(135deg,rgba(0,255,65,.04),rgba(0,143,17,.02));border:1px solid rgba(0,255,65,.3);border-radius:16px;padding:18px 20px;margin-left:29px;animation:msgIn .55s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;backdrop-filter:blur(8px);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 24px rgba(0,255,65,.12)}
+.report-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+@keyframes reportLine{0%,100%{opacity:.4}50%{opacity:1}}
+.report-head{display:flex;align-items:center;justify-content:space-between;font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--accent);margin-bottom:12px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.report-head .rh-tag{padding:2px 8px;border:1px solid rgba(0,255,65,.4);border-radius:5px;background:rgba(0,255,65,.06)}
+.report-body{font-size:13px;line-height:1.75;color:var(--text-bright)}
+.report-body h2{font-size:13px;color:var(--accent);margin:10px 0 6px;letter-spacing:.5px}
+.report-body ul,.report-body ol{padding-left:20px;margin:4px 0}
+.report-body li{margin:3px 0;color:var(--text)}
+.report-body strong{color:var(--text-bright)}
+.report-foot{margin-top:14px;padding-top:10px;border-top:1px solid rgba(0,255,65,.15);display:flex;align-items:center;justify-content:space-between;font-size:10px;font-family:'SF Mono',monospace;color:var(--text-dim)}
+.report-foot .rf-link{color:var(--accent);cursor:pointer;text-decoration:none}
+.report-foot .rf-link:hover{text-decoration:underline}
+
+/* ===== Onboarding & Interview Cards ===== */
+.onboard-card,.interview-card{background:linear-gradient(135deg,rgba(0,255,65,.05),rgba(0,143,17,.02));border:1px solid rgba(0,255,65,.28);border-radius:16px;padding:18px 20px;margin-left:29px;animation:msgIn .5s cubic-bezier(.16,1,.3,1);position:relative;overflow:hidden;backdrop-filter:blur(8px);box-shadow:0 8px 32px rgba(0,0,0,.4),0 0 18px rgba(0,255,65,.08)}
+.onboard-card::before,.interview-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+.onboard-head,.interview-head{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:2px;color:var(--accent);margin-bottom:8px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.onboard-title,.interview-title{font-size:15px;font-weight:700;color:var(--text-bright);margin-bottom:6px}
+.onboard-sub,.interview-sub{font-size:11.5px;color:var(--text-dim);line-height:1.6;margin-bottom:14px}
+.onboard-options{display:flex;flex-direction:column;gap:6px}
+.onboard-opt{display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:10px 14px;cursor:pointer;transition:all .25s;font-family:inherit;color:var(--text-bright);text-align:left}
+.onboard-opt:hover{border-color:var(--accent);background:rgba(0,255,65,.06);transform:translateY(-1px);box-shadow:0 4px 14px var(--accent-glow)}
+.onboard-opt .oo-icon{font-size:18px;flex-shrink:0}
+.onboard-opt .oo-text{display:flex;flex-direction:column;gap:2px;flex:1}
+.onboard-opt .oo-title{font-size:12.5px;font-weight:700}
+.onboard-opt .oo-desc{font-size:10.5px;color:var(--text-dim);font-weight:400}
+.interview-fields{display:flex;flex-direction:column;gap:10px;margin-bottom:12px}
+.interview-field label{display:block;font-size:10px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.interview-field input{width:100%;background:var(--input-bg);border:1px solid var(--border2);border-radius:8px;padding:8px 12px;color:var(--text-bright);font-family:inherit;font-size:13px;outline:none;transition:all .2s}
+.interview-field input:focus{border-color:var(--accent);box-shadow:0 0 12px var(--accent-glow)}
+.interview-actions{display:flex;justify-content:flex-end;gap:8px}
+.interview-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;padding:8px 18px;border-radius:8px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;transition:all .2s}
+.interview-btn:hover{transform:translateY(-1px);box-shadow:0 4px 14px var(--accent-glow)}
+.interview-btn.skip{background:transparent;border:1px solid var(--border2);color:var(--text-dim)}
+.interview-btn.skip:hover{border-color:var(--accent);color:var(--text-bright);box-shadow:none}
+
+/* 헤더에 회사명 표시 */
+.brand-suffix{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;color:var(--accent);font-weight:600;letter-spacing:.5px;margin-left:6px;padding:2px 7px;border:1px solid var(--accent);border-radius:5px;background:rgba(255,255,255,.03);display:none;animation:brandPulse 3s ease-in-out infinite}
+@keyframes brandPulse{0%,100%{box-shadow:0 0 0 transparent}50%{box-shadow:0 0 10px var(--accent-glow)}}
+body.corp-on .brand-suffix{display:inline-block}
+
+/* ===== Cinematic dispatch overlay (boot moment) ===== */
+.corp-overlay{position:absolute;inset:0;background:radial-gradient(circle at center,rgba(0,255,65,.06),rgba(0,0,0,.7));backdrop-filter:blur(2px);pointer-events:none;opacity:0;z-index:50;display:flex;align-items:center;justify-content:center}
+body.corp-dispatching .corp-overlay{opacity:1;animation:overlayPulse 1.5s ease-out forwards}
+@keyframes overlayPulse{0%{opacity:0}30%{opacity:1}100%{opacity:0}}
+.corp-overlay-text{font-family:'SF Mono',monospace;font-size:11px;letter-spacing:4px;color:var(--accent);text-transform:uppercase;text-shadow:0 0 12px var(--accent),0 0 24px var(--accent2);animation:bootText 1.5s ease-out}
+@keyframes bootText{0%{opacity:0;letter-spacing:0}30%{opacity:1;letter-spacing:6px}70%{opacity:1}100%{opacity:0;letter-spacing:8px}}
+
+/* ===== Agent panel — game-style character card ===== */
+.ap-backdrop{position:fixed;inset:0;z-index:9998;display:flex;align-items:flex-start;justify-content:center;background:rgba(0,0,0,0.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:apIn .25s ease-out;padding:5vh 20px;overflow-y:auto}
+@keyframes apIn{from{opacity:0}to{opacity:1}}
+.ap-modal{width:min(460px,100%);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(20,20,26,0.98),rgba(8,8,12,0.99));border:1px solid rgba(255,255,255,0.06);border-radius:22px;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 0 1px var(--ag-color-glow,rgba(255,255,255,0.04)),0 0 60px var(--ag-color-glow,transparent);animation:apModalIn .35s cubic-bezier(.16,1,.3,1);overflow-x:hidden;position:relative;margin-bottom:5vh}
+.ap-modal::-webkit-scrollbar{width:6px}
+.ap-modal::-webkit-scrollbar-thumb{background:rgba(255,255,255,.1);border-radius:3px}
+@keyframes apModalIn{from{transform:translateY(20px) scale(.96);opacity:0}to{transform:none;opacity:1}}
+/* Aurora glow behind the modal — subtle agent-color wash */
+.ap-modal::before{content:'';position:absolute;top:-100px;left:50%;transform:translateX(-50%);width:300px;height:300px;background:radial-gradient(circle,var(--ag-color-glow,transparent) 0%,transparent 60%);pointer-events:none;animation:apAura 8s ease-in-out infinite alternate;opacity:0.6}
+@keyframes apAura{0%{transform:translateX(-50%) scale(1)}100%{transform:translateX(-55%) scale(1.1)}}
+/* Close button — floats top-right */
+.ap-close{position:absolute;top:14px;right:14px;background:rgba(255,255,255,0.06);border:none;color:var(--text-dim);width:30px;height:30px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s;z-index:10;backdrop-filter:blur(8px)}
+.ap-close:hover{color:var(--text-bright);background:rgba(255,255,255,0.12);transform:scale(1.1)}
+/* Hero header — clean stack: photo, then name/role/status BELOW it (no
+   overlay). Eliminates text-overlap issues. */
+.ap-head{padding:0 0 12px;display:flex;flex-direction:column;align-items:stretch;gap:0;position:relative;z-index:2}
+.ap-head::after{content:'';position:absolute;left:24px;right:24px;bottom:0;height:1px;background:linear-gradient(90deg,transparent,var(--ag-color,rgba(255,255,255,0.15)),transparent);opacity:0.5}
+.ap-hero{position:relative;width:100%;height:200px;background:#0a0a0d center/cover no-repeat;overflow:hidden}
+.ap-hero.ap-hero-custom{background-size:cover;background-position:center 22%}
+.ap-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 65%,rgba(8,8,12,.5) 100%);pointer-events:none}
+.ap-hero-emoji{display:flex;align-items:center;justify-content:center;height:100%;font-size:84px;background:linear-gradient(135deg,var(--ag-color-glow,rgba(255,255,255,.06)),rgba(255,255,255,.02))}
+.ap-hero.ap-hero-locked{filter:grayscale(1) brightness(.5)}
+.ap-hero.ap-hero-locked::before{content:'🔒';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:52px;z-index:3;filter:none;text-shadow:0 4px 16px rgba(0,0,0,.9)}
+/* Identity row — centered under photo. No absolute positioning, no overlap. */
+.ap-identity{padding:14px 22px 8px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}
+.ap-name{font-size:22px;font-weight:800;color:var(--text-bright);letter-spacing:-.3px;line-height:1.15}
+.ap-role{font-size:12px;color:var(--text-dim);font-weight:500;display:inline-flex;align-items:center;gap:6px;line-height:1.3}
+.ap-role-emoji{font-size:13px}
+.ap-status-pill{display:inline-flex;align-items:center;gap:5px;padding:2px 9px;border-radius:20px;background:var(--ag-color-glow,rgba(255,255,255,.06));border:1px solid var(--ag-color,rgba(255,255,255,.18));font-size:9.5px;font-weight:700;color:var(--ag-color,var(--text-bright));letter-spacing:1.1px;text-transform:uppercase;margin-top:3px}
+.ap-status-pill::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--ag-color,#fff);box-shadow:0 0 6px var(--ag-color);animation:apPulse 1.5s ease-in-out infinite}
+/* Greeting — single-line, subtle. The sub-line and tagline both got
+   removed (they were overlapping). Just the agent's voice intro. */
+.ap-greet{margin:6px 22px 0;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--ag-color-glow,rgba(255,255,255,.06));border-left:3px solid var(--ag-color,var(--accent));border-radius:10px;font-size:12.5px;line-height:1.5;color:var(--text)}
+.ap-greet-quote{color:var(--text-bright);font-weight:500}
+.ap-greet-sub{display:none}
+/* Legacy classes retained but unused — kept so older builds don't break.
+   Hidden so they don't render. */
+.ap-tagline{display:none}
+.ap-hero-overlay,.ap-hero-name-row{display:none}
+/* Onboarding CTA banner inside an agent panel — used to surface unfinished
+   setup (e.g. Secretary's Telegram) so users don't have to hunt for ⚙️. */
+.ap-cta{display:flex;align-items:center;gap:14px;padding:13px 16px;margin-bottom:12px;background:linear-gradient(135deg,rgba(34,154,255,.12),rgba(34,154,255,.04));border:1px solid rgba(34,154,255,.4);border-radius:13px;cursor:pointer;transition:all .25s cubic-bezier(.16,1,.3,1);color:var(--text-bright);box-shadow:0 4px 16px rgba(34,154,255,.12)}
+.ap-cta:hover{transform:translateY(-1px);background:linear-gradient(135deg,rgba(34,154,255,.18),rgba(34,154,255,.08));border-color:#229affff;box-shadow:0 6px 22px rgba(34,154,255,.25)}
+.ap-cta-icon{font-size:24px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(34,154,255,.15);border:1px solid rgba(34,154,255,.35);border-radius:10px}
+.ap-cta-text{flex:1;font-size:12.5px;line-height:1.5}
+.ap-cta-text strong{color:var(--text-bright);font-weight:700}
+.ap-cta-sub{color:var(--text-dim);font-size:11px}
+.ap-cta-arrow{font-size:18px;color:#229affff;font-weight:700}
+@keyframes apPulse{0%,100%{opacity:0.5}50%{opacity:1}}
+/* Body */
+.ap-body{padding:18px 22px 20px;display:flex;flex-direction:column;gap:18px;position:relative;z-index:2}
+.ap-body::-webkit-scrollbar{width:4px}
+.ap-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
+.ap-section{display:flex;flex-direction:column;gap:10px}
+.ap-section-label{font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1.5px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
+.ap-section-label::before{content:'';width:3px;height:12px;background:var(--ag-color,var(--accent));border-radius:2px;box-shadow:0 0 6px var(--ag-color-glow)}
+.ap-section-count{font-size:10px;color:var(--text-dim);opacity:0.6;font-weight:500;letter-spacing:0;margin-left:auto}
+.ap-mission-sub{font-size:9.5px;color:var(--text-dim);opacity:.65;font-weight:500;letter-spacing:0;text-transform:none}
+.ap-saved-pill{margin-left:auto;font-size:9px;font-weight:600;letter-spacing:.5px;color:#00cc77;background:rgba(0,204,119,.1);border:1px solid rgba(0,204,119,.25);border-radius:10px;padding:2px 8px;opacity:0;transform:translateY(-2px);transition:opacity .2s,transform .2s;pointer-events:none}
+.ap-saved-pill.show{opacity:1;transform:translateY(0)}
+/* Goal textarea */
+.ap-goal{width:100%;min-height:120px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:11px 13px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:12px;line-height:1.6;color:var(--text-bright);resize:vertical;outline:none;transition:all .2s;box-sizing:border-box}
+.ap-goal:focus{border-color:var(--ag-color,var(--accent));background:rgba(0,0,0,0.3)}
+.ap-goal::placeholder{color:var(--text-dim);opacity:0.5}
+/* ===== Mission collapsible (v2.64) =====
+   Default state shows ONLY a one-line preview pill that reads like a
+   sticky-note ("📌 매일 09:00 데일리 브리핑"). Clicking the pill expands
+   the section to reveal the full editor textarea. Keeps the panel
+   readable on first open without removing the ability to write a long
+   freeform mission. */
+.ap-mission{gap:0}
+.ap-mission-head{display:flex;align-items:center;gap:10px;width:100%;padding:11px 14px;background:rgba(255,255,255,.025);border:1px solid rgba(255,255,255,.06);border-left:3px solid var(--ag-color,var(--accent));border-radius:10px;cursor:pointer;transition:all .2s;text-align:left;font-family:inherit;color:var(--text-bright)}
+.ap-mission-head:hover{background:rgba(255,255,255,.05);border-color:var(--ag-color,var(--accent))}
+.ap-mission-pin{font-size:14px;flex-shrink:0;filter:drop-shadow(0 0 4px var(--ag-color-glow))}
+.ap-mission-preview{flex:1;font-size:12.5px;line-height:1.5;color:var(--text-bright);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+.ap-mission-preview.empty{color:var(--text-dim);font-style:italic;font-weight:400}
+.ap-mission-edit{font-size:13px;opacity:.5;flex-shrink:0;transition:opacity .15s}
+.ap-mission-head:hover .ap-mission-edit{opacity:1}
+.ap-mission-body{display:none;flex-direction:column;gap:8px;margin-top:8px;animation:apMissionExpand .25s ease-out}
+.ap-mission.expanded .ap-mission-body{display:flex}
+.ap-mission.expanded .ap-mission-head{border-bottom-left-radius:0;border-bottom-right-radius:0;background:rgba(255,255,255,.04)}
+.ap-mission.expanded .ap-mission-edit{transform:rotate(90deg);opacity:1}
+@keyframes apMissionExpand{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+/* ===== Advanced settings collapsible (v2.64) =====
+   <details>/<summary> native disclosure widget — keyboard/SR semantics
+   come for free. Visually we style it to look like a flat row that opens
+   into a sub-section, with a chevron that rotates when open. Default
+   state collapsed: panel stays "easy" on first click; users opt in to
+   "professional" depth. */
+.ap-advanced{border:1px solid rgba(255,255,255,.06);border-radius:10px;background:rgba(255,255,255,.015);overflow:hidden;transition:all .2s}
+.ap-advanced[open]{background:rgba(255,255,255,.025);border-color:rgba(255,255,255,.1)}
+.ap-advanced-summary{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer;list-style:none;user-select:none;transition:background .15s}
+.ap-advanced-summary::-webkit-details-marker{display:none}
+.ap-advanced-summary:hover{background:rgba(255,255,255,.04)}
+.ap-advanced-icon{font-size:13px;flex-shrink:0;opacity:.7}
+.ap-advanced-title{font-size:12px;font-weight:600;color:var(--text-bright);letter-spacing:.2px}
+.ap-advanced-sub{font-size:10.5px;color:var(--text-dim);flex:1;line-height:1.4}
+.ap-advanced-chevron{font-size:11px;color:var(--text-dim);transition:transform .25s cubic-bezier(.16,1,.3,1);flex-shrink:0}
+.ap-advanced[open] .ap-advanced-chevron{transform:rotate(180deg)}
+.ap-advanced-body{padding:8px 14px 14px;display:flex;flex-direction:column;gap:18px;border-top:1px solid rgba(255,255,255,.05)}
+.ap-section-flat{gap:8px}
+/* Tool list */
+/* v2.87.4 — 심플 아이콘 그리드. 텍스트 최소화 — 이모지 + 짧은 라벨 + 상태 점.
+   클릭 = 설정 모달 (기존 ⚙️ config), 호버 = 전체 이름·설명 툴팁. */
+.ap-tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:8px}
+.ap-tool{position:relative;aspect-ratio:1/1.05;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:10px 6px 8px;background:rgba(255,255,255,0.025);border:1.5px solid rgba(255,255,255,0.06);border-radius:12px;transition:all .2s cubic-bezier(.16,1,.3,1);cursor:pointer;overflow:hidden}
+.ap-tool:hover{transform:translateY(-2px);background:rgba(255,255,255,0.05);border-color:var(--ag-color,rgba(255,255,255,0.18));box-shadow:0 6px 18px rgba(0,0,0,.35),0 0 14px var(--ag-color-glow,transparent);z-index:2}
+.ap-tool-emoji{font-size:26px;line-height:1;filter:drop-shadow(0 2px 4px rgba(0,0,0,.3))}
+/* v2.87.4 — 타일 라벨 (이모지 아래 짧은 한 줄) */
+.ap-tool .ap-tool-name{font-size:10.5px;color:var(--text-bright);font-weight:500;text-align:center;line-height:1.1;letter-spacing:-.1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;width:100%;padding:0 2px;display:block}
+/* 우상단 상태 점 — locked / on / off */
+.ap-tool-corner{position:absolute;top:6px;right:6px;width:8px;height:8px;border-radius:50%;font-size:10px;line-height:8px;text-align:center;display:flex;align-items:center;justify-content:center}
+.ap-tool-corner.on{background:#4ade80;box-shadow:0 0 6px rgba(74,222,128,.7)}
+.ap-tool-corner.off{background:rgba(255,255,255,.18)}
+.ap-tool-corner.locked{width:auto;height:auto;background:transparent;font-size:10px;box-shadow:none;color:rgba(255,255,255,.5)}
+/* 좌상단 ✨ Mine 마크 — 외부 주입 스킬 표시 */
+.ap-tool-mine-mark{position:absolute;top:5px;left:6px;font-size:11px;opacity:.85;animation:mineGlow 3s ease-in-out infinite}
+/* Locked 상태 = 흐릿하게 + 점선 */
+.ap-tool[data-state="locked"]{opacity:.55}
+.ap-tool[data-state="locked"] .ap-tool-emoji{filter:grayscale(.7) brightness(.7)}
+/* 비활성 = 살짝 흐릿 */
+.ap-tool[data-disabled="1"]:not([data-state="locked"]){opacity:.6}
+.ap-tool[data-disabled="1"] .ap-tool-emoji{filter:grayscale(.4)}
+/* 호버 툴팁 — 타일 위로 슬라이드되어 나타남 */
+.ap-tool-tooltip{position:absolute;left:50%;bottom:calc(100% + 6px);transform:translateX(-50%) translateY(4px);min-width:180px;max-width:240px;padding:9px 12px;background:rgba(0,0,0,.92);backdrop-filter:blur(8px);border:1px solid var(--ag-color,rgba(255,255,255,.15));border-radius:10px;opacity:0;pointer-events:none;transition:opacity .18s,transform .18s;z-index:100;text-align:left;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+.ap-tool:hover .ap-tool-tooltip{opacity:1;transform:translateX(-50%) translateY(0)}
+.ap-tool-tooltip-name{font-size:12px;font-weight:700;color:#fff;line-height:1.3;margin-bottom:3px}
+.ap-tool-tooltip-desc{font-size:10.5px;color:rgba(255,255,255,.7);line-height:1.45}
+/* Hidden meta block — kept for legacy state machine but not visually rendered */
+.ap-tool-meta{display:none}
+.ap-tool-name{font-size:12.5px;color:var(--text-bright);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:6px}
+/* "내가 주입한 스킬" 배지 — bundle 기본 스킬과 시각적으로 구분 */
+.ap-tool-mine{font-family:'SF Mono','JetBrains Mono',monospace;font-size:8.5px;letter-spacing:1.2px;color:#FFB266;background:rgba(255,178,102,.08);border:1px solid rgba(255,178,102,.32);padding:2px 6px;border-radius:6px;text-transform:uppercase;animation:mineGlow 3s ease-in-out infinite;flex-shrink:0}
+@keyframes mineGlow{0%,100%{box-shadow:0 0 0 0 rgba(255,178,102,.0)}50%{box-shadow:0 0 8px rgba(255,178,102,.35)}}
+
+/* ===== 글로벌 "내 스킬 라이브러리" 모달 ===== */
+.sl-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);z-index:99996;display:flex;align-items:center;justify-content:center;padding:24px;animation:msgIn .3s ease-out}
+.sl-modal{position:relative;width:min(640px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(14,18,26,.98),rgba(6,9,14,.99));border:1px solid rgba(255,178,102,.32);border-radius:18px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.85),0 0 60px rgba(255,178,102,.12)}
+.sl-modal::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#FFB266,transparent);animation:reportLine 3s ease-in-out infinite}
+.sl-head{display:flex;align-items:center;gap:14px;padding:22px 22px 14px;border-bottom:1px solid rgba(255,255,255,.06)}
+.sl-head-emoji{font-size:28px;flex-shrink:0;filter:drop-shadow(0 0 12px rgba(255,178,102,.45))}
+.sl-title{font-size:17px;font-weight:800;color:var(--text-bright);letter-spacing:-.3px}
+.sl-sub{font-size:11.5px;color:var(--text-dim);line-height:1.55;margin-top:2px}
+.sl-close{margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:22px;cursor:pointer;width:32px;height:32px;border-radius:8px;transition:all .15s}
+.sl-close:hover{color:var(--text-bright);background:rgba(255,255,255,.06)}
+.sl-filter{display:flex;gap:6px;padding:12px 22px;border-bottom:1px solid rgba(255,255,255,.04)}
+.sl-pill{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.06);color:var(--text-dim);padding:6px 14px;border-radius:20px;font-family:'SF Mono',monospace;font-size:10.5px;letter-spacing:1px;cursor:pointer;transition:all .2s;text-transform:uppercase}
+.sl-pill:hover{color:var(--text-bright);border-color:rgba(255,178,102,.3)}
+.sl-pill.active{background:rgba(255,178,102,.1);border-color:#FFB266;color:#FFB266;text-shadow:0 0 8px rgba(255,178,102,.5)}
+.sl-body{padding:18px 22px 24px;overflow-y:auto;flex:1}
+.sl-loading{text-align:center;color:var(--text-dim);font-size:12px;padding:40px 0}
+.sl-empty{text-align:center;color:var(--text);font-size:14px;padding:60px 20px;line-height:1.6}
+/* v2.89.91 — 공통 empty-state 컴포넌트. 이전엔 산재한 plain-text empty들이
+   각자 다른 폰트·여백·구조였음. 한 토큰으로 통일 → 첫인상 일관성·여백 호흡 확보. */
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:48px 20px;color:var(--text);gap:10px;animation:emptyFadeIn .4s ease-out}
+.empty-state .es-icon{font-size:36px;opacity:.55;line-height:1;margin-bottom:4px;filter:drop-shadow(0 0 14px var(--accent-glow))}
+.empty-state .es-title{font-size:14px;font-weight:600;color:var(--text-bright);letter-spacing:-.1px}
+.empty-state .es-sub{font-size:12px;color:var(--text-dim);line-height:1.6;max-width:240px}
+.empty-state .es-cta{margin-top:10px;font-size:11px;color:var(--accent);background:rgba(0,255,65,.06);border:1px solid rgba(0,255,65,.25);padding:6px 14px;border-radius:8px;font-family:'SF Mono',monospace;letter-spacing:.5px;text-transform:uppercase;cursor:pointer;transition:all .2s}
+.empty-state .es-cta:hover{background:rgba(0,255,65,.12);box-shadow:0 0 16px var(--accent-glow)}
+@keyframes emptyFadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.sl-summary{font-family:'SF Mono',monospace;font-size:11px;color:var(--text-dim);margin-bottom:14px;letter-spacing:.5px}
+.sl-summary strong{color:var(--text-bright);font-weight:700}
+.sl-group{margin-bottom:18px;background:linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.2));border:1px solid rgba(255,255,255,.06);border-left:3px solid var(--ag-color,#5DE0E6);border-radius:12px;padding:12px 14px}
+.sl-group-head{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.sl-group-emoji{font-size:18px}
+.sl-group-name{font-size:12.5px;font-weight:700;color:var(--text-bright);letter-spacing:.2px}
+.sl-group-count{margin-left:auto;font-family:'SF Mono',monospace;font-size:10px;color:var(--text-dim);background:rgba(255,255,255,.04);padding:2px 8px;border-radius:10px}
+.sl-group-tools{display:flex;flex-direction:column;gap:6px}
+.sl-tool{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.04);border-radius:8px;transition:all .15s}
+.sl-tool:hover{background:rgba(255,255,255,.04);border-color:rgba(255,178,102,.2)}
+.sl-tool-emoji{font-size:16px;flex-shrink:0;width:24px;text-align:center}
+.sl-tool-meta{flex:1;min-width:0}
+.sl-tool-name{font-size:12px;color:var(--text-bright);font-weight:600;display:flex;align-items:center;gap:6px}
+.sl-tool-desc{font-size:10.5px;color:var(--text-dim);line-height:1.4;margin-top:2px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.sl-mine{font-family:'SF Mono',monospace;font-size:8px;letter-spacing:1px;color:#FFB266;background:rgba(255,178,102,.1);border:1px solid rgba(255,178,102,.35);padding:1.5px 5px;border-radius:5px;text-transform:uppercase;animation:mineGlow 3s ease-in-out infinite;flex-shrink:0}
+/* Single-line desc by default — was 2 lines clamped which made each tool
+   row tall. Hover/focus expands to show more if user wants. */
+.ap-tool-desc{font-size:10.5px;color:var(--text-dim);line-height:1.4;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;transition:-webkit-line-clamp .25s}
+.ap-tool:hover .ap-tool-desc,.ap-tool:focus-within .ap-tool-desc{-webkit-line-clamp:4}
+.ap-tool-actions{display:flex;gap:6px;flex-shrink:0;align-items:center}
+.ap-tool-btn{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.06);color:var(--text);width:32px;height:32px;border-radius:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .15s;padding:0;position:relative}
+.ap-tool-btn:hover{background:var(--ag-color,var(--accent));color:#000;border-color:transparent}
+.ap-tool-btn:active{transform:scale(.92)}
+/* ===== Tool card game-like states (v2.48 — running/done/error animations
+   kept; left-edge dot disabled in v2.87.4 since the new tile uses a top-right
+   corner indicator instead) ===== */
+.ap-tool{position:relative;transition:all .2s}
+/* Disabled: was the legacy left-edge state dot — replaced by .ap-tool-corner */
+.ap-tool::before{content:none}
+.ap-tool[data-state="locked"] .ap-tool-btn[data-act="config"]{animation:apToolConfigPulse 2s ease-in-out infinite;border-color:var(--ag-color,var(--accent))}
+.ap-tool[data-state="pending"]::before,.ap-tool[data-state="running"]::before{background:var(--ag-color,var(--accent));opacity:1;animation:apToolDotPulse 1.1s ease-in-out infinite}
+.ap-tool[data-state="running"]{border-color:var(--ag-color,var(--accent));box-shadow:0 0 0 1px var(--ag-color-glow) inset, 0 6px 20px var(--ag-color-glow)}
+.ap-tool[data-state="running"]::after{content:'';position:absolute;inset:-1px;border-radius:inherit;border:1px solid transparent;background:linear-gradient(120deg,transparent 30%,var(--ag-color,var(--accent)) 50%,transparent 70%) border-box;-webkit-mask:linear-gradient(#000 0 0) padding-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:apToolBorderFlow 1.6s linear infinite;pointer-events:none;opacity:.7}
+.ap-tool[data-state="done"]{border-color:#4ade80;background:rgba(74,222,128,.06);animation:apToolDonePop .35s ease-out}
+.ap-tool[data-state="done"]::before{background:#4ade80;opacity:1;box-shadow:0 0 10px rgba(74,222,128,.6)}
+.ap-tool[data-state="error"]{border-color:#f87171;background:rgba(248,113,113,.06)}
+.ap-tool[data-state="error"]::before{background:#f87171;opacity:1;box-shadow:0 0 10px rgba(248,113,113,.5)}
+.ap-tool.shake{animation:apToolShake .45s cubic-bezier(.36,.07,.19,.97)}
+.ap-tool-status{font-family:'SF Mono',monospace;font-size:8px;letter-spacing:1px;text-transform:uppercase;padding:2px 6px;border-radius:4px;margin-right:4px;white-space:nowrap;transition:all .25s;opacity:0;max-width:0;overflow:hidden;display:inline-flex;align-items:center}
+.ap-tool[data-state="running"] .ap-tool-status,.ap-tool[data-state="pending"] .ap-tool-status,.ap-tool[data-state="done"] .ap-tool-status,.ap-tool[data-state="error"] .ap-tool-status,.ap-tool[data-state="locked"] .ap-tool-status{opacity:1;max-width:90px;padding:2px 6px}
+.ap-tool[data-state="locked"] .ap-tool-status{color:#888;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08)}
+.ap-tool[data-state="pending"] .ap-tool-status,.ap-tool[data-state="running"] .ap-tool-status{color:var(--ag-color,var(--accent));background:var(--ag-color-glow);border:1px solid var(--ag-color,var(--accent))}
+.ap-tool[data-state="done"] .ap-tool-status{color:#4ade80;background:rgba(74,222,128,.1);border:1px solid #4ade80}
+.ap-tool[data-state="error"] .ap-tool-status{color:#f87171;background:rgba(248,113,113,.1);border:1px solid #f87171}
+/* Power toggle — replaces the old ▶ run button. Visualizes whether the
+   agent will autonomously use this tool. Same visual language as a hardware
+   power switch: dimmed/off vs. glowing accent/on. */
+.ap-tool-pwr{position:relative;width:44px;height:24px;border-radius:12px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.1);cursor:pointer;padding:0;transition:all .25s;flex-shrink:0;display:inline-flex;align-items:center}
+.ap-tool-pwr:hover{border-color:rgba(255,255,255,.18)}
+.ap-tool-pwr-dot{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#888;transition:all .25s cubic-bezier(.16,1,.3,1);box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.ap-tool-pwr.on{background:var(--ag-color-glow,rgba(0,255,65,.18));border-color:var(--ag-color,var(--accent));box-shadow:0 0 10px var(--ag-color-glow,rgba(0,255,65,.3))}
+.ap-tool-pwr.on .ap-tool-pwr-dot{left:22px;background:var(--ag-color,var(--accent));box-shadow:0 0 8px var(--ag-color,var(--accent))}
+.ap-tool[data-state="locked"] .ap-tool-pwr{opacity:.4;cursor:not-allowed}
+.ap-tool[data-disabled="1"]{opacity:.6}
+.ap-tool[data-disabled="1"]::before{background:#666;opacity:.5}
+.ap-tool[data-disabled="1"] .ap-tool-emoji{filter:grayscale(.6)}
+/* During pending/running the power toggle pulses to confirm activity */
+.ap-tool[data-state="pending"] .ap-tool-pwr.on,.ap-tool[data-state="running"] .ap-tool-pwr.on{animation:apToolPwrPulse 1.1s ease-in-out infinite}
+@keyframes apToolPwrPulse{0%,100%{box-shadow:0 0 10px var(--ag-color-glow)}50%{box-shadow:0 0 20px var(--ag-color,var(--accent))}}
+/* Secondary "테스트 실행" link — small, dim, only visible on row hover.
+   Discoverable for testing without competing with the primary power toggle. */
+.ap-tool-bottom{display:flex;justify-content:flex-start;margin-top:4px;opacity:0;max-height:0;overflow:hidden;transition:opacity .2s, max-height .2s}
+.ap-tool:hover .ap-tool-bottom{opacity:1;max-height:24px}
+.ap-tool-test{background:transparent;border:none;color:var(--text-dim);font-size:9.5px;font-family:'SF Mono',monospace;letter-spacing:.5px;cursor:pointer;padding:2px 6px;border-radius:4px;transition:all .15s}
+.ap-tool-test:hover{color:var(--ag-color,var(--accent));background:rgba(255,255,255,.04)}
+.ap-tool[data-state="pending"] .ap-tool-test,.ap-tool[data-state="running"] .ap-tool-test{color:var(--ag-color,var(--accent));font-weight:600}
+@keyframes apToolDotPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.5);opacity:.6}}
+@keyframes apToolBorderFlow{from{background-position:0 0}to{background-position:200% 0}}
+@keyframes apToolShake{10%,90%{transform:translateX(-2px)}20%,80%{transform:translateX(3px)}30%,50%,70%{transform:translateX(-5px)}40%,60%{transform:translateX(5px)}}
+@keyframes apToolDonePop{0%{transform:scale(1)}40%{transform:scale(1.02)}100%{transform:scale(1)}}
+@keyframes apToolConfigPulse{0%,100%{box-shadow:0 0 0 0 var(--ag-color-glow)}50%{box-shadow:0 0 0 4px var(--ag-color-glow)}}
+@keyframes apToolSpin{to{transform:rotate(360deg)}}
+/* RAG mode segmented control — educational toggle */
+.ap-rag-seg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:6px}
+.ap-rag-seg-2{grid-template-columns:1fr 1fr}
+.ap-rag-opt{position:relative;padding:10px 8px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:10px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:3px;text-align:left;font-family:inherit;color:var(--text)}
+.ap-rag-opt:hover{background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.12)}
+.ap-rag-opt.on{background:var(--ag-color-glow,rgba(255,182,39,.12));border-color:var(--ag-color,var(--accent));box-shadow:0 0 0 1px var(--ag-color,var(--accent)) inset, 0 4px 14px var(--ag-color-glow,rgba(0,255,65,.18))}
+.ap-rag-opt-title{font-size:11.5px;font-weight:700;color:var(--text-bright);letter-spacing:.2px;display:flex;align-items:center;gap:4px}
+.ap-rag-opt-tag{font-family:'SF Mono',monospace;font-size:8px;letter-spacing:1px;color:var(--text-dim);background:rgba(255,255,255,.04);padding:1px 5px;border-radius:4px;text-transform:uppercase}
+.ap-rag-opt.on .ap-rag-opt-tag{color:var(--ag-color,var(--accent));background:var(--ag-color-glow,rgba(255,182,39,.15));border:1px solid var(--ag-color,var(--accent))}
+.ap-rag-opt-desc{font-size:10px;color:var(--text-dim);line-height:1.4}
+.ap-rag-saved{font-family:'SF Mono',monospace;font-size:8px;letter-spacing:1.2px;color:var(--ag-color,var(--accent));opacity:0;transition:opacity .25s;margin-left:auto}
+.ap-rag-saved.show{opacity:1}
+/* Self-RAG user criteria — fold-out under the segmented buttons. Only
+   shown when Self-RAG is the active mode (display toggled by JS). */
+.ap-rag-criteria{margin-top:10px;padding:10px 12px;background:rgba(0,0,0,.25);border:1px dashed rgba(255,255,255,.08);border-radius:10px;animation:apFadeSlide .3s cubic-bezier(.16,1,.3,1)}
+@keyframes apFadeSlide{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
+.ap-rag-criteria-label{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--text-dim);font-weight:700;letter-spacing:1.2px;text-transform:uppercase;margin-bottom:7px}
+.ap-rag-criteria-ta{width:100%;min-height:90px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.06);border-radius:8px;padding:9px 11px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:11.5px;line-height:1.55;color:var(--text-bright);resize:vertical;outline:none;box-sizing:border-box;transition:all .2s}
+.ap-rag-criteria-ta::placeholder{color:var(--text-dim);opacity:.45;line-height:1.55}
+.ap-rag-criteria-ta:focus{border-color:var(--ag-color,var(--accent));background:rgba(0,0,0,.35);box-shadow:0 0 0 2px var(--ag-color-glow,rgba(0,255,65,.1))}
+/* Verified-knowledge counter row at the top of the Self-RAG fold-out */
+.ap-verified-row{display:flex;align-items:center;gap:10px;margin-bottom:10px;padding:8px 10px;background:rgba(0,204,119,.06);border:1px solid rgba(0,204,119,.18);border-radius:8px}
+.ap-verified-meta{flex:1;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;color:var(--text-bright)}
+.ap-verified-icon{color:#00cc77;font-weight:700;font-size:13px;text-shadow:0 0 6px rgba(0,204,119,.6)}
+.ap-verified-text{font-weight:700;letter-spacing:.2px}
+.ap-verified-count{color:#00cc77;font-family:'SF Mono',monospace;font-weight:800;text-shadow:0 0 4px rgba(0,204,119,.4);min-width:16px;display:inline-block;text-align:center}
+.ap-verified-help{font-size:10px;color:var(--text-dim);font-weight:400;letter-spacing:0;flex-basis:100%;margin-top:2px;line-height:1.45}
+.ap-verified-open{background:transparent;border:1px solid rgba(0,204,119,.35);color:#00cc77;font-family:'SF Mono',monospace;font-size:10px;letter-spacing:.5px;padding:5px 9px;border-radius:6px;cursor:pointer;transition:all .15s;flex-shrink:0}
+.ap-verified-open:hover{background:rgba(0,204,119,.1);border-color:#00cc77;box-shadow:0 0 10px rgba(0,204,119,.25)}
+/* Toggle row */
+.ap-toggle-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.05);border-radius:10px;cursor:pointer;transition:all .15s}
+.ap-toggle-row:hover{background:rgba(255,255,255,0.04)}
+.ap-toggle-text{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.ap-toggle-title{font-size:12.5px;color:var(--text-bright);font-weight:500}
+.ap-toggle-sub{font-size:10.5px;color:var(--text-dim);line-height:1.4}
+.ap-toggle{position:relative;width:38px;height:22px;border-radius:11px;background:rgba(255,255,255,0.1);transition:all .25s;flex-shrink:0;border:none;padding:0;cursor:pointer}
+.ap-toggle::after{content:'';position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:all .25s cubic-bezier(.16,1,.3,1)}
+.ap-toggle.on{background:var(--ag-color,var(--accent))}
+.ap-toggle.on::after{left:19px}
+/* Primary action — game-style CTA */
+.ap-primary{width:100%;background:linear-gradient(135deg,var(--ag-color,var(--accent)),var(--ag-color,var(--accent)));color:#000;border:none;border-radius:14px;padding:14px 16px;font-size:13.5px;font-weight:700;cursor:pointer;transition:all .25s;letter-spacing:.3px;display:flex;align-items:center;justify-content:center;gap:8px;position:relative;overflow:hidden;box-shadow:0 4px 20px var(--ag-color-glow,rgba(255,182,39,0.2))}
+.ap-primary::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(255,255,255,0.2),transparent);opacity:0;transition:opacity .3s}
+.ap-primary:hover{transform:translateY(-1px);box-shadow:0 8px 28px var(--ag-color-glow,rgba(255,182,39,0.4))}
+.ap-primary:hover::before{opacity:1}
+.ap-primary:active{transform:translateY(0)}
+.ap-primary:disabled{opacity:0.5;cursor:not-allowed;filter:none;box-shadow:none}
+/* Footer link */
+.ap-footer{display:flex;align-items:center;justify-content:center;padding-top:2px}
+.ap-footer-link{background:none;border:none;color:var(--text-dim);font-size:11px;cursor:pointer;padding:5px 10px;border-radius:6px;transition:all .15s;font-family:inherit;display:inline-flex;align-items:center;gap:4px}
+.ap-footer-link:hover{color:var(--text);background:rgba(255,255,255,0.04)}
+/* Toast */
+.ap-toast{font-size:11px;color:var(--ag-color,var(--accent));text-align:center;min-height:14px;transition:opacity .25s;opacity:0;margin-top:-6px;font-weight:500;letter-spacing:.2px}
+.ap-toast.show{opacity:1}
+/* Locked state — full-card silhouette layout, no folder access */
+.ap-locked-body{padding:0 24px 32px;display:flex;flex-direction:column;align-items:center;gap:16px;position:relative;z-index:2}
+.ap-locked-banner{display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:30px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);font-size:11px;color:var(--text-dim);font-weight:600;letter-spacing:1.5px;text-transform:uppercase}
+.ap-locked-banner-dot{width:6px;height:6px;border-radius:50%;background:#A78BFA;box-shadow:0 0 8px #A78BFA}
+.ap-locked-msg{font-size:14.5px;color:var(--text-bright);font-weight:600;text-align:center}
+.ap-locked-sub{font-size:12px;color:var(--text-dim);line-height:1.6;text-align:center;max-width:300px}
+.ap-locked-tip{font-size:11px;color:var(--text-dim);background:rgba(255,182,39,0.06);border:1px solid rgba(255,182,39,0.15);border-radius:10px;padding:10px 14px;text-align:center;line-height:1.5;margin-top:8px}
+.ap-locked-tip strong{color:#FFB627}
+
+/* ===== Tool config form (nested modal) ===== */
+.tc-backdrop{position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:8vh 14px;background:rgba(0,0,0,0.6);backdrop-filter:blur(6px);animation:apIn .2s ease-out;overflow-y:auto}
+.tc-modal{width:min(440px,94vw);background:linear-gradient(180deg,rgba(2,16,11,.98),rgba(1,8,6,.99));border:1px solid rgba(255,255,255,0.1);border-radius:16px;box-shadow:0 24px 60px rgba(0,0,0,0.7);animation:apModalIn .28s cubic-bezier(.16,1,.3,1);overflow:hidden}
+.tc-head{display:flex;align-items:flex-start;gap:10px;padding:18px 18px 4px}
+.tc-title{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.tc-tool-name{font-size:14px;color:var(--text-bright);font-weight:600;display:flex;align-items:center;gap:6px}
+.tc-tool-desc{font-size:11.5px;color:var(--text-dim);line-height:1.5}
+.tc-body{padding:14px 18px;display:flex;flex-direction:column;gap:14px;max-height:60vh;overflow-y:auto}
+.tc-field{display:flex;flex-direction:column;gap:5px}
+.tc-label{font-size:10.5px;color:var(--text-dim);font-weight:600;letter-spacing:.4px;text-transform:uppercase;display:flex;align-items:center;gap:6px;justify-content:space-between}
+.tc-label-help{font-size:10px;color:var(--text-dim);opacity:0.7;font-weight:400;text-transform:none;letter-spacing:0}
+.tc-input{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12px;color:var(--text-bright);outline:none;transition:all .2s;box-sizing:border-box}
+.tc-input:focus{border-color:var(--accent);background:rgba(0,0,0,0.3)}
+.tc-input.password{font-family:'SF Mono',monospace;letter-spacing:.5px}
+.tc-list{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12px;color:var(--text-bright);outline:none;min-height:60px;resize:vertical;transition:all .2s;box-sizing:border-box}
+.tc-list:focus{border-color:var(--accent);background:rgba(0,0,0,0.3)}
+.tc-actions{display:flex;gap:8px;padding:0 18px 18px}
+.tc-btn{flex:1;background:var(--accent);color:#000;border:none;border-radius:10px;padding:11px 14px;font-size:12.5px;font-weight:600;cursor:pointer;transition:all .2s}
+.tc-btn:hover{filter:brightness(1.1)}
+.tc-btn.secondary{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.tc-btn.secondary:hover{background:rgba(255,255,255,0.1)}
+.tc-help{padding:0 18px 14px;font-size:11px;color:var(--text-dim);line-height:1.5}
+.tc-help code{background:rgba(255,255,255,0.06);padding:1px 5px;border-radius:4px;font-size:10.5px}
+
+/* ════════════════════════════════════════════════════════════════════════
+   BOOT SEQUENCE — cinematic full-overlay onboarding (hero → wizard → team)
+   Replaces the inline onboard-card / interview-card chat messages with a
+   guided experience that frames the company setup as "your AI company is
+   booting up." Stages: folder choice → 3-step wizard → team reveal.
+   ──────────────────────────────────────────────────────────────────────── */
+/* Force viewport coverage — body's flex column flow drops position:fixed on some Electron builds. */
+.boot-backdrop{position:fixed !important;top:0 !important;right:0 !important;bottom:0 !important;left:0 !important;width:100vw !important;height:100vh !important;inset:0;z-index:99997;display:flex !important;align-items:center;justify-content:center;background:radial-gradient(ellipse at top,rgba(0,30,8,.92) 0%,rgba(0,0,0,.97) 70%);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);animation:bootIn .45s ease-out;padding:24px;overflow-y:auto;box-sizing:border-box}
+@keyframes bootIn{from{opacity:0}to{opacity:1}}
+@keyframes bootOut{from{opacity:1}to{opacity:0}}
+.boot-backdrop.closing{animation:bootOut .3s ease-out forwards}
+/* Animated grid that pulses behind the content — gives the "booting up" feel */
+.boot-backdrop::before{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(0,255,65,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(0,255,65,.04) 1px,transparent 1px);background-size:42px 42px;opacity:.6;animation:bootGrid 30s linear infinite;pointer-events:none}
+@keyframes bootGrid{from{transform:translateY(0)}to{transform:translateY(42px)}}
+/* Scan line drifting downward */
+.boot-backdrop::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,transparent 0,transparent 50%,rgba(0,255,65,.06) 50.2%,transparent 51%);background-size:100% 240px;animation:bootScan 6s linear infinite;pointer-events:none;mix-blend-mode:screen}
+@keyframes bootScan{from{background-position:0 -240px}to{background-position:0 100vh}}
+
+.boot-stage{position:relative;width:min(620px,100%);max-height:calc(100vh - 48px);display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(8,12,18,.97),rgba(2,5,8,.99));border:1px solid rgba(0,255,65,.28);border-radius:22px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.85),0 0 1px rgba(0,255,65,.4),0 0 80px rgba(0,255,65,.18);animation:bootStageIn .6s cubic-bezier(.16,1,.3,1)}
+@keyframes bootStageIn{from{opacity:0;transform:translateY(18px) scale(.97)}to{opacity:1;transform:translateY(0) scale(1)}}
+.boot-stage::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);animation:reportLine 3s ease-in-out infinite}
+.boot-stage::after{content:'';position:absolute;top:-180px;left:50%;transform:translateX(-50%);width:520px;height:520px;background:radial-gradient(circle,rgba(0,255,65,.18) 0%,transparent 60%);pointer-events:none;animation:bootAura 8s ease-in-out infinite alternate;opacity:.7;filter:blur(10px)}
+@keyframes bootAura{0%{opacity:.5;transform:translateX(-50%) scale(.95)}100%{opacity:.85;transform:translateX(-50%) scale(1.05)}}
+
+/* Stage corner decorations — sci-fi HUD vibe */
+.boot-corner{position:absolute;width:22px;height:22px;border:1.5px solid var(--accent);opacity:.7;pointer-events:none}
+.boot-corner.tl{top:14px;left:14px;border-right:none;border-bottom:none}
+.boot-corner.tr{top:14px;right:14px;border-left:none;border-bottom:none}
+.boot-corner.bl{bottom:14px;left:14px;border-right:none;border-top:none}
+.boot-corner.br{bottom:14px;right:14px;border-left:none;border-top:none}
+
+.boot-close{position:absolute;top:16px;right:54px;background:transparent;border:none;color:var(--text-dim);font-size:12px;font-family:'SF Mono',monospace;letter-spacing:1px;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s;z-index:5}
+.boot-close:hover{color:var(--text-bright);background:rgba(255,255,255,.06)}
+
+/* Header */
+.boot-head{padding:38px 36px 6px;text-align:center;position:relative;z-index:2}
+.boot-tag{display:inline-flex;align-items:center;gap:8px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;letter-spacing:2.5px;color:var(--accent);text-transform:uppercase;padding:5px 12px;border:1px solid rgba(0,255,65,.3);border-radius:20px;background:rgba(0,255,65,.05);margin-bottom:16px;text-shadow:0 0 8px var(--accent-glow)}
+.boot-tag .boot-tag-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);animation:bootBlink 1.4s ease-in-out infinite}
+@keyframes bootBlink{0%,100%{opacity:1}50%{opacity:.3}}
+.boot-h1{font-size:24px;font-weight:800;color:var(--text-bright);letter-spacing:-.5px;line-height:1.25;margin-bottom:8px;text-shadow:0 0 20px rgba(0,255,65,.15)}
+.boot-h1 .accent{color:var(--accent);text-shadow:0 0 12px var(--accent-glow)}
+.boot-sub{font-size:13px;color:var(--text-dim);line-height:1.6;max-width:440px;margin:0 auto;font-weight:400}
+
+/* Body region — scrollable when content overflows */
+.boot-body{padding:22px 36px 18px;overflow-y:auto;flex:1;position:relative;z-index:2}
+
+/* Hero stage — folder choice tiles */
+.boot-options{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.boot-opt{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(255,255,255,.025),rgba(0,255,65,.02));border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px 20px;cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1);font-family:inherit;color:var(--text-bright);text-align:left;width:100%;position:relative;overflow:hidden}
+.boot-opt::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);transform:scaleY(0);transform-origin:center;transition:transform .3s}
+.boot-opt:hover{border-color:var(--accent);background:linear-gradient(135deg,rgba(0,255,65,.06),rgba(0,255,65,.02));transform:translateX(4px);box-shadow:0 6px 20px rgba(0,255,65,.15)}
+.boot-opt:hover::before{transform:scaleY(1)}
+.boot-opt .bo-icon{font-size:24px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(0,255,65,.06);border:1px solid rgba(0,255,65,.18);border-radius:10px}
+.boot-opt .bo-text{display:flex;flex-direction:column;gap:3px;flex:1}
+.boot-opt .bo-title{font-size:13.5px;font-weight:700;color:var(--text-bright)}
+.boot-opt .bo-desc{font-size:11px;color:var(--text-dim);font-weight:400;line-height:1.5}
+.boot-opt .bo-arrow{font-size:14px;color:var(--text-dim);transition:all .25s}
+.boot-opt:hover .bo-arrow{color:var(--accent);transform:translateX(3px)}
+.boot-opt.recommended{border-color:rgba(0,255,65,.32);background:linear-gradient(135deg,rgba(0,255,65,.05),rgba(0,255,65,.01))}
+.boot-opt.recommended .bo-icon{background:rgba(0,255,65,.12);border-color:rgba(0,255,65,.32)}
+.boot-opt .bo-recpill{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1.5px;color:var(--accent);background:rgba(0,255,65,.1);border:1px solid rgba(0,255,65,.3);padding:2px 6px;border-radius:8px;text-transform:uppercase;margin-left:6px;align-self:flex-start;margin-top:1px}
+
+/* Wizard stage */
+.boot-progress{display:flex;align-items:center;justify-content:center;gap:10px;padding:0 36px 8px;position:relative;z-index:2}
+.boot-progress-step{display:flex;align-items:center;gap:8px;font-family:'SF Mono',monospace;font-size:10px;letter-spacing:1.4px;color:var(--text-dim);text-transform:uppercase;transition:color .3s}
+.boot-progress-step.active{color:var(--accent);text-shadow:0 0 8px var(--accent-glow)}
+.boot-progress-step.done{color:var(--accent2)}
+.boot-progress-step .bp-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;border:1.5px solid currentColor;font-size:10px;font-weight:700;transition:all .3s}
+.boot-progress-step.active .bp-num{background:var(--accent);color:#000;box-shadow:0 0 12px var(--accent-glow)}
+.boot-progress-step.done .bp-num{background:var(--accent2);color:#000;border-color:var(--accent2)}
+.boot-progress-line{flex:0 0 28px;height:1.5px;background:var(--border2);transition:background .3s}
+.boot-progress-line.done{background:var(--accent)}
+
+.boot-wstep{display:flex;flex-direction:column;gap:14px}
+.boot-wstep.exit{animation:wstepOut .25s ease-in forwards}
+.boot-wstep.enter{animation:wstepIn .35s cubic-bezier(.16,1,.3,1)}
+@keyframes wstepIn{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:translateX(0)}}
+@keyframes wstepOut{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(-15px)}}
+
+/* Field stagger — each field slides up 70ms apart for cinematic entrance */
+.boot-field{display:flex;flex-direction:column;gap:6px;opacity:0;transform:translateY(14px);animation:fieldFadeUp .55s cubic-bezier(.16,1,.3,1) forwards;animation-delay:calc(var(--fi,0) * 70ms + 120ms)}
+@keyframes fieldFadeUp{to{opacity:1;transform:translateY(0)}}
+.boot-field-label{display:flex;align-items:center;gap:6px;font-size:11px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1.2px;text-transform:uppercase;opacity:.9}
+.boot-field-help{font-size:11px;font-family:inherit;color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;margin-left:auto;opacity:.7}
+
+/* Input wrapper — holds the input + the focus beam overlay */
+.boot-input-wrap{position:relative;border-radius:11px}
+.boot-input,.boot-textarea{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;padding:11px 14px;font-family:inherit;font-size:14px;color:var(--text-bright);outline:none;transition:all .25s cubic-bezier(.16,1,.3,1);box-sizing:border-box;line-height:1.55;position:relative;z-index:1}
+.boot-input::placeholder,.boot-textarea::placeholder{color:var(--text-dim);opacity:.5}
+.boot-input:focus,.boot-textarea:focus{border-color:var(--accent);background:rgba(0,0,0,.32);box-shadow:0 0 0 3px rgba(0,255,65,.12),0 0 24px rgba(0,255,65,.22)}
+.boot-textarea{min-height:72px;resize:vertical;font-size:13.5px}
+/* Sweeping beam across top of focused input */
+.boot-input-wrap::after{content:'';position:absolute;left:8%;right:8%;top:-1px;height:2px;background:linear-gradient(90deg,transparent,var(--accent),transparent);opacity:0;transform:translateX(-30%);pointer-events:none;border-radius:2px;z-index:2;filter:blur(.5px)}
+.boot-input-wrap:focus-within::after{animation:inputBeam 1.6s cubic-bezier(.4,0,.2,1) infinite}
+@keyframes inputBeam{0%{opacity:0;transform:translateX(-30%)}30%{opacity:1}70%{opacity:1}100%{opacity:0;transform:translateX(30%)}}
+
+/* Cinematic char-stagger headline — each character fades+rises in sequence */
+.boot-h1-char{display:inline-block;opacity:0;transform:translateY(8px);animation:headlineCharIn .5s cubic-bezier(.16,1,.3,1) forwards;animation-delay:calc(var(--ci,0) * 28ms + 60ms);white-space:pre}
+.boot-h1-char.space{width:.32em}
+@keyframes headlineCharIn{to{opacity:1;transform:translateY(0)}}
+
+/* Liquid progress bar (replaces / augments the dot+line track) */
+.boot-progress-bar{position:relative;height:3px;margin:2px 36px 14px;border-radius:2px;background:linear-gradient(90deg,rgba(255,255,255,.06),rgba(255,255,255,.03));overflow:hidden;z-index:2}
+.boot-progress-bar::before{content:'';position:absolute;inset:0;background:linear-gradient(90deg,var(--accent),var(--accent2),var(--accent));background-size:200% 100%;width:var(--pf,0%);transition:width .55s cubic-bezier(.16,1,.3,1);box-shadow:0 0 14px rgba(0,255,65,.45);animation:progressShimmer 3s linear infinite}
+.boot-progress-bar::after{content:'';position:absolute;top:50%;left:var(--pf,0%);transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;background:radial-gradient(circle,var(--accent) 0%,transparent 70%);opacity:.85;transition:left .55s cubic-bezier(.16,1,.3,1);filter:blur(1px)}
+@keyframes progressShimmer{from{background-position:0 0}to{background-position:200% 0}}
+
+/* Twinkling starfield behind the boot stage — subtle ambient depth */
+.boot-stars{position:absolute;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.boot-stars span{position:absolute;width:2px;height:2px;border-radius:50%;background:#fff;opacity:.0;animation:starTwinkle var(--st,8s) ease-in-out infinite;animation-delay:var(--sd,0s);filter:drop-shadow(0 0 3px rgba(255,255,255,.6))}
+@keyframes starTwinkle{0%,100%{opacity:0;transform:scale(.4)}50%{opacity:.65;transform:scale(1)}}
+
+/* Footer with nav buttons */
+.boot-foot{display:flex;align-items:center;gap:10px;padding:14px 36px 30px;position:relative;z-index:2}
+.boot-foot .boot-spacer{flex:1}
+.boot-btn{padding:11px 22px;border-radius:11px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all .25s;display:inline-flex;align-items:center;gap:8px;letter-spacing:.3px}
+.boot-btn.primary{background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%);color:#000;box-shadow:0 4px 18px rgba(0,255,65,.28)}
+.boot-btn.primary:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(0,255,65,.4)}
+.boot-btn.primary:active{transform:translateY(0)}
+.boot-btn.primary:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.boot-btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border2)}
+.boot-btn.ghost:hover{color:var(--text-bright);border-color:var(--accent);background:rgba(0,255,65,.04)}
+.boot-foot-hint{font-size:10.5px;color:var(--text-dim);font-family:'SF Mono',monospace;letter-spacing:.5px}
+
+/* Team reveal stage */
+.boot-team-status{font-family:'SF Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--accent);text-align:center;margin-bottom:18px;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow);min-height:14px}
+.boot-team-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.boot-team-card{background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(0,0,0,.4));border:1px solid rgba(255,255,255,.08);border-radius:13px;padding:14px 12px 12px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;opacity:0;transform:translateY(14px) scale(.94);position:relative;overflow:hidden}
+.boot-team-card.in{animation:teamCardIn .55s cubic-bezier(.16,1,.3,1) forwards}
+@keyframes teamCardIn{from{opacity:0;transform:translateY(14px) scale(.94)}to{opacity:1;transform:translateY(0) scale(1)}}
+.boot-team-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:var(--ag-color,var(--accent));opacity:.5;box-shadow:0 0 12px var(--ag-color,var(--accent))}
+.boot-team-card .btc-emoji{font-size:32px;line-height:1;filter:drop-shadow(0 4px 14px var(--ag-color-glow,rgba(0,255,65,.4)));animation:teamEmojiBob 4s ease-in-out infinite}
+@keyframes teamEmojiBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+.boot-team-card .btc-name{font-family:'SF Mono','JetBrains Mono',monospace;font-size:10.5px;font-weight:700;color:var(--text-bright);letter-spacing:.8px;text-transform:uppercase;margin-top:2px}
+.boot-team-card .btc-role{font-size:10px;color:var(--text-dim);line-height:1.4;font-weight:400}
+.boot-team-card .btc-active{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1px;color:var(--ag-color,var(--accent));margin-top:4px;padding:2px 7px;border:1px solid var(--ag-color,var(--accent));border-radius:6px;text-transform:uppercase;background:rgba(0,255,65,.04)}
+.boot-team-card .btc-pending{font-family:'SF Mono',monospace;font-size:8.5px;letter-spacing:1px;color:var(--text-dim);margin-top:4px;padding:2px 7px;border:1px solid var(--border2);border-radius:6px;text-transform:uppercase;opacity:.6}
+
+/* Wow flash — fired when company is first set up */
+@keyframes wowFlash{0%{opacity:0}30%{opacity:.6}100%{opacity:0}}
+.boot-flash{position:fixed;inset:0;background:radial-gradient(circle,rgba(0,255,65,.5) 0%,transparent 50%);pointer-events:none;z-index:10000;animation:wowFlash 1s ease-out forwards}
+
+/* Particle burst */
+.boot-particles{position:absolute;inset:0;pointer-events:none;z-index:1;overflow:hidden}
+.boot-particle{position:absolute;width:3px;height:3px;background:var(--accent);border-radius:50%;box-shadow:0 0 6px var(--accent);opacity:0}
+.boot-particle.go{animation:particleFly 1.4s ease-out forwards}
+@keyframes particleFly{
+  0%{opacity:1;transform:translate(0,0) scale(1)}
+  100%{opacity:0;transform:translate(var(--dx),var(--dy)) scale(.2)}
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Telegram setup wizard — twiz-* classes. Replaces the generic ⚙️ form
+   for Secretary's telegram_setup tool with a 3-step guided experience.
+   ──────────────────────────────────────────────────────────────────────── */
+.twiz-stage{position:relative;width:min(560px,100%);max-height:calc(100vh - 48px);background:linear-gradient(180deg,rgba(8,12,18,.97),rgba(2,5,8,.99));border:1px solid rgba(34,154,255,.42);border-radius:20px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 30px 100px rgba(0,0,0,.85),0 0 80px rgba(34,154,255,.18);animation:bootStageIn .55s cubic-bezier(.16,1,.3,1)}
+.twiz-stage::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#229affff,transparent);animation:reportLine 3s ease-in-out infinite}
+.twiz-content{display:flex;flex-direction:column;flex:1;overflow:hidden;min-height:0}
+
+.twiz-head{padding:28px 32px 8px;text-align:center}
+.twiz-progress{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:14px}
+.twiz-dot{width:26px;height:26px;border-radius:50%;border:1.5px solid rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;font-family:'SF Mono',monospace;font-size:11px;font-weight:700;color:var(--text-dim);transition:all .3s}
+.twiz-dot.active{border-color:#229affff;background:#229affff;color:#000;box-shadow:0 0 14px rgba(34,154,255,.5)}
+.twiz-dot.done{border-color:#00cc77;background:#00cc77;color:#000}
+.twiz-line{flex:0 0 32px;height:1.5px;background:var(--border2);transition:background .3s}
+.twiz-line.done{background:#00cc77}
+.twiz-tag{display:inline-block;font-family:'SF Mono','JetBrains Mono',monospace;font-size:10px;letter-spacing:2.2px;color:#229affff;text-transform:uppercase;padding:4px 12px;border:1px solid rgba(34,154,255,.32);border-radius:20px;background:rgba(34,154,255,.06);margin-bottom:14px;text-shadow:0 0 6px rgba(34,154,255,.4)}
+.twiz-h1{font-size:22px;font-weight:800;color:var(--text-bright);letter-spacing:-.3px;margin-bottom:8px;line-height:1.25}
+.twiz-h1 .accent{color:#229affff;text-shadow:0 0 10px rgba(34,154,255,.45)}
+.twiz-sub{font-size:12.5px;color:var(--text-dim);line-height:1.6;max-width:460px;margin:0 auto}
+
+.twiz-body{padding:18px 32px 8px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px}
+
+.twiz-link-btn{display:flex;align-items:center;gap:14px;background:linear-gradient(135deg,rgba(34,154,255,.08),rgba(34,154,255,.02));border:1px solid rgba(34,154,255,.32);border-radius:13px;padding:14px 18px;color:var(--text-bright);text-decoration:none;transition:all .25s cubic-bezier(.16,1,.3,1)}
+.twiz-link-btn:hover{transform:translateX(3px);background:rgba(34,154,255,.14);box-shadow:0 6px 20px rgba(34,154,255,.2);border-color:#229affff}
+.tlb-emoji{font-size:24px;flex-shrink:0;width:42px;height:42px;display:flex;align-items:center;justify-content:center;background:rgba(34,154,255,.1);border:1px solid rgba(34,154,255,.3);border-radius:10px}
+.tlb-text{flex:1;display:flex;flex-direction:column;gap:3px}
+.tlb-title{font-size:13.5px;font-weight:700}
+.tlb-desc{font-size:11px;color:var(--text-dim);line-height:1.5}
+.tlb-arrow{color:#229affff;font-size:14px}
+
+.twiz-field{display:flex;flex-direction:column;gap:6px}
+.twiz-label{font-family:'SF Mono',monospace;font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#229affff;font-weight:700}
+.twiz-input{width:100%;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.1);border-radius:10px;padding:12px 14px;font-family:'SF Mono','JetBrains Mono',monospace;font-size:13px;color:var(--text-bright);outline:none;box-sizing:border-box;transition:all .2s;letter-spacing:.5px}
+.twiz-input::placeholder{color:var(--text-dim);opacity:.45;letter-spacing:0;font-family:inherit}
+.twiz-input:focus{border-color:#229affff;background:rgba(0,0,0,.35);box-shadow:0 0 0 3px rgba(34,154,255,.12)}
+
+.twiz-status{font-size:11.5px;color:var(--text-dim);line-height:1.5;padding:6px 4px;letter-spacing:.2px;min-height:18px;transition:color .2s}
+.twiz-status.ok{color:#00cc77;text-shadow:0 0 6px rgba(0,204,119,.4)}
+.twiz-status.error{color:#ef4444}
+.twiz-status.loading{color:#229affff;animation:twizPulse 1.4s ease-in-out infinite}
+@keyframes twizPulse{0%,100%{opacity:1}50%{opacity:.55}}
+
+.twiz-detect-row{display:flex;gap:8px;align-items:stretch}
+.twiz-detect-row .twiz-input{flex:1}
+.twiz-detect-row .twiz-btn{flex-shrink:0;padding:10px 14px;font-size:12px;white-space:nowrap}
+
+.twiz-chat-pick{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.twiz-chat-opt{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:10px;font-family:inherit;color:var(--text-bright);cursor:pointer;transition:all .2s;text-align:left}
+.twiz-chat-opt:hover{border-color:#229affff;background:rgba(34,154,255,.08)}
+.twiz-chat-opt.on{border-color:#229affff;background:rgba(34,154,255,.14);box-shadow:0 0 0 1px #229affff inset}
+.twiz-chat-opt span{font-family:'SF Mono',monospace;font-size:11px;color:var(--text-dim)}
+
+.twiz-summary{background:rgba(34,154,255,.05);border:1px solid rgba(34,154,255,.2);border-radius:11px;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
+.twiz-summary-row{display:flex;align-items:center;gap:14px;font-size:12px}
+.ts-key{font-family:'SF Mono',monospace;font-size:9.5px;letter-spacing:1.5px;color:var(--text-dim);text-transform:uppercase;width:80px;flex-shrink:0}
+.ts-val{flex:1;color:var(--text-bright);font-family:'SF Mono',monospace;font-weight:600;word-break:break-all}
+
+.twiz-test-btn{width:100%;padding:18px 22px;background:linear-gradient(135deg,#229affff,#0066cc);color:#fff;border:none;border-radius:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:12px;font-family:inherit;font-size:14px;font-weight:700;transition:all .25s;box-shadow:0 6px 24px rgba(34,154,255,.32)}
+.twiz-test-btn:hover{transform:translateY(-2px);box-shadow:0 10px 32px rgba(34,154,255,.5)}
+.twiz-test-btn:active{transform:translateY(0)}
+.tt-icon{font-size:20px}
+
+.twiz-foot{display:flex;align-items:center;gap:10px;padding:14px 32px 24px;border-top:1px solid rgba(255,255,255,.04)}
+.twiz-foot .twiz-spacer{flex:1}
+.twiz-btn{padding:11px 20px;border-radius:11px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border:none;transition:all .25s;display:inline-flex;align-items:center;gap:6px}
+.twiz-btn.primary{background:linear-gradient(135deg,#229affff,#0066cc);color:#fff;box-shadow:0 4px 16px rgba(34,154,255,.3)}
+.twiz-btn.primary:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(34,154,255,.45)}
+.twiz-btn.primary:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
+.twiz-btn.ghost{background:transparent;color:var(--text-dim);border:1px solid var(--border2)}
+.twiz-btn.ghost:hover{color:var(--text-bright);border-color:#229affff;background:rgba(34,154,255,.06)}
+
+/* Company setup edit modal — reuses the tc-* visual language. Brand badge
+   click opens this so users can edit name / goals / needs without digging
+   into _shared/ files. */
+.cs-backdrop{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:apIn .25s ease-out;padding:20px}
+.cs-modal{width:min(460px,100%);max-height:92vh;display:flex;flex-direction:column;background:linear-gradient(180deg,rgba(20,20,26,0.98),rgba(8,8,12,0.99));border:1px solid rgba(255,255,255,0.06);border-radius:18px;box-shadow:0 30px 80px rgba(0,0,0,0.7),0 0 50px rgba(0,255,65,.15);animation:apModalIn .35s cubic-bezier(.16,1,.3,1);overflow:hidden;position:relative}
+.cs-head{display:flex;align-items:center;gap:10px;padding:18px 20px 6px}
+.cs-head-emoji{font-size:22px}
+.cs-head-title{font-family:'SF Mono','JetBrains Mono',monospace;font-size:11px;letter-spacing:1.5px;color:var(--accent);font-weight:700;text-transform:uppercase;text-shadow:0 0 8px var(--accent-glow)}
+.cs-head-sub{font-size:11.5px;color:var(--text-dim);margin-top:1px}
+.cs-close{margin-left:auto;background:transparent;border:none;color:var(--text-dim);font-size:22px;line-height:1;cursor:pointer;padding:4px 8px;border-radius:6px;transition:all .2s}
+.cs-close:hover{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.cs-body{padding:6px 20px 8px;overflow-y:auto;display:flex;flex-direction:column;gap:11px}
+.cs-section{display:flex;flex-direction:column;gap:6px}
+.cs-section-label{font-size:9.5px;font-family:'SF Mono',monospace;color:var(--accent);letter-spacing:1.2px;text-transform:uppercase;opacity:.85}
+.cs-section-help{font-size:10.5px;color:var(--text-dim);font-weight:400;letter-spacing:0;text-transform:none;margin-left:6px;opacity:.7}
+.cs-input{width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12.5px;color:var(--text-bright);outline:none;transition:all .2s;box-sizing:border-box}
+.cs-input:focus{border-color:var(--accent);background:rgba(0,0,0,0.3);box-shadow:0 0 12px var(--accent-glow)}
+.cs-textarea{width:100%;min-height:60px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:9px;padding:10px 12px;font-family:inherit;font-size:12.5px;color:var(--text-bright);outline:none;resize:vertical;transition:all .2s;box-sizing:border-box;line-height:1.5}
+.cs-textarea:focus{border-color:var(--accent);background:rgba(0,0,0,0.3);box-shadow:0 0 12px var(--accent-glow)}
+.cs-actions{display:flex;gap:8px;padding:14px 20px 20px}
+.cs-btn{flex:1;background:var(--accent);color:#000;border:none;border-radius:10px;padding:11px 14px;font-size:12.5px;font-weight:700;cursor:pointer;transition:all .2s}
+.cs-btn:hover{filter:brightness(1.1)}
+.cs-btn.secondary{background:rgba(255,255,255,0.06);color:var(--text-bright)}
+.cs-btn.secondary:hover{background:rgba(255,255,255,0.1)}
+.cs-saved{font-size:11px;color:#00cc77;text-align:center;padding:0 20px 4px;opacity:0;transition:opacity .25s}
+.cs-saved.show{opacity:1}
+/* Brand badge becomes interactive so users discover the editor */
+.brand-suffix{cursor:pointer}
+.brand-suffix:hover{background:rgba(0,255,65,.08)}
+
+/* ===========================================================================
+   v2.89.116 — Specialist Dock (1인 기업 모드 모델 오케스트레이션 인-라인)
+   ----------------------------------------------------------------------------
+   일반 모드: 헤더의 #modelSel만 표시 (단일 드롭다운).
+   기업 모드(body.corp-on): 헤더의 #modelSel 자리를 9명 specialist 카드 dock으로
+   대체. 가로 스크롤 한 줄 + 끝에 ⚡자동 / 🔁같게 액션 버튼. 카드 클릭 시
+   인라인 popover로 모델 변경. dashboard의 "모델 오케스트레이션" 모달과 동일
+   백엔드(_autoOrchestrateModelMap, writeAgentModelMap)를 공유해 항상 같은 진실.
+
+   디자인: 골드 럭셔리 톤(#FBBF24) + 무광 검정 베이스 + 부드러운 glow + 카드
+   hover 시 lift. 사이드바 폭 좁아도 자연스러운 가로 스크롤.
+   =========================================================================== */
+/* v2.89.117 — Drawer 패턴. 평소엔 헤더의 단일 칩(.ad-chip) 하나만 보이고,
+   클릭하면 9명 dock이 슬라이드 다운으로 펼쳐짐. 시각 노이즈 최소화 +
+   오케스트레이션 코어는 100% 유지(자동/같게/카드별 매핑 popover 그대로). */
+body.corp-on #modelSel{display:none}
+.ad-chip{display:none}
+body.corp-on .ad-chip{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 8px;border-radius:6px;
+  background:transparent;
+  border:1px solid rgba(251,191,36,.28);color:#fef3c7;
+  font-size:11px;font-weight:500;cursor:pointer;
+  transition:border-color .18s,background .18s;
+  white-space:nowrap;max-width:200px;
+  font-family:'SF Mono','JetBrains Mono',monospace;
+}
+.ad-chip:hover{border-color:rgba(251,191,36,.6);background:rgba(251,191,36,.06)}
+.ad-chip[data-expanded="true"]{border-color:#FBBF24;background:rgba(251,191,36,.10)}
+.ad-chip .adc-model{
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:160px;
+  letter-spacing:.1px;color:#fef3c7;
+}
+.ad-chip .adc-model.mixed{
+  font-style:italic;color:rgba(251,191,36,.85);
+  /* 혼합일 때만 시각적으로 일반 select와 미묘하게 다르게 — "여러 모델 쓰고 있구나" 신호 */
+}
+.ad-chip[data-mixed="true"]{border-color:rgba(251,191,36,.45)}
+.ad-chip .adc-caret{font-size:8px;opacity:.55;transition:transform .25s cubic-bezier(.16,1,.3,1)}
+.ad-chip[data-expanded="true"] .adc-caret{transform:rotate(180deg);opacity:.9}
+.ad-chip .adc-warn{
+  width:5px;height:5px;border-radius:50%;background:#ef4444;
+  box-shadow:0 0 4px rgba(239,68,68,.6);animation:warnPulse 1.6s ease-in-out infinite;
+  flex:0 0 auto;
+}
+
+.agent-dock{display:none}
+body.corp-on .agent-dock[data-open="true"]{
+  display:flex;align-items:stretch;gap:6px;
+  padding:8px 10px 10px;
+  background:linear-gradient(180deg,rgba(20,16,8,.95) 0%,rgba(8,6,4,.98) 100%);
+  border-bottom:1px solid rgba(251,191,36,.18);
+  position:relative;
+  animation:dockSlideIn .45s cubic-bezier(.16,1,.3,1);
+}
+body.corp-on .agent-dock::before{
+  content:'';position:absolute;left:0;right:0;top:0;height:1px;
+  background:linear-gradient(90deg,transparent 0%,rgba(251,191,36,.55) 30%,rgba(251,191,36,.85) 50%,rgba(251,191,36,.55) 70%,transparent 100%);
+  animation:dockTopShimmer 4s ease-in-out infinite;
+}
+@keyframes dockSlideIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
+@keyframes dockTopShimmer{0%,100%{opacity:.6}50%{opacity:1}}
+
+.ad-rail{
+  flex:1 1 auto;display:flex;gap:6px;overflow-x:auto;overflow-y:hidden;
+  scroll-behavior:smooth;scrollbar-width:thin;
+  scrollbar-color:rgba(251,191,36,.25) transparent;
+  padding:2px 2px 4px;mask-image:linear-gradient(90deg,transparent 0,#000 8px,#000 calc(100% - 8px),transparent 100%);
+}
+.ad-rail::-webkit-scrollbar{height:4px}
+.ad-rail::-webkit-scrollbar-thumb{background:rgba(251,191,36,.3);border-radius:2px}
+.ad-rail::-webkit-scrollbar-thumb:hover{background:rgba(251,191,36,.55)}
+
+.ag-card{
+  flex:0 0 auto;display:flex;align-items:center;gap:8px;
+  padding:6px 10px 6px 6px;min-width:144px;max-width:200px;
+  background:linear-gradient(135deg,rgba(40,30,12,.85) 0%,rgba(20,15,6,.92) 100%);
+  border:1px solid rgba(251,191,36,.22);border-radius:10px;
+  cursor:pointer;position:relative;
+  transition:transform .18s cubic-bezier(.16,1,.3,1),border-color .2s,box-shadow .2s,background .2s;
+  user-select:none;
+}
+.ag-card:hover{
+  transform:translateY(-2px);
+  border-color:rgba(251,191,36,.55);
+  background:linear-gradient(135deg,rgba(60,42,14,.92) 0%,rgba(28,20,8,.96) 100%);
+  box-shadow:0 6px 18px rgba(0,0,0,.5),0 0 14px rgba(251,191,36,.25),inset 0 1px 0 rgba(255,255,255,.06);
+}
+.ag-card.editing{
+  border-color:#FBBF24;
+  box-shadow:0 0 0 1px rgba(251,191,36,.35),0 8px 24px rgba(251,191,36,.22),inset 0 0 18px rgba(251,191,36,.08);
+  transform:translateY(-2px);
+}
+.ag-card .ag-emoji{
+  width:30px;height:30px;flex:0 0 30px;
+  display:flex;align-items:center;justify-content:center;font-size:16px;
+  border-radius:8px;
+  background:linear-gradient(135deg,rgba(251,191,36,.18) 0%,rgba(245,158,11,.08) 100%);
+  border:1px solid rgba(251,191,36,.28);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.08);
+  position:relative;
+}
+.ag-card .ag-emoji::after{
+  content:'';position:absolute;inset:0;border-radius:8px;
+  background:radial-gradient(circle at 30% 25%,rgba(255,255,255,.12) 0%,transparent 60%);
+  pointer-events:none;
+}
+.ag-card .ag-text{display:flex;flex-direction:column;min-width:0;flex:1 1 auto;line-height:1.15}
+.ag-card .ag-name{
+  font-size:11.5px;font-weight:600;color:#fef3c7;letter-spacing:.2px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+.ag-card .ag-model{
+  font-size:9.5px;color:rgba(251,191,36,.78);
+  font-family:'SF Mono','JetBrains Mono',monospace;letter-spacing:.1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  display:flex;align-items:center;gap:3px;
+}
+.ag-card .ag-model::after{
+  content:'▾';font-family:inherit;opacity:.6;font-size:8px;flex:0 0 auto;
+}
+.ag-card[data-using-default="true"] .ag-model{color:rgba(251,191,36,.5);font-style:italic}
+.ag-card[data-using-default="true"] .ag-model::before{content:'(default) ';opacity:.7}
+.ag-card[data-status="warn"]::before{
+  content:'';position:absolute;top:5px;right:5px;width:6px;height:6px;border-radius:50%;
+  background:#ef4444;box-shadow:0 0 6px rgba(239,68,68,.7);
+  animation:warnPulse 1.6s ease-in-out infinite;
+}
+@keyframes warnPulse{0%,100%{opacity:.7}50%{opacity:1}}
+
+.ad-actions{display:flex;flex:0 0 auto;gap:4px;align-items:stretch;padding-left:6px;border-left:1px solid rgba(251,191,36,.18)}
+.ad-btn{
+  font-size:11px;font-weight:600;letter-spacing:.2px;
+  padding:6px 10px;border-radius:9px;cursor:pointer;
+  background:linear-gradient(135deg,rgba(251,191,36,.18) 0%,rgba(245,158,11,.10) 100%);
+  border:1px solid rgba(251,191,36,.32);color:#fef3c7;
+  transition:transform .15s,box-shadow .2s,border-color .2s,background .2s;
+  white-space:nowrap;
+}
+.ad-btn:hover{
+  transform:translateY(-1px);
+  border-color:#FBBF24;color:#fff;
+  background:linear-gradient(135deg,rgba(251,191,36,.32) 0%,rgba(245,158,11,.20) 100%);
+  box-shadow:0 4px 14px rgba(251,191,36,.22),inset 0 1px 0 rgba(255,255,255,.08);
+}
+.ad-btn:active{transform:translateY(0);box-shadow:0 1px 4px rgba(0,0,0,.4)}
+.ad-btn-icon{padding:6px 8px;font-size:13px}
+.ad-btn[disabled]{opacity:.45;cursor:not-allowed;transform:none!important}
+
+/* Popover — anchored under the clicked card. Searchable model list with
+   memory-safe indicator (red badge on models too big for the user's RAM). */
+.ad-popover{
+  position:absolute;z-index:50;left:10px;right:10px;top:calc(100% + 4px);
+  max-height:320px;overflow:hidden;display:flex;flex-direction:column;
+  background:linear-gradient(180deg,rgba(20,15,6,.98) 0%,rgba(8,6,4,.99) 100%);
+  border:1px solid rgba(251,191,36,.45);border-radius:12px;
+  box-shadow:0 16px 50px rgba(0,0,0,.7),0 0 30px rgba(251,191,36,.18),inset 0 1px 0 rgba(255,255,255,.05);
+  animation:popIn .22s cubic-bezier(.16,1,.3,1);
+}
+@keyframes popIn{from{opacity:0;transform:translateY(-4px) scale(.985)}to{opacity:1;transform:translateY(0) scale(1)}}
+.ad-popover-head{
+  display:flex;align-items:center;gap:8px;padding:10px 12px 8px;
+  border-bottom:1px solid rgba(251,191,36,.18);
+}
+.ad-popover-head .ph-emoji{font-size:18px}
+.ad-popover-head .ph-text{flex:1 1 auto;min-width:0}
+.ad-popover-head .ph-name{font-size:13px;font-weight:700;color:#fef3c7}
+.ad-popover-head .ph-role{font-size:10.5px;color:rgba(251,191,36,.65);margin-top:1px}
+.ad-popover-head .ph-close{
+  background:transparent;border:none;color:rgba(251,191,36,.65);font-size:18px;
+  cursor:pointer;padding:0 4px;line-height:1;border-radius:6px;
+}
+.ad-popover-head .ph-close:hover{color:#FBBF24;background:rgba(251,191,36,.1)}
+.ad-popover-search{
+  margin:8px 12px 4px;padding:6px 10px;
+  background:rgba(8,6,4,.6);border:1px solid rgba(251,191,36,.22);border-radius:8px;
+  color:#fef3c7;font-size:12px;font-family:'SF Mono',monospace;
+  outline:none;transition:border-color .2s,box-shadow .2s;
+}
+.ad-popover-search:focus{border-color:#FBBF24;box-shadow:0 0 0 2px rgba(251,191,36,.18)}
+.ad-popover-search::placeholder{color:rgba(251,191,36,.4)}
+.ad-popover-list{flex:1 1 auto;overflow-y:auto;padding:4px;scrollbar-width:thin;scrollbar-color:rgba(251,191,36,.25) transparent}
+.ad-popover-list::-webkit-scrollbar{width:6px}
+.ad-popover-list::-webkit-scrollbar-thumb{background:rgba(251,191,36,.25);border-radius:3px}
+.ad-mopt{
+  display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;
+  cursor:pointer;color:#fef3c7;font-size:12px;
+  transition:background .15s;
+}
+.ad-mopt:hover{background:rgba(251,191,36,.12)}
+.ad-mopt.selected{background:rgba(251,191,36,.18)}
+.ad-mopt.selected::before{content:'✓';color:#FBBF24;flex:0 0 auto;font-weight:700}
+.ad-mopt .mo-id{flex:1 1 auto;min-width:0;font-family:'SF Mono',monospace;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ad-mopt .mo-mem{flex:0 0 auto;font-size:10px;color:rgba(251,191,36,.55);font-family:'SF Mono',monospace}
+.ad-mopt .mo-mem.unsafe{color:#ef4444}
+.ad-mopt .mo-tier{flex:0 0 auto;font-size:9px;letter-spacing:.5px;text-transform:uppercase;padding:1px 5px;border-radius:4px;background:rgba(251,191,36,.12);color:rgba(251,191,36,.85)}
+.ad-mopt .mo-default{flex:0 0 auto;font-size:9px;color:rgba(251,191,36,.55)}
+.ad-popover-empty{padding:18px;text-align:center;color:rgba(251,191,36,.55);font-size:11.5px}
+.ad-popover-foot{padding:8px 12px;border-top:1px solid rgba(251,191,36,.14);font-size:10px;color:rgba(251,191,36,.5);display:flex;justify-content:space-between;align-items:center}
+.ad-popover-foot .pf-clear{background:transparent;border:none;color:rgba(251,191,36,.7);cursor:pointer;font-size:10.5px;padding:2px 6px;border-radius:4px}
+.ad-popover-foot .pf-clear:hover{color:#FBBF24;background:rgba(251,191,36,.1)}
+
+.ad-rail-empty{
+  flex:1 1 auto;display:flex;align-items:center;justify-content:center;
+  font-size:11px;color:rgba(251,191,36,.55);font-style:italic;padding:6px;
+}
+
