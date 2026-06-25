@@ -97,6 +97,7 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
     : isSub
       ? ['## ➖ 능력 빼기 — Task Arithmetic (Negation)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 능력모델 − 강도×τ` → 그 능력만 지워 원본 쪽으로.\n']
       : ['## ➕ 능력 더하기 — Task Arithmetic (Addition)\n', '논문 **arXiv:2212.04089**. 능력 벡터 `τ = (능력모델 − 원본)`.\n', '`결과 = 원본 + 강도×τ` → 원본이 그 능력을 획득.\n'];
+  const name = (outRepo.split('/').pop() || 'my-merged');   // 🆔 결과 모델 이름만 — 계정은 Colab 로그인한 본인 것으로
   const cells = [
     md(['# ', title, ' — 무료 Colab\n', '\n',
         '비개발자도 **런타임 → 모두 실행**만 누르면 돼요. 결과가 내 HuggingFace에 올라가고, Connect AI 앱에서 "받기"로 바로 씁니다.\n', '\n',
@@ -116,7 +117,7 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
       'MODEL_B = "' + modelB + '"   # 상대(능력) 모델\n',
       'METHOD  = "' + method + '"   # task_add | task_sub | blend\n',
       'SCALE   = ' + (Number.isFinite(scale) ? scale : 1.0) + '       # 강도(λ). 1.0 권장\n',
-      'OUTPUT  = "' + outRepo + '"  # 결과가 올라갈 내 HF repo\n', '\n',
+      'NAME    = "' + name + '"  # 결과 모델 이름 (계정은 위에서 로그인한 본인 것으로 자동)\n', '\n',
       'def load(repo):\n',
       '    files = HfApi().list_repo_files(repo)\n',
       '    full = any(f.endswith(".safetensors") and not f.startswith("adapter") for f in files)\n',
@@ -155,12 +156,24 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
       '            p.copy_(slerp(p.data, q.data.to(p.dtype), float(SCALE)))        # 🌐 SLERP 섞기\n',
       '        applied += 1\n',
       'print(f"✅ {applied}개 가중치에 적용 (방식={METHOD}, 강도={SCALE})")\n', '\n',
-      '# 결과를 내 HuggingFace에 업로드\n',
-      'base.push_to_hub(OUTPUT)\n',
-      'AutoTokenizer.from_pretrained(base_id).push_to_hub(OUTPUT)\n',
-      'print(f"🎉 완료 → https://huggingface.co/{OUTPUT}")\n',
-      'print("👉 Connect AI 앱 → 🤖 내 AI 에서 받아서 바로 쓰세요!")\n']),
-    md(['## 🎉 끝!\n', '결과가 **내 HuggingFace**에 올라갔어요. Connect AI 앱에서 받아 쓰면 됩니다.\n', '더 쉽게 하려면 → 💎 멤버십(앱에서 버튼 하나).\n']),
+      '# 📤 결과를 "내" HuggingFace 계정에 업로드 — 위에서 로그인한 본인 계정으로 자동\n',
+      'ME = HfApi().whoami()["name"]      # 지금 로그인한 내 HF 아이디\n',
+      'OUTPUT = f"{ME}/{NAME}"            # → 내 계정/모델이름\n',
+      'tok = AutoTokenizer.from_pretrained(base_id)\n',
+      'base.push_to_hub(OUTPUT); tok.push_to_hub(OUTPUT)\n',
+      'print(f"🎉 모델 업로드 완료 → https://huggingface.co/{OUTPUT}")\n']),
+    md(['## 🧊 GGUF로 변환 (앱에서 바로 켜지게)\n',
+        '내장 엔진(llama.cpp)은 **GGUF** 형식만 켤 수 있어요. 합친 모델을 GGUF로 바꿔 같이 올립니다. (몇 분 소요)\n']),
+    code([
+      '# 합친 모델을 로컬에 저장 → llama.cpp로 GGUF 변환 → 내 repo에 업로드\n',
+      'base.save_pretrained("merged"); tok.save_pretrained("merged")\n',
+      '!git clone -q https://github.com/ggerganov/llama.cpp\n',
+      '!pip install -q -r llama.cpp/requirements.txt\n',
+      '!python llama.cpp/convert_hf_to_gguf.py merged --outfile merged-f16.gguf --outtype f16\n',
+      'HfApi().upload_file(path_or_fileobj="merged-f16.gguf", path_in_repo="merged-f16.gguf", repo_id=OUTPUT)\n',
+      'print("✅ GGUF 업로드 완료 → Connect AI 앱 🤖 내 AI 에서 받아 바로 켜집니다!")\n',
+      'print(f"👉 {OUTPUT}")\n']),
+    md(['## 🎉 끝!\n', '결과(모델 + GGUF)가 **내 HuggingFace 계정**에 올라갔어요. Connect AI 앱 🤖 내 AI에서 받아 쓰면 됩니다.\n', '더 쉽게 하려면 → 💎 멤버십(앱에서 버튼 하나, 우리 GPU).\n']),
   ];
   return wrap(cells);
 }
