@@ -1529,7 +1529,10 @@ const fbApiKey = () => (loadConfig().firebaseApiKey || DEFAULT_FIREBASE_API_KEY 
 const fbDbUrl = () => (loadConfig().firebaseDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
 // 🌐 광장 DB — 기본 내장(설정 안 해도 전원 같은 광장에 접속). plaza/rooms/lobby 경로는 공개 규칙.
 const plazaDb = () => (loadConfig().plazaDbUrl || DEFAULT_FIREBASE_DB || '').replace(/\/+$/, '');
-const authPretty = (e: any) => { const m = e?.response?.data?.error?.message || ''; const map: any = { EMAIL_EXISTS: '이미 가입된 이메일이에요.', EMAIL_NOT_FOUND: '가입되지 않은 이메일이에요.', INVALID_PASSWORD: '비밀번호가 틀렸어요.', INVALID_LOGIN_CREDENTIALS: '이메일 또는 비밀번호가 틀렸어요.', WEAK_PASSWORD: '비밀번호는 6자 이상이어야 해요.', INVALID_EMAIL: '이메일 형식이 올바르지 않아요.' }; return map[m] || m || e?.message || '인증 실패'; };
+const authPretty = (e: any) => { const m = e?.response?.data?.error?.message || ''; const map: any = { EMAIL_EXISTS: '이미 가입된 이메일이에요.', EMAIL_NOT_FOUND: '가입되지 않은 이메일이에요.', INVALID_PASSWORD: '비밀번호가 틀렸어요.', INVALID_LOGIN_CREDENTIALS: '이메일 또는 비밀번호가 틀렸어요.', WEAK_PASSWORD: '비밀번호는 6자 이상이어야 해요.', INVALID_EMAIL: '이메일 형식이 올바르지 않아요.' }; if (map[m]) return map[m]; if (m) return m;
+  // 응답 본문 없는 실패 = 네트워크/타임아웃 → 영어 raw 메시지 대신 친절 한글
+  if (!e?.response || /timeout|network|ECONN|ENOTFOUND|ETIMEDOUT|socket/i.test(String(e?.message || '') + (e?.code || ''))) return '네트워크 연결이 불안정해요. 잠시 후 다시 시도해주세요.';
+  return e?.message || '인증 실패'; };
 async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, password: string, profile?: { name?: string; phone?: string; marketing?: boolean }) {
   const key = fbApiKey(); if (!key) return { ok: false, error: '회원 시스템이 아직 설정 안 됐어요(관리자에 문의).' };
   try {
@@ -1545,13 +1548,23 @@ async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, pass
   } catch (e: any) { return { ok: false, error: authPretty(e) }; }
 }
 // 저장된 refreshToken → 새 idToken (로그인 유지)
+// _authNetErr: 직전 fbIdToken 실패가 '네트워크 일시오류'였는지(true) vs '진짜 만료/미로그인'(false)
+//   → 라이브 중 와이파이 끊김에 멀쩡히 로그인한 회원을 "다시 로그인"으로 내쫓지 않게.
+let _authNetErr = false;
 async function fbIdToken(): Promise<{ uid: string; email: string; idToken: string } | null> {
-  const c = loadConfig(); const key = fbApiKey(); if (!c.auth?.refreshToken || !key) return null;
+  _authNetErr = false;
+  const c = loadConfig(); const key = fbApiKey(); if (!c.auth?.refreshToken || !key) return null;   // 미로그인
   try {
     const r = await axios.post(`https://securetoken.googleapis.com/v1/token?key=${key}`, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: c.auth.refreshToken }), { timeout: 15000 });
     const d = r.data; if (d.refresh_token && d.refresh_token !== c.auth.refreshToken) saveConfig({ auth: { ...c.auth, refreshToken: d.refresh_token } });
     return { uid: d.user_id || c.auth.uid, email: c.auth.email, idToken: d.id_token };
-  } catch { return null; }
+  } catch (e: any) {
+    const st = e?.response?.status; const body = String(e?.response?.data?.error?.message || e?.response?.data?.error || '');
+    // 진짜 만료/무효(토큰 거부) → 재로그인 필요(null)
+    if (st === 400 || /TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_NOT_FOUND|USER_DISABLED|INVALID_GRANT|invalid_grant/i.test(body)) return null;
+    _authNetErr = true;   // 네트워크·타임아웃·5xx → 로그인은 유지, 일시 오류
+    return null;
+  }
 }
 ipcMain.handle('auth:signup', async (_e, email: string, password: string, profile?: any) => await fbAuth('signUp', (email || '').trim(), password || '', profile));
 ipcMain.handle('auth:login', async (_e, email: string, password: string) => await fbAuth('signInWithPassword', (email || '').trim(), password || ''));
@@ -1779,7 +1792,7 @@ function brainToConversationsJsonl(): string {
   }).filter(Boolean).join('\n');
 }
 
-// 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
+// 🔒 GPU 기능 게이트 — 비밀번호(0001) + 월 3회 제한, 학습·수술 각각 따로 카운트
 //    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
 const GPU_PW = '0001';
 const GPU_ADMIN_PW = '0003';
@@ -1867,7 +1880,7 @@ async function pushMyProfile(uid: string) {
 ipcMain.handle('plaza:profile', (_e, uid: string) => fetchProfile(uid));
 
 ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
-  const gate = gpuGate(accessCode, 'train');   // 🔒 비번 0101 + 학습 월 3회
+  const gate = gpuGate(accessCode, 'train');   // 🔒 비번 0001 + 학습 월 3회
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   const c = loadConfig();
   const backend = trainBackendBase(c);
@@ -1878,6 +1891,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
     if (!jsonl) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓으세요.' };
     const user = await fbIdToken();
     // 🆓 무료 서버 우선 — 본인 토큰이 있어도 로그인하면 우리 서버에서 무료. (옛 레슨 따라 토큰 넣은 회원이 결제벽에 빠지지 않게)
+    if (fbApiKey() && !user && _authNetErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 학습됩니다. 또는 🆓 무료로 시작(코랩)을 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
@@ -1896,7 +1910,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   // ── 직접 모드 — 사용자 본인 HF Pro 토큰 (검증/파워유저용) ──
   const h = connOf('huggingface');
   if (!h.HF_TOKEN) return { ok: false, error: '🗂️ 연동 → HuggingFace에 write 토큰을 먼저 넣으세요. (또는 학습 서버 URL 설정)' };
-  // (월 사용 제한은 위 gpuGate가 처리 — 비번 0101 + 월 3회)
+  // (월 사용 제한은 위 gpuGate가 처리 — 비번 0001 + 월 3회)
   // 1) 데이터셋 — 변환된 게 있으면 그걸, 없으면 두뇌로 즉석 생성
   let jsonl = lastBrainJsonl;
   if (!jsonl) {
@@ -1958,7 +1972,7 @@ ipcMain.handle('train:cloudInstall', async () => {
 
 // ── 🔪 AI 수술 (합치기) — 장기기억과 같은 HF Jobs GPU에서 실행 (코랩 불필요) ───────
 ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, method = 'slerp', t = '0.5', outName = '', password = '') => {
-  const gate = gpuGate(password, 'surgery');   // 🔒 비번 0101 + 월 3회 (학습과 공유)
+  const gate = gpuGate(password, 'surgery');   // 🔒 비번 0001 + 월 3회 (학습과 공유)
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요 (같은 베이스·같은 크기여야 합쳐져요).' };
   const c = loadConfig();
@@ -1967,6 +1981,7 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
     const user = await fbIdToken();
+    if (fbApiKey() && !user && _authNetErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 진화됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
