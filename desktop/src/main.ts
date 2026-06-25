@@ -1781,7 +1781,7 @@ function brainToConversationsJsonl(): string {
 
 // 🔒 GPU 기능 게이트 — 비밀번호(0101) + 월 3회 제한, 학습·수술 각각 따로 카운트
 //    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
-const GPU_PW = '0101';
+const GPU_PW = '0001';
 const GPU_ADMIN_PW = '0003';
 const GPU_MONTHLY_LIMIT = 3;
 type GpuKind = 'train' | 'surgery';

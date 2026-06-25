@@ -11,7 +11,7 @@ import requests
 from huggingface_hub import HfApi, hf_hub_download
 
 HF_TOKEN = os.environ.get("HF_TOKEN", "")            # 🔑 Space Secret — 제공자 HF write(Pro) 토큰
-ACCESS_CODE = os.environ.get("ACCESS_CODE", "0101")  # 🎟️ 멤버십 코드
+ACCESS_CODE = os.environ.get("ACCESS_CODE", "__SET_SPACE_SECRET__")  # 🎟️ 멤버십 코드
 FREE_FLAVOR = os.environ.get("FLAVOR", "l4x1")       # 무료/저가 GPU
 BASE_MODEL = "unsloth/llama-3.2-3b-instruct-bnb-4bit"
 TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "3"))   # 회원당 월 학습 캡 (클라이언트와 통일 = 3)
