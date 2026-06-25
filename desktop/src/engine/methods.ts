@@ -108,7 +108,7 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
         '결과를 저장할 **무료 HuggingFace 계정**이 필요해요(결제 X). 아래에서 1분이면 됩니다:\n',
         '1. [huggingface.co 무료 가입](https://huggingface.co/join) → 2. [**write** 토큰 만들기](https://huggingface.co/settings/tokens) → 3. 아래 칸에 붙여넣기\n']),
     code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
-    md(['## ⚙️ 설정 — 이 4개만 보면 돼요\n', '`MODEL_A`=원본 · `MODEL_B`=상대(능력) · `METHOD` · `SCALE`(강도)\n']),
+    md(['## ⚙️ 설정 — 이 4개만 보면 돼요\n', '`MODEL_A`=원본 · `MODEL_B`=상대(능력) · `METHOD` · `SCALE`(강도)\n', '\n', '> 💡 무료 Colab(T4·16GB)은 **작은 모델 2개**(예: 0.5B~1.5B 같은 구조)에 적합해요. 7B+ 두 개는 메모리 초과될 수 있어요.\n']),
     code([
       'import torch\n',
       'from transformers import AutoModelForCausalLM, AutoTokenizer\n',
@@ -167,8 +167,9 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
     code([
       '# 합친 모델을 로컬에 저장 → llama.cpp로 GGUF 변환 → 내 repo에 업로드\n',
       'base.save_pretrained("merged"); tok.save_pretrained("merged")\n',
-      '!git clone -q https://github.com/ggerganov/llama.cpp\n',
-      '!pip install -q -r llama.cpp/requirements.txt\n',
+      '!git clone -q https://github.com/ggml-org/llama.cpp\n',
+      '# ⚠️ 변환에 필요한 것만 설치 — llama.cpp requirements.txt는 torch를 CPU판으로 재설치해 GPU를 깨뜨림(절대 쓰지 말 것)\n',
+      '!pip install -q gguf sentencepiece protobuf\n',
       '!python llama.cpp/convert_hf_to_gguf.py merged --outfile merged-f16.gguf --outtype f16\n',
       'HfApi().upload_file(path_or_fileobj="merged-f16.gguf", path_in_repo="merged-f16.gguf", repo_id=OUTPUT)\n',
       'print("✅ GGUF 업로드 완료 → Connect AI 앱 🤖 내 AI 에서 받아 바로 켜집니다!")\n',
