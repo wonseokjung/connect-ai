@@ -2110,3 +2110,30 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 /* 풀스크린 히어로 — 코어·광선 더 강하게 */
 .fuse-hero .born-core { filter: drop-shadow(0 0 34px var(--cyan)) drop-shadow(0 0 14px var(--accent)); }
 .fuse-hero .fuse-sub .mine { text-shadow: 0 0 16px var(--accent); }
+
+/* ── 🧬 진화소 모델 검색 결과 = 네온 픽 카드 (🅰·🅱 채우기) ── */
+.surg-pick-label { margin-bottom: 6px; }
+.surg-pick-grid { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 3px; }
+.surg-pick-grid::-webkit-scrollbar { width: 6px; } .surg-pick-grid::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 6px; }
+.surg-pick-card { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; position: relative; overflow: hidden;
+  padding: 7px 10px; border-radius: 11px; cursor: pointer;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  transition: transform .18s cubic-bezier(.3,1.5,.5,1), box-shadow .18s, border-color .18s;
+  animation: hfRise .4s cubic-bezier(.2,.85,.2,1) both; animation-delay: calc(var(--i,0) * 40ms); }
+.surg-pick-card::after { content:''; position:absolute; inset:0; pointer-events:none; transform: translateX(-130%); transition: transform .5s;
+  background: linear-gradient(115deg, transparent 38%, color-mix(in srgb, var(--accent) 15%, transparent) 50%, transparent 62%); }
+.surg-pick-card:hover { transform: translateY(-2px) scale(1.015); border-color: var(--accent); box-shadow: 0 11px 26px -10px color-mix(in srgb, var(--accent) 55%, transparent); }
+.surg-pick-card:hover::after { transform: translateX(130%); }
+.spc-ava { flex:0 0 auto; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-weight:800; font-size:14px; color:#00130a;
+  background: linear-gradient(135deg, hsl(var(--h,140) 92% 62%), hsl(calc(var(--h,140) + 45) 88% 44%)); box-shadow: 0 2px 9px -2px hsl(var(--h,140) 90% 50% / .55); }
+.spc-main { flex:1; min-width:0; display:flex; flex-direction:column; }
+.spc-name { font-size:12px; font-weight:700; color: var(--text-bright); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.spc-org { font-size:10px; color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.spc-add { flex:0 0 auto; font-size:17px; font-weight:800; color: var(--accent); opacity:.45; transition: opacity .18s, transform .18s; }
+.surg-pick-card:hover .spc-add { opacity:1; transform: scale(1.2) rotate(90deg); }
+.surg-pick-card.picked { border-color: var(--accent) !important; animation: spcPick .65s ease; }
+@keyframes spcPick { 30% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 26px var(--accent); transform: scale(1.04); } 100% { box-shadow: none; transform: scale(1); } }
+/* 검색바 네온 포커스 + 🅰🅱 채워지면 글로우 */
+.surg-find input:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 2px var(--accent-glow), 0 0 16px -5px var(--accent); }
+.fuse-in:not(:placeholder-shown) { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)) !important; box-shadow: inset 0 0 12px -6px var(--accent); }

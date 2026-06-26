@@ -2645,13 +2645,23 @@ function renderSurgery() {
 function short(repo: string) { return (repo || '').split('/').pop()?.replace(/-Instruct$/i, '') || repo; }
 function surgChips(models: string[], label: string) {
   const box = $('surgMine'); if (!box) return;
-  box.innerHTML = `<div class="muted small" style="margin-bottom:5px">${label}</div>` + models.map(m => `<button class="mine-chip" data-m="${escAttr(m)}" title="${escAttr(m)}">${escapeHtml(m.split('/').pop() || m)}</button>`).join('');
-  box.querySelectorAll('.mine-chip').forEach(c => c.addEventListener('click', () => {
-    const m = (c as HTMLElement).dataset.m!;
-    if (!_surg.a) { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; }
-    else if (!_surg.b) { _surg.b = m; ($('surgB') as HTMLInputElement).value = m; }
-    else { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; _surg.b = ''; ($('surgB') as HTMLInputElement).value = ''; }
-    saveSurg(); hint(`선택: ${m.split('/').pop()}`);
+  box.innerHTML = `<div class="surg-pick-label muted small">${label}</div><div class="surg-pick-grid">` + models.map((m, i) => {
+    const slash = m.indexOf('/'); const org = slash > 0 ? m.slice(0, slash) : '';
+    let hue = 0; for (const ch of (org || m)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;   // 조직별 고유색
+    const ava = (org || m).replace(/[^a-zA-Z0-9가-힣]/g, '').charAt(0).toUpperCase() || '🤗';
+    return `<button class="surg-pick-card" data-m="${escAttr(m)}" style="--i:${i};--h:${hue}" title="${escAttr(m)}">
+      <span class="spc-ava">${ava}</span>
+      <span class="spc-main"><span class="spc-name">${escapeHtml(short(m))}</span><span class="spc-org">${escapeHtml(org)}</span></span>
+      <span class="spc-add">＋</span></button>`;
+  }).join('') + `</div>`;
+  box.querySelectorAll('.surg-pick-card').forEach(c => c.addEventListener('click', () => {
+    const m = (c as HTMLElement).dataset.m!; let slot = '';
+    if (!_surg.a) { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; slot = '🅰'; }
+    else if (!_surg.b) { _surg.b = m; ($('surgB') as HTMLInputElement).value = m; slot = '🅱'; }
+    else { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; _surg.b = ''; ($('surgB') as HTMLInputElement).value = ''; slot = '🅰'; }
+    saveSurg();
+    c.classList.add('picked'); setTimeout(() => c.classList.remove('picked'), 650);   // 선택 플래시
+    hint(`${slot}에 넣음: ${short(m)}`);
   }));
 }
 function wireSurgery() {
