@@ -2115,8 +2115,8 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .surg-pick-label { margin-bottom: 6px; }
 .surg-pick-grid { display: flex; flex-direction: column; gap: 6px; max-height: 240px; overflow-y: auto; padding-right: 3px; }
 .surg-pick-grid::-webkit-scrollbar { width: 6px; } .surg-pick-grid::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 6px; }
-.surg-pick-card { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; position: relative; overflow: hidden;
-  padding: 7px 10px; border-radius: 11px; cursor: pointer;
+.surg-pick-card { display: flex; align-items: center; gap: 10px; width: 100%; height: auto; min-height: 52px; text-align: left; position: relative; overflow: hidden;
+  padding: 10px 12px; border-radius: 12px; cursor: pointer; line-height: 1.3;
   background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface));
   border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
   transition: transform .18s cubic-bezier(.3,1.5,.5,1), box-shadow .18s, border-color .18s;
@@ -2127,9 +2127,9 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .surg-pick-card:hover::after { transform: translateX(130%); }
 .spc-ava { flex:0 0 auto; width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-weight:800; font-size:14px; color:#00130a;
   background: linear-gradient(135deg, hsl(var(--h,140) 92% 62%), hsl(calc(var(--h,140) + 45) 88% 44%)); box-shadow: 0 2px 9px -2px hsl(var(--h,140) 90% 50% / .55); }
-.spc-main { flex:1; min-width:0; display:flex; flex-direction:column; }
-.spc-name { font-size:12px; font-weight:700; color: var(--text-bright); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-.spc-org { font-size:10px; color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.spc-main { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+.spc-name { font-size:12.5px; font-weight:700; line-height:1.3; color: var(--text-bright); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.spc-org { font-size:10px; line-height:1.35; color: var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .spc-add { flex:0 0 auto; font-size:17px; font-weight:800; color: var(--accent); opacity:.45; transition: opacity .18s, transform .18s; }
 .surg-pick-card:hover .spc-add { opacity:1; transform: scale(1.2) rotate(90deg); }
 .surg-pick-card.picked { border-color: var(--accent) !important; animation: spcPick .65s ease; }
