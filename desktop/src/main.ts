@@ -446,7 +446,18 @@ ipcMain.handle('hf:searchModels', async (_e, q: string) => {
   if (!q || q.trim().length < 2) return { ok: true, models: [] };
   try {
     const r: any = await axios.get(`https://huggingface.co/api/models?search=${encodeURIComponent(q.trim())}&limit=24&sort=downloads&direction=-1`, { timeout: 12000 });
-    const models = (r.data || []).map((m: any) => m.id || m.modelId).filter(Boolean);
+    // 🧠 라이선스·크기·게이트·계열까지 — 회원이 '합쳐지는·안 막히는' 모델을 똑똑하게 고르게
+    const licName: Record<string, string> = { 'apache-2.0': 'Apache 2.0', 'mit': 'MIT', 'gemma': 'Gemma', 'llama2': 'Llama 2', 'llama3': 'Llama 3', 'llama3.1': 'Llama 3.1', 'llama3.2': 'Llama 3.2', 'llama3.3': 'Llama 3.3', 'cc-by-nc-4.0': '비상업(NC)', 'cc-by-4.0': 'CC-BY', 'bigscience-bloom-rail-1.0': 'BLOOM', 'qwen': 'Qwen' };
+    const famOf = (s: string) => { const m = s.toLowerCase().match(/qwen3|qwen2|gemma3|gemma2|gemma|llama|mistral|phi|falcon|deepseek|yi\b|stablelm|smollm/); return m ? m[0].replace(/[0-9.]+$/, '').replace('3', '').replace('2', '') : ''; };
+    const paramOf = (s: string) => { const m = s.match(/(\d+(?:\.\d+)?)\s*[bB]\b/); return m ? m[1].toUpperCase() + 'B' : (/\b(\d{2,3})m\b/i.test(s) ? (s.match(/\b(\d{2,3})m\b/i)![1] + 'M') : ''); };
+    const models = (r.data || []).map((m: any) => {
+      const id = m.id || m.modelId; if (!id) return null;
+      const tags: string[] = m.tags || [];
+      const lic = (tags.find(t => t.startsWith('license:')) || '').slice(8);
+      const fam = famOf(id) || (tags.map(famOf).find(Boolean) || '');
+      return { id, downloads: m.downloads || 0, likes: m.likes || 0, gated: !!m.gated,
+               license: licName[lic] || (lic ? lic.replace(/-/g, ' ') : ''), family: fam, params: paramOf(id) };
+    }).filter(Boolean);
     return { ok: true, models };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });

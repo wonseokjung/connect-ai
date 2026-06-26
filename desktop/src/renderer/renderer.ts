@@ -2624,6 +2624,7 @@ function renderSurgery() {
       ${combineHtml}
       <span class="fuse-res" title="만들어질 새 AI">⬇ ★ ${resTxt}</span>
     </div>
+    <div class="surg-compat" id="surgCompat"></div>
     <div class="surg-find">
       <input id="surgSearch" placeholder="🔍 모델 검색" autocomplete="off">
       <button class="lf-ghost" id="surgSearchBtn" title="검색">🔍</button>
@@ -2643,15 +2644,44 @@ function renderSurgery() {
   connect.gpuUsage?.('surgery').then((u: any) => { const el = $('surgLeft'); if (el && u) el.innerHTML = u.left <= 0 ? `🗓️ 이번 달 다 씀 — <b>🆓 무료로</b>` : `🎟️ 이번 달 ${u.left}/${u.limit}회`; }).catch(() => {});
 }
 function short(repo: string) { return (repo || '').split('/').pop()?.replace(/-Instruct$/i, '') || repo; }
-function surgChips(models: string[], label: string) {
+// 🧠 모델 아키텍처(계열) 추정 — SLERP는 같은 아키텍처끼리만 됨. 버전까지 구분(gemma2≠gemma3, qwen2≠qwen3)
+function modelArch(id: string): string {
+  const s = (id || '').toLowerCase();
+  if (/qwen-?3/.test(s)) return 'qwen3'; if (/qwen-?2/.test(s)) return 'qwen2';
+  if (/gemma-?4/.test(s)) return 'gemma4'; if (/gemma-?3/.test(s)) return 'gemma3'; if (/gemma-?2/.test(s)) return 'gemma2'; if (/gemma/.test(s)) return 'gemma';
+  if (/llama-?4/.test(s)) return 'llama4'; if (/llama-?3/.test(s)) return 'llama3'; if (/llama-?2/.test(s)) return 'llama2';
+  const m = s.match(/mistral|mixtral|phi|deepseek|smollm|stablelm|falcon|\byi\b/); return m ? m[0] : '';
+}
+function sizeOf(id: string): string { const m = (id || '').match(/(\d+(?:\.\d+)?)\s*b\b/i); return m ? m[1].toUpperCase() + 'B' : ''; }
+// 🅰·🅱 둘 다 차면 호환 여부를 똑똑하게 판단해 안내
+function updateCompat() {
+  const el = $('surgCompat'); if (!el) return;
+  const a = _surg.a, b = _surg.b;
+  if (!a || !b) { el.className = 'surg-compat'; el.innerHTML = ''; return; }
+  const aa = modelArch(a), ab = modelArch(b), sa = sizeOf(a), sb = sizeOf(b);
+  if (aa && ab && aa !== ab) { el.className = 'surg-compat bad'; el.innerHTML = `⚠️ 계열이 달라요 (<b>${aa}</b> ↔ <b>${ab}</b>) — 합쳐지지 않아요. 같은 계열로 바꿔주세요.`; }
+  else if (sa && sb && sa !== sb) { el.className = 'surg-compat warn'; el.innerHTML = `⚠️ 크기가 달라요 (${sa} ↔ ${sb}) — 같은 크기여야 안전해요.`; }
+  else { el.className = 'surg-compat ok'; el.innerHTML = `✅ 같은 계열${aa ? ` (<b>${aa}</b>)` : ''}${sa ? ` · ${sa}` : ''} — 합쳐져요!`; }
+}
+function surgChips(models: any[], label: string) {
   const box = $('surgMine'); if (!box) return;
-  box.innerHTML = `<div class="surg-pick-label muted small">${label}</div><div class="surg-pick-grid">` + models.map((m, i) => {
-    const slash = m.indexOf('/'); const org = slash > 0 ? m.slice(0, slash) : '';
-    let hue = 0; for (const ch of (org || m)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;   // 조직별 고유색
-    const ava = (org || m).replace(/[^a-zA-Z0-9가-힣]/g, '').charAt(0).toUpperCase() || '🤗';
-    return `<button class="surg-pick-card" data-m="${escAttr(m)}" style="--i:${i};--h:${hue}" title="${escAttr(m)}">
+  box.innerHTML = `<div class="surg-pick-label muted small">${label}</div><div class="surg-pick-grid">` + models.map((raw: any, i: number) => {
+    const m = typeof raw === 'string' ? { id: raw } : raw; const id = m.id || '';
+    const slash = id.indexOf('/'); const org = slash > 0 ? id.slice(0, slash) : '';
+    let hue = 0; for (const ch of (org || id)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;   // 조직별 고유색
+    const ava = (org || id).replace(/[^a-zA-Z0-9가-힣]/g, '').charAt(0).toUpperCase() || '🤗';
+    const badges = [
+      (m.params || sizeOf(id)) ? `<span class="spc-b b-size">${m.params || sizeOf(id)}</span>` : '',
+      m.family ? `<span class="spc-b b-fam">${escapeHtml(m.family)}</span>` : '',
+      m.license ? `<span class="spc-b b-lic">${escapeHtml(m.license)}</span>` : '',
+      m.gated ? `<span class="spc-b b-gate" title="라이선스 동의 필요 — 권한 없으면 막혀요">🔒</span>` : '',
+    ].filter(Boolean).join('');
+    const stat = (m.downloads != null) ? `<span class="spc-dl">⬇ ${fmtN(m.downloads)}</span>` : '';
+    return `<button class="surg-pick-card${m.gated ? ' gated' : ''}" data-m="${escAttr(id)}" style="--i:${i};--h:${hue}" title="${escAttr(id)}${m.gated ? ' · 🔒 게이트(라이선스 동의 필요)' : ''}">
       <span class="spc-ava">${ava}</span>
-      <span class="spc-main"><span class="spc-name">${escapeHtml(short(m))}</span><span class="spc-org">${escapeHtml(org)}</span></span>
+      <span class="spc-main"><span class="spc-name">${escapeHtml(short(id))}</span>
+        <span class="spc-sub">${escapeHtml(org)}${stat ? ' · ' + stat : ''}</span>
+        ${badges ? `<span class="spc-badges">${badges}</span>` : ''}</span>
       <span class="spc-add">＋</span></button>`;
   }).join('') + `</div>`;
   box.querySelectorAll('.surg-pick-card').forEach(c => c.addEventListener('click', () => {
@@ -2659,7 +2689,7 @@ function surgChips(models: string[], label: string) {
     if (!_surg.a) { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; slot = '🅰'; }
     else if (!_surg.b) { _surg.b = m; ($('surgB') as HTMLInputElement).value = m; slot = '🅱'; }
     else { _surg.a = m; ($('surgA') as HTMLInputElement).value = m; _surg.b = ''; ($('surgB') as HTMLInputElement).value = ''; slot = '🅰'; }
-    saveSurg();
+    saveSurg(); updateCompat();
     c.classList.add('picked'); setTimeout(() => c.classList.remove('picked'), 650);   // 선택 플래시
     hint(`${slot}에 넣음: ${short(m)}`);
   }));
@@ -2674,7 +2704,8 @@ function wireSurgery() {
   const bl = $('surgBlend') as HTMLInputElement;
   if (bl) bl.oninput = () => { _surg.t = (+bl.value) / 100; const v = $('sbVal'); if (v) v.textContent = _surg.method !== 'slerp' ? _surg.t.toFixed(2) : `${100 - +bl.value} : ${bl.value}`; saveSurg(); };
   const a = $('surgA') as HTMLInputElement, b2 = $('surgB') as HTMLInputElement;
-  if (a) a.oninput = () => { _surg.a = a.value; saveSurg(); }; if (b2) b2.oninput = () => { _surg.b = b2.value; saveSurg(); };
+  if (a) a.oninput = () => { _surg.a = a.value; saveSurg(); updateCompat(); }; if (b2) b2.oninput = () => { _surg.b = b2.value; saveSurg(); updateCompat(); };
+  updateCompat();   // 처음 열 때(저장된 A·B 있으면) 바로 호환 표시
   const nm = $('surgName') as HTMLInputElement; if (nm) nm.oninput = () => { _surg.name = nm.value; saveSurg(); };
   $('surgLoadMine')?.addEventListener('click', async () => {
     const box = $('surgMine'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 내가 만든 AI 불러오는 중…';

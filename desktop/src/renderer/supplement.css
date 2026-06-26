@@ -2137,3 +2137,27 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 /* 검색바 네온 포커스 + 🅰🅱 채워지면 글로우 */
 .surg-find input:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 2px var(--accent-glow), 0 0 16px -5px var(--accent); }
 .fuse-in:not(:placeholder-shown) { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)) !important; box-shadow: inset 0 0 12px -6px var(--accent); }
+
+/* ── 🧠 진화소 픽 카드 — 전문 배지(크기·라이선스·게이트) + 호환 배너 ── */
+.spc-sub { font-size: 10px; line-height: 1.3; color: var(--text-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.spc-dl { color: var(--text-dim); }
+.spc-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.spc-b { font-size: 9px; font-weight: 800; padding: 1.5px 6px; border-radius: 6px; white-space: nowrap; line-height: 1.5;
+  background: color-mix(in srgb, var(--accent) 13%, transparent); color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 26%, transparent); }
+.b-size { background: color-mix(in srgb, var(--cyan) 14%, transparent) !important; color: var(--cyan) !important; border-color: color-mix(in srgb, var(--cyan) 28%, transparent) !important; }
+.b-lic { background: color-mix(in srgb, var(--gold) 14%, transparent) !important; color: var(--gold) !important; border-color: color-mix(in srgb, var(--gold) 30%, transparent) !important; }
+.b-gate { background: color-mix(in srgb, var(--red) 16%, transparent) !important; color: var(--red) !important; border-color: color-mix(in srgb, var(--red) 32%, transparent) !important; }
+.surg-pick-card.gated { opacity: .58; }
+.surg-pick-card.gated:hover { opacity: .9; }
+.surg-pick-card { min-height: 58px !important; }
+.surg-pick-grid { max-height: 300px !important; }
+
+/* 🅰🅱 호환 자동 판단 배너 — 같은 계열인지 똑똑하게 */
+.surg-compat { font-size: 11.5px; font-weight: 700; border-radius: 9px; padding: 0; max-height: 0; overflow: hidden;
+  transition: max-height .25s, padding .25s, margin .25s; }
+.surg-compat.ok, .surg-compat.warn, .surg-compat.bad { padding: 8px 12px; max-height: 60px; margin: 3px 0 7px; border: 1px solid; }
+.surg-compat.ok { color: var(--accent); background: color-mix(in srgb, var(--accent) 9%, transparent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); box-shadow: 0 0 16px -6px var(--accent); }
+.surg-compat.warn { color: var(--gold); background: color-mix(in srgb, var(--gold) 10%, transparent); border-color: color-mix(in srgb, var(--gold) 34%, transparent); }
+.surg-compat.bad { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); border-color: color-mix(in srgb, var(--red) 34%, transparent); animation: compatShake .4s; }
+.surg-compat b { font-weight: 800; }
+@keyframes compatShake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
