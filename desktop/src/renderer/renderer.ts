@@ -2593,7 +2593,7 @@ function renderSurgery() {
   const aIc = isTask ? '🅰 원본 AI' : '🅰 모델 A';
   const bIc = isTask ? '🅱 능력 AI' : '🅱 모델 B';
   const aTip = isTask ? '원본 AI (pretrained) — 예: Qwen/Qwen2.5-1.5B' : '모델 A — 예: Qwen/Qwen2.5-1.5B-Instruct';
-  const bTip = isTask ? '능력 있는 AI = 원본을 학습시킨 파인튜닝본 — 예: Qwen/Qwen2.5-Coder-1.5B' : '모델 B — 예: google/gemma-2-2b-it (A와 같은 계열·크기)';
+  const bTip = isTask ? '능력 있는 AI = 원본을 학습시킨 파인튜닝본 — 예: Qwen/Qwen2.5-Coder-1.5B' : '모델 B — A와 같은 계열·크기여야 합쳐져요. 예: Qwen/Qwen2.5-1.5B (A가 Qwen이면 B도 Qwen)';
   // ➕/➖ 아이콘 토글 — Task Arithmetic 에서만
   const isSub = isTask && _surg.method === 'task_sub';
   const opToggle = isTask ? `<div class="op-toggle">
