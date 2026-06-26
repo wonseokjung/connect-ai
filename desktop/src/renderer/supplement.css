@@ -2015,3 +2015,98 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .jp-logline::before { content: '▸ '; color: var(--accent, #39ff14); opacity: .6; }
 .jp-logline:last-child { color: #e6ffef; opacity: 1; }
 @keyframes jpLogIn { from { opacity: 0; transform: translateX(-5px); } to { opacity: .9; transform: none; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   🎨 모델검색 네온 홀로그램 리디자인 + 🧬 진화 연출 강화 (2026-06)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── 🔍 검색 바: 네온 포커스 + 아이콘 ── */
+.hf-search { position: relative; }
+.hf-search::before { content: '🔍'; position: absolute; left: 12px; top: 50%; transform: translateY(-50%); font-size: 13px; opacity: .55; pointer-events: none; z-index: 2; }
+.hf-search input { padding-left: 36px !important; transition: box-shadow .22s, border-color .22s; }
+.hf-search input:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-glow), 0 0 22px -6px var(--accent); }
+.hf-search .oc-primary { position: relative; overflow: hidden; font-weight: 800; letter-spacing: .3px; }
+.hf-search .oc-primary::after { content:''; position:absolute; inset:0; background: linear-gradient(115deg, transparent 42%, rgba(255,255,255,.4) 50%, transparent 58%); transform: translateX(-130%); }
+.hf-search .oc-primary:hover::after { transform: translateX(130%); transition: transform .6s; }
+
+/* ── 🃏 결과 카드: 홀로그램 글래스 + 스태거 등장 + hover 네온 ── */
+.hf-results { gap: 8px !important; }
+.hf-row { position: relative; overflow: hidden; gap: 11px !important; padding: 10px 12px !important; border-radius: 13px !important;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 6%, var(--surface)), var(--surface)) !important;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border)) !important;
+  transition: transform .2s cubic-bezier(.3,1.5,.5,1), box-shadow .2s, border-color .2s;
+  animation: hfRise .44s cubic-bezier(.2,.85,.2,1) both; animation-delay: calc(var(--i, 0) * 45ms); }
+.hf-row::before { content:''; position:absolute; left:0; top:8%; bottom:8%; width:3px; border-radius:3px;
+  background: linear-gradient(var(--accent), var(--accent3)); opacity:.55; transition: opacity .2s, width .2s, box-shadow .2s; }
+.hf-row::after { content:''; position:absolute; inset:0; pointer-events:none;
+  background: linear-gradient(115deg, transparent 38%, color-mix(in srgb, var(--accent) 16%, transparent) 50%, transparent 62%);
+  transform: translateX(-130%); transition: transform .55s; }
+.hf-row:hover { transform: translateY(-3px) scale(1.014); border-color: var(--accent) !important;
+  box-shadow: 0 12px 30px -10px color-mix(in srgb, var(--accent) 55%, transparent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent); }
+.hf-row:hover::before { opacity:1; width:4px; box-shadow: 0 0 14px var(--accent); }
+.hf-row:hover::after { transform: translateX(130%); }
+.hf-row:active { transform: translateY(-1px) scale(.995); }
+@keyframes hfRise { from { opacity:0; transform: translateY(12px) scale(.98); } to { opacity:1; transform: none; } }
+
+/* 조직 아바타 — 이름 해시로 고유 색 */
+.hf-ava { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center;
+  font-weight: 800; font-size: 16px; color: #00130a; letter-spacing: -.5px;
+  background: linear-gradient(135deg, hsl(var(--h,140) 92% 62%), hsl(calc(var(--h,140) + 45) 88% 44%));
+  box-shadow: 0 3px 12px -2px hsl(var(--h,140) 90% 50% / .55); transition: box-shadow .2s, transform .2s; }
+.hf-row:hover .hf-ava { transform: scale(1.06) rotate(-3deg); box-shadow: 0 0 18px hsl(var(--h,140) 95% 58% / .85); }
+
+.hf-row .hf-main { flex: 1; min-width: 0; }
+.hf-row .hf-id { font-weight: 700 !important; font-size: 12.5px !important; line-height: 1.25; }
+.hf-stats { display: flex; align-items: center; gap: 7px; flex-shrink: 0; }
+.hf-stat { font-size: 10.5px; color: var(--text-dim); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hf-badge { font-size: 9.5px !important; font-weight: 800 !important; padding: 2px 7px !important;
+  background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent); }
+.hf-badge.hf-vis { background: color-mix(in srgb, var(--cyan) 16%, transparent); color: var(--cyan); border-color: color-mix(in srgb, var(--cyan) 32%, transparent); }
+
+/* 받기 pill — hover 시 등장 + 네온 채움 */
+.hf-pick { flex: 0 0 auto; font-size: 11px; font-weight: 800; color: var(--accent); padding: 5px 12px; border-radius: 9px; white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent); background: color-mix(in srgb, var(--accent) 8%, transparent);
+  opacity: 0; transform: translateX(8px); transition: opacity .2s, transform .2s, background .2s, color .2s, box-shadow .2s; }
+.hf-row:hover .hf-pick { opacity: 1; transform: none; background: var(--accent); color: #00130a; box-shadow: 0 0 16px -2px var(--accent); }
+
+/* ── 📂 파일(quant) 목록 + 받기 버튼 ── */
+.hf-row.file { animation: none; cursor: default; gap: 10px !important; }
+.hf-row.file:hover { transform: none; box-shadow: none; border-color: color-mix(in srgb, var(--accent) 16%, var(--border)) !important; }
+.hf-q { color: var(--accent3) !important; font-family: ui-monospace, "SF Mono", monospace; }
+.hf-get { background: linear-gradient(135deg, var(--accent), var(--accent2)) !important; color: #00130a !important; font-weight: 800 !important;
+  border: none !important; position: relative; overflow: hidden; }
+.hf-get::after { content:''; position:absolute; inset:0; background: linear-gradient(115deg, transparent 40%, rgba(255,255,255,.5) 50%, transparent 60%); transform: translateX(-130%); }
+.hf-get:hover::after { transform: translateX(130%); transition: transform .6s; }
+.hf-get:hover { box-shadow: 0 0 18px -3px var(--accent); }
+.hf-back { cursor: pointer; color: var(--accent3); padding: 5px 2px; display: inline-block; transition: transform .15s; }
+.hf-back:hover { transform: translateX(-3px); }
+
+/* ── ⬇ 다운로드 바: 흐르는 네온 + 글로우 ── */
+.hf-dl-bar { height: 9px !important; border-radius: 6px; overflow: hidden; background: color-mix(in srgb, var(--accent) 9%, #000) !important; border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent); }
+.hf-dl-fill { background: linear-gradient(90deg, var(--accent2), var(--accent), var(--accent3), var(--accent)) !important; background-size: 250% 100% !important;
+  animation: hfDlFlow 1.1s linear infinite; box-shadow: 0 0 14px var(--accent); transition: width .35s ease; }
+@keyframes hfDlFlow { to { background-position: 250% 0; } }
+
+/* ── 추천 두뇌 카드 ── */
+.reco-card { animation: hfRise .44s both; }
+.reco-card:hover { transform: translateY(-2px); box-shadow: 0 10px 26px -10px color-mix(in srgb, var(--accent) 50%, transparent) !important; border-color: var(--accent3) !important; }
+.reco-get { background: linear-gradient(135deg, var(--accent3), var(--accent)) !important; color: #00130a !important; font-weight: 800 !important; border: none !important; }
+
+/* ═══ 🧬 진화 연출 강화 (additive — 네온 글로우·코어 회전·입자 잔광) ═══ */
+.gf-glow { box-shadow: 0 0 60px 10px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 120px 20px color-mix(in srgb, var(--cyan) 18%, transparent); }
+.gf-circle { box-shadow: 0 0 20px -2px var(--accent3), inset 0 0 14px -4px var(--accent); }
+.gf-orb { box-shadow: 0 0 20px -2px var(--accent), 0 4px 16px -4px rgba(0,0,0,.6); }
+.gf-orb .go-c { display: inline-block; animation: gfFloat 2.4s ease-in-out infinite; }
+@keyframes gfFloat { 50% { transform: translateY(-4px) scale(1.06); } }
+.gf-pillar { box-shadow: 0 0 40px 6px color-mix(in srgb, var(--accent) 45%, transparent); }
+.gc-core { display: inline-block; animation: gfCoreSpin 3.2s linear infinite; filter: drop-shadow(0 0 12px var(--accent)); }
+@keyframes gfCoreSpin { to { transform: rotate(360deg); } }
+.gf-particle { box-shadow: 0 0 10px 1px var(--accent3); }
+.gf-card.reveal { animation: gfCardPop .5s cubic-bezier(.2,1.6,.4,1) both; }
+@keyframes gfCardPop { 0% { opacity:0; transform: translate(-50%,-50%) scale(.5); } 100% { opacity:1; transform: translate(-50%,-50%) scale(1); } }
+.gf-star.on { animation: gfStarPop .4s cubic-bezier(.2,1.8,.4,1) both; filter: drop-shadow(0 0 6px var(--gold)); }
+@keyframes gfStarPop { 0% { opacity:0; transform: scale(0) rotate(-40deg); } 100% { opacity:1; transform: scale(1) rotate(0); } }
+/* 풀스크린 히어로 — 코어·광선 더 강하게 */
+.fuse-hero .born-core { filter: drop-shadow(0 0 34px var(--cyan)) drop-shadow(0 0 14px var(--accent)); }
+.fuse-hero .fuse-sub .mine { text-shadow: 0 0 16px var(--accent); }

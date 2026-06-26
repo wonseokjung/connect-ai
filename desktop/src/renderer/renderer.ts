@@ -1245,12 +1245,16 @@ async function doHfSearch() {
   $('hfResults').innerHTML = '<div class="muted small">🔍 검색 중…</div>';
   const r = await connect.hfSearch?.(q);
   if (!r?.ok) { $('hfResults').innerHTML = `<div class="muted small">⚠️ ${r?.error || '검색 실패'}</div>`; return; }
-  $('hfResults').innerHTML = (r.models || []).map((m: any) => {
+  $('hfResults').innerHTML = (r.models || []).map((m: any, i: number) => {
     const slash = m.id.indexOf('/'); const org = slash > 0 ? m.id.slice(0, slash) : ''; const nm = slash > 0 ? m.id.slice(slash + 1) : m.id;
     const badges = `${m.params ? `<span class="hf-badge hf-param">${m.params}</span>` : ''}${m.vision ? `<span class="hf-badge hf-vis">👁 비전</span>` : ''}`;
-    return `<div class="hf-row" data-repo="${escAttr(m.id)}" title="${escAttr(m.id)}${m.updated ? ' · 갱신 ' + fmtAgo(m.updated) : ''}">
+    let hue = 0; for (const ch of (org || nm)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;   // 조직별 고유 색
+    const ava = (org || nm).replace(/[^a-zA-Z0-9가-힣]/g, '').charAt(0).toUpperCase() || '🤗';
+    return `<div class="hf-row" data-repo="${escAttr(m.id)}" style="--i:${i};--h:${hue}" title="${escAttr(m.id)}${m.updated ? ' · 갱신 ' + fmtAgo(m.updated) : ''}">
+      <div class="hf-ava">${ava}</div>
       <div class="hf-main"><div class="hf-id">${escapeHtml(nm)}</div><div class="hf-org">${escapeHtml(org)}${m.updated ? ` · ${fmtAgo(m.updated)}` : ''}</div></div>
-      <div class="hf-stats">${badges}<span class="muted small">⬇ ${fmtN(m.downloads)}</span><span class="muted small">♥ ${fmtN(m.likes)}</span></div>
+      <div class="hf-stats">${badges}<span class="hf-stat">⬇ ${fmtN(m.downloads)}</span><span class="hf-stat">♡ ${fmtN(m.likes)}</span></div>
+      <span class="hf-pick">받기</span>
     </div>`;
   }).join('') || '<div class="muted small">결과 없음</div>';
   $('hfResults').querySelectorAll('.hf-row').forEach(b => b.addEventListener('click', () => pickRepo((b as HTMLElement).dataset.repo!)));
@@ -2697,8 +2701,11 @@ function surgFusion(aName: string, bName: string, newName: string) {
       <div class="gf-pillar"></div>
       <div class="gf-card"><span class="gc-core">🧬</span><span class="gc-name">${escapeHtml(newName)}</span><div class="gf-stars" id="gfStars"></div></div>
     </div>`;
-  for (let i = 0; i < 5; i++) gfParticle();   // 살짝 입자
+  for (let i = 0; i < 8; i++) gfParticle();
+  if (_gfTimer) clearInterval(_gfTimer);
+  _gfTimer = window.setInterval(() => { if (!$('gfStage')) { clearInterval(_gfTimer); _gfTimer = 0; return; } gfParticle(); gfParticle(); }, 240);   // 진행 중 계속 흐르는 에너지 입자
 }
+let _gfTimer = 0;
 function gfParticle() {
   const st = $('gfStage'); if (!st) return;
   const p = document.createElement('div'); p.className = 'gf-particle'; st.appendChild(p);
@@ -2708,8 +2715,9 @@ function gfParticle() {
 // 완료 — 빛기둥 폭발 + 카드 등장 + ★★★
 function surgFusionDone() {
   const st = $('gfStage'); if (!st) { return; }
+  if (_gfTimer) { clearInterval(_gfTimer); _gfTimer = 0; }   // 흐르는 입자 멈추고 폭발로
   st.classList.add('gf-blast');
-  for (let i = 0; i < 20; i++) gfParticle();
+  for (let i = 0; i < 44; i++) setTimeout(gfParticle, i * 8);   // 완료 순간 입자 폭발
   setTimeout(() => {
     const card = st.querySelector('.gf-card'); card?.classList.add('reveal');
     const stars = $('gfStars'); if (stars) { [0, 1, 2].forEach(i => setTimeout(() => { const s = document.createElement('span'); s.className = 'gf-star on'; s.textContent = '⭐'; stars.appendChild(s); }, 300 + i * 220)); }
