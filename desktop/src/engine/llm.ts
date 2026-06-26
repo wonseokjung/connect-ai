@@ -254,7 +254,7 @@ export function apiError(e: any): string {
   else if (status === 400) hint = /tool|template|jinja|function/i.test(detail) ? ' — 이 모델이 도구 호출을 지원하지 않아요(⚙️ 설정에서 🛠️ 파일 도구를 끄거나, 도구 지원 모델을 쓰세요)' : /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 문자가 있었어요(자동 정리 후 다시 시도해 주세요)' : ' — 모델이 요청을 거부했어요(문맥 길이/형식 확인)';
   else if (status === 401 || status === 403) hint = ' — 접근이 거부됐어요(🤖 내 AI에서 두뇌가 켜져 있는지 먼저 확인하세요. 클라우드면 API 키·권한, 백신/방화벽이 로컬 엔진 포트를 막았는지도 확인)';
   else if (status === 404) hint = ' — 모델/주소를 찾지 못함(모델 이름·LLM 주소 확인)';
-  else if (status === 429) hint = ' — 요청이 너무 많아 잠시 제한됐어요(잠깐 기다렸다 다시 시도하세요)';
+  else if (status === 429) hint = ' — 요청 한도를 넘었어요. 이건 보통 클라우드(Gemini)를 쓸 때 나요 — 🤖 내 AI에서 로컬 모델(내장·LM Studio·Ollama)로 바꾸면 한도 없이 무제한이에요';
   else if (status === 500 || status === 503) hint = /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 이모지/문자가 있었어요(자동 정리됨 — 다시 보내주세요)' : ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
   else if (/timeout|ETIMEDOUT|exceeded/i.test(detail + code)) hint = ' — 응답이 너무 오래 걸려요(저사양이면 더 작은 모델을 쓰거나 잠시 후 다시)';
   else if (/ECONNREFUSED|ECONNRESET|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
