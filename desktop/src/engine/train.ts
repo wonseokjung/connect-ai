@@ -8,6 +8,7 @@ const code = (lines: string[]) => ({ cell_type: 'code', metadata: {}, execution_
 export interface TrainOpts { rank?: number; alpha?: number; dropout?: number; learningRate?: number; maxSteps?: number; epochs?: number; warmup?: number; maxSeq?: number; scheduler?: string; quant?: string; }
 export function buildNotebook(datasetRepo: string, baseModel: string, outModelRepo: string, dataCount = 30, opts: TrainOpts = {}, inlineJsonl = ''): string {
   // inlineJsonl 있으면 데이터를 노트북에 직접 심는다(HF 업로드 불필요) — 🆓 무료 = 바로 코랩
+  const outName = (outModelRepo.split('/').pop() || 'my-model');   // 🆔 모델 이름만 — 계정은 실행자(whoami)로
   const b64 = inlineJsonl ? Buffer.from(inlineJsonl, 'utf8').toString('base64') : '';
   const base = baseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';   // 검증된 기본(존재·로딩 확인). gemma-4 등은 사용자가 명시할 때만
   const rank = opts.rank || 16;
@@ -127,16 +128,21 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         'import gc, torch\n',
         'try:\n', '    del trainer\n', 'except Exception:\n', '    pass\n',
         'gc.collect(); torch.cuda.empty_cache()\n',
+        '# 📤 저장 위치 = "내" HF 계정 (위에서 로그인한 본인 계정으로 자동 — 노트북이 공유돼도 안전)\n',
+        'from huggingface_hub import HfApi\n',
+        'NAME = "' + outName + '"\n',
+        'OUTPUT = f\'{HfApi().whoami()["name"]}/{NAME}\'\n',
+        'print("📤 내 계정에 저장:", OUTPUT)\n',
         '# ① 합성용 safetensors (AI 진화소에서 다시 합칠 수 있어요 — 이게 없으면 합성 불가!)\n',
         'try:\n',
-        '    model.push_to_hub_merged("' + outModelRepo + '", tokenizer, save_method="merged_16bit", token=True)\n',
+        '    model.push_to_hub_merged(OUTPUT, tokenizer, save_method="merged_16bit", token=True)\n',
         '    print("✅ safetensors 업로드 — AI 진화소에서 합치기 가능")\n',
         'except Exception as e:\n',
         '    print("⚠️ 병합 업로드 실패 → 어댑터(LoRA)로 폴백:", e)\n',
-        '    model.push_to_hub("' + outModelRepo + '", token=True); tokenizer.push_to_hub("' + outModelRepo + '", token=True)\n',
+        '    model.push_to_hub(OUTPUT, token=True); tokenizer.push_to_hub(OUTPUT, token=True)\n',
         '# ② 앱 실행용 GGUF\n',
-        'model.push_to_hub_gguf("' + outModelRepo + '", tokenizer, quantization_method="' + quant + '", token=True)\n',
-        'print("✅ 완료! safetensors(합성용)+GGUF(실행용) 둘 다 → Connect AI 앱 🤖 내 AI 에서 \\"' + outModelRepo + '\\" 받기")\n',
+        'model.push_to_hub_gguf(OUTPUT, tokenizer, quantization_method="' + quant + '", token=True)\n',
+        'print(f"✅ 완료! safetensors(합성용)+GGUF(실행용) 둘 다 → Connect AI 앱 🤖 내 AI 에서 {OUTPUT} 받기")\n',
       ]),
     ],
   };

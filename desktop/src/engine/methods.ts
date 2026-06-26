@@ -32,22 +32,27 @@ const cInstall = () => code(['%%capture\n', '!pip install unsloth\n', '!pip inst
 const cLoad = (base: string) => code(['from unsloth import FastModel\n', 'import torch\n', 'model, tokenizer = FastModel.from_pretrained(model_name="' + base + '", dtype=None, max_seq_length=1024, load_in_4bit=True, full_finetuning=False)\n', 'print("✅ 베이스 모델 로딩")\n']);
 const cLora = (rank: number) => code(['model = FastModel.get_peft_model(model, r=' + rank + ', lora_alpha=' + (rank * 2) + ', lora_dropout=0, bias="none", random_state=3407,\n', '    finetune_language_layers=True, finetune_attention_modules=True, finetune_mlp_modules=True, finetune_vision_layers=False)\n']);
 const cTemplate = () => code(['from unsloth.chat_templates import get_chat_template\n', 'tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")\n']);
-const cSave = (out: string, quant: string) => [
-  md(['## 💾 저장 → HuggingFace\n', 'write 토큰을 붙여넣으세요. **safetensors(AI 합성용) + GGUF(LM Studio 실행용)** 둘 다 올라가요.\n']),
+const cSave = (out: string, quant: string) => { const nm = (out.split('/').pop() || 'my-model'); return [
+  md(['## 💾 저장 → 내 HuggingFace\n', 'write 토큰을 붙여넣으세요. **결과는 로그인한 본인 계정**에 — **safetensors(AI 진화용) + GGUF(실행용)** 둘 다 올라가요.\n']),
   code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
-  // ① 합성용 safetensors(풀 병합 16bit) — AI 합성소에서 능력 더하기/빼기·합치기 가능 (이게 없으면 합성 불가)
-  code(['# ① 합성용 safetensors (AI 합성소에서 다시 합칠 수 있어요)\n',
+  // 📤 계정 = 실행자(whoami) — 노트북이 공유돼도 항상 자기 계정으로
+  code(['from huggingface_hub import HfApi\n',
+        'NAME = "' + nm + '"\n',
+        'OUTPUT = f\'{HfApi().whoami()["name"]}/{NAME}\'\n',
+        'print("📤 내 계정에 저장:", OUTPUT)\n']),
+  // ① 합성용 safetensors(풀 병합 16bit) — AI 진화소에서 능력 더하기/빼기·합치기 가능 (이게 없으면 합성 불가)
+  code(['# ① 합성용 safetensors (AI 진화소에서 다시 합칠 수 있어요)\n',
         'try:\n',
-        '    model.push_to_hub_merged("' + out + '", tokenizer, save_method="merged_16bit", token=True)\n',
-        '    print("✅ safetensors 업로드 — AI 합성소에서 합치기 가능")\n',
+        '    model.push_to_hub_merged(OUTPUT, tokenizer, save_method="merged_16bit", token=True)\n',
+        '    print("✅ safetensors 업로드 — AI 진화소에서 합치기 가능")\n',
         'except Exception as e:\n',
         '    print("⚠️ 병합 업로드 실패(어댑터로 폴백):", e)\n',
-        '    model.push_to_hub("' + out + '", token=True); tokenizer.push_to_hub("' + out + '", token=True)\n']),
+        '    model.push_to_hub(OUTPUT, token=True); tokenizer.push_to_hub(OUTPUT, token=True)\n']),
   // ② 앱 실행용 GGUF
   code(['# ② 앱 실행용 GGUF (LM Studio·Connect AI 내장 엔진)\n',
-        'model.push_to_hub_gguf("' + out + '", tokenizer, quantization_method="' + quant + '", token=True)\n',
-        'print("✅ huggingface.co/' + out + ' → safetensors + GGUF 둘 다 완료")\n']),
-];
+        'model.push_to_hub_gguf(OUTPUT, tokenizer, quantization_method="' + quant + '", token=True)\n',
+        'print(f"✅ huggingface.co/{OUTPUT} → safetensors + GGUF 둘 다 완료")\n']),
+]; };
 const wrap = (cells: any[]) => JSON.stringify({ nbformat: 4, nbformat_minor: 0, metadata: { accelerator: 'GPU', colab: { provenance: [], gpuType: 'T4' }, kernelspec: { name: 'python3', display_name: 'Python 3' }, language_info: { name: 'python' } }, cells }, null, 1);
 
 // ── DPO: 선호 쌍으로 품질 학습 ─────────────────────────────
