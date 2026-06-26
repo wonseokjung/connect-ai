@@ -2549,6 +2549,14 @@ function surgFail(html: string) {
   $('surgFreeFromFail')?.addEventListener('click', surgeryFreeFromFail);
 }
 // 💎 서버 진화 실패 후 → 같은 레시피로 무료 Colab 진화 (DOM이 연출에 덮였으므로 _surg 모듈 상태로 실행)
+// 🆓 무료 Colab 결과 안내 — 공용. 원클릭(public 레포) vs 로컬 폴백(바탕화면→업로드) 구분.
+function surgColabResult(res: any) {
+  if (res.colab) connect.openExternal?.(res.colab);
+  const body = res.local
+    ? `🆓 노트북이 <b>바탕화면</b>에 저장됐어요! 방금 열린 Colab에서 <b>[파일 → 노트북 업로드]</b>로 이 파일을 올리고 <b>"런타임 → 모두 실행"</b> 누르세요.`
+    : `🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">진화 노트북 ↗</a> — <b>"런타임 → 모두 실행"</b>만 누르면 끝!`;
+  surgStat(`${body}<br><span class="muted small">결과가 <b>내 HF 계정</b>에 올라가요 · 결제 없음<br>💡 <b>무료 HuggingFace 계정</b> 필요(1분 가입) — <a href="https://huggingface.co/settings/tokens" target="_blank">🔑 무료 토큰 만들기 ↗</a></span>`);
+}
 async function surgeryFreeFromFail() {
   const a = _surg.a, b = _surg.b, name = _fuseName || surgSuggestName();
   if (!a || !b) return renderSurgery();
@@ -2556,8 +2564,7 @@ async function surgeryFreeFromFail() {
   let res: any = null;
   try { res = await connect.surgeryNotebook?.(a, b, _surg.method, _surg.t, name); } catch (e: any) { res = { ok: false, error: String(e?.message || e) }; }
   if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
-  if (res.colab) connect.openExternal?.(res.colab);
-  surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">진화 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요 · 결제 안 해도 됩니다<br>💡 <b>무료 HuggingFace 계정</b> 필요(1분 가입) — <a href="https://huggingface.co/settings/tokens" target="_blank">🔑 무료 토큰 만들기 ↗</a></span>`);
+  surgColabResult(res);
 }
 // 진행 중 상태 + ✕ 취소 버튼(매 틱 재생성되므로 매번 재연결)
 function surgRunning(html: string) {
@@ -2583,9 +2590,8 @@ async function surgeryFree() {
     surgStat('<span class="cyc-spin"></span> 🆓 무료 Colab 노트북 만드는 중…');
     const res: any = await connect.surgeryNotebook?.(r.a, r.b, _surg.method, _surg.t, nameRaw);
     if (!res?.ok) return surgFail(`⚠️ ${escapeHtml(res?.error || '노트북 생성 실패')}`);
-    if (res.colab) connect.openExternal?.(res.colab);
-    surgStat(`🆓 Colab 열었어요! <a href="${escAttr(res.colab)}" target="_blank">진화 노트북 ↗</a><br><span class="muted small">"런타임 → 모두 실행"만 누르면 결과가 내 HF에 올라가요${res.note ? ` · ${escapeHtml(res.note)}` : ''}<br>💡 <b>무료 HuggingFace 계정</b> 필요(1분 가입) — <a href="https://huggingface.co/settings/tokens" target="_blank">🔑 무료 토큰 만들기 ↗</a></span>`);
-    hint('🆓 무료 Colab 노트북이 열렸어요 — "런타임 → 모두 실행"');
+    surgColabResult(res);
+    hint('🆓 무료 Colab 노트북 — "런타임 → 모두 실행"');
   } catch (e: any) { reportErr('무료진화', e); surgFail(`⚠️ ${escapeHtml(String(e?.message || e))}`); }
 }
 function renderSurgery() {

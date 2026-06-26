@@ -2036,12 +2036,19 @@ ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method =
   const outRepo = safe.includes('/') ? safe : `${owner}/${safe}`;
   const nb = buildSurgeryNotebook(method, modelA, modelB, Number(scale) || 1.0, outRepo);
   const fileName = `connect-ai/surgery-${method}.ipynb`;
+  // 🔑 Colab의 GitHub 로더는 PUBLIC 레포만 읽을 수 있어요. private면 404 → 원클릭 대신 로컬 폴백.
+  //    (회원의 지식 동기화 레포는 보통 private — 거기 올려서 깨지던 버그. 없는 레포 auto-create(private)도 안 함)
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
-    const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 진화 노트북 (${method})`);
-    if (r.ok && r.url) return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, outRepo };
+    let isPublic = false;
+    try { const [o, n] = g.GITHUB_DEFAULT_REPO.split('/'); const ri: any = await axios.get(`https://api.github.com/repos/${o}/${n}`, { headers: { Authorization: `token ${g.GITHUB_TOKEN}` }, timeout: 10000 }); isPublic = ri?.data?.private === false; } catch { isPublic = false; }
+    if (isPublic) {
+      const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 진화 노트북 (${method})`);
+      if (r.ok && r.url) return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, outRepo };
+    }
   }
+  // 로컬 폴백 — 모든 회원 안전(바탕화면 저장 → Colab에 업로드)
   const out = path.join(os.homedir(), 'Desktop', `connect-ai-surgery-${method}.ipynb`);
-  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', outRepo, note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.' }; }
+  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/', outRepo, note: '바탕화면에 노트북이 저장됐어요 → Colab에서 [파일 → 노트북 업로드]로 이 파일 올리고 "런타임 → 모두 실행"!' }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 // 🚫 진행 중(또는 멈춘) 클라우드 작업 취소 — 학습·진화 공용(cloudJob 하나 공유)
