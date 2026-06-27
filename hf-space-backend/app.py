@@ -14,8 +14,8 @@ HF_TOKEN = os.environ.get("HF_TOKEN", "")            # 🔑 Space Secret — 제
 ACCESS_CODE = os.environ.get("ACCESS_CODE", "__SET_SPACE_SECRET__")  # 🎟️ 멤버십 코드
 FREE_FLAVOR = os.environ.get("FLAVOR", "l4x1")       # 무료/저가 GPU
 BASE_MODEL = "unsloth/llama-3.2-3b-instruct-bnb-4bit"
-TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "3"))   # 회원당 월 학습 캡 (클라이언트와 통일 = 3)
-MERGE_MONTHLY = int(os.environ.get("MERGE_MONTHLY", "3"))   # 회원당 월 합성 캡
+TRAIN_MONTHLY = int(os.environ.get("TRAIN_MONTHLY", "5"))   # 회원당 월 학습 캡 (클라이언트와 통일 = 5)
+MERGE_MONTHLY = int(os.environ.get("MERGE_MONTHLY", "5"))   # 회원당 월 합성 캡
 GLOBAL_MONTHLY = int(os.environ.get("GLOBAL_MONTHLY", "60"))  # 💰 전체 월 잡 하드캡 — userId를 바꿔치기해도 이걸 못 넘음(비용 폭주 방지). $20 예산 안.
 FIREBASE_API_KEY = os.environ.get("FIREBASE_API_KEY", "")   # 있으면 idToken 검증(권장) — 없으면 userId 신뢰(임시)
 
@@ -230,19 +230,18 @@ async def train(req: Request):
     if used >= TRAIN_MONTHLY:
         return {"ok": False, "gated": True, "error": f"무료 학습은 월 {TRAIN_MONTHLY}회예요. 다음 달에 다시 가능해요."}
     prov = provider()
-    # 🎓 우리는 GPU 서버만 제공. 회원 HF 연동 시 → 데이터·모델이 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
+    # 🎓 우리는 GPU job(compute)만 제공. 데이터·모델은 항상 회원 본인 HF 계정에(소유). 제공자 계정엔 절대 안 쌓임.
     un, owner_err = resolve_owner(b)
     if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부(개인데이터 제공자계정 업로드 방지)
+    if not un: return {"ok": False, "needHfToken": True, "error": "결과는 본인 HuggingFace 계정에 저장돼요(소유). 먼저 앱 🗂️ 관리 → 연동에서 HF write 토큰을 연결한 뒤 다시 시도하세요. (무료 가입: huggingface.co)"}
     rid = datetime.datetime.utcnow().strftime("%m%d-%H%M%S")   # 🆔 run id — 이전 학습 모델을 덮어쓰지 않게
     # 🤖 앱이 보낸 베이스·이름 사용(회원이 고른 모델·이름 반영). 없으면 기본값. 잘못된 값은 무시.
     import re as _re
     _rb = str(b.get("baseModel") or "").strip()
     base_model = _rb if ("/" in _rb and len(_rb) <= 120 and all(ch.isalnum() or ch in "._-/" for ch in _rb)) else BASE_MODEL
     _rn = _re.sub(r"[^a-zA-Z0-9._-]", "-", str(b.get("outName") or "")).strip("-.")[:80]
-    if un:
-        job_token = (b.get("userHfToken") or "").strip(); brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/{_rn}" if _rn else f"{un}/cai-model-{rid}"; mount_repo = f"{prov}/cai-train-script"
-    else:
-        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/{sid}-{_rn}" if _rn else f"{prov}/cai-model-{sid}-{rid}"; mount_repo = brain_repo
+    # 항상 회원 계정: 데이터·모델 모두 회원 토큰으로 회원 계정에. 스크립트만 공용(공개) 마운트.
+    job_token = (b.get("userHfToken") or "").strip(); brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/{_rn}" if _rn else f"{un}/cai-model-{rid}"; mount_repo = f"{prov}/cai-train-script"
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gres = False
@@ -252,12 +251,9 @@ async def train(req: Request):
             g["train"]["count"] = used; gate_set(sid, g)   # per-user 롤백
             return {"ok": False, "gated": True, "error": "이번 달 무료 서버 전체 한도에 도달했어요. 다음 달에 다시 가능해요(운영자가 한도를 늘릴 수 있어요)."}
         gres = True
-        if un:   # 회원 계정: 데이터는 회원 토큰으로 회원 계정, 스크립트는 공용(공개) 마운트
-            commit_dataset(mount_repo, [("train.py", TRAIN_SCRIPT)], public=True)
-            commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=job_token)   # 회원 토큰으로 회원 계정에
-        else:    # 제공자 계정(구버전 호환): 데이터+스크립트 한 repo에
-            commit_dataset(brain_repo, [("brain.jsonl", jsonl), ("train.py", TRAIN_SCRIPT)])
-            ensure_model_public(out_repo)
+        # 회원 계정: 데이터는 회원 토큰으로 회원 계정, 스크립트는 공용(공개) 마운트
+        commit_dataset(mount_repo, [("train.py", TRAIN_SCRIPT)], public=True)
+        commit_dataset(brain_repo, [("brain.jsonl", jsonl)], token=job_token)   # 회원 토큰으로 회원 계정에
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/train.py"],
@@ -308,13 +304,12 @@ async def merge(req: Request):
     # 🎓 GPU 서버만 제공. 회원 HF 연동 시 → 결과가 회원 계정에(소유). 미연동(구버전 호환) → 제공자 계정.
     un, owner_err = resolve_owner(b)
     if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부
+    if not un: return {"ok": False, "needHfToken": True, "error": "합성 결과는 본인 HuggingFace 계정에 저장돼요(소유). 먼저 앱 🗂️ 관리 → 연동에서 HF write 토큰을 연결한 뒤 다시 시도하세요. (무료 가입: huggingface.co)"}
     rid = datetime.datetime.utcnow().strftime("%m%d-%H%M%S")   # 🆔 이전 합성 결과를 덮어쓰지 않게(#3)
     nm = sanitize(b.get("outName") or "")
     nm = f"{nm}-{rid}" if nm else f"merged-{rid}"
-    if un:
-        job_token = (b.get("userHfToken") or "").strip(); out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
-    else:
-        job_token = HF_TOKEN; out_repo = f"{prov}/cai-merge-{sid}-{nm}"; mount_repo = f"{prov}/cai-surg-{sid}"
+    # 항상 회원 계정: 결과는 회원 토큰으로 회원 계정에, 스크립트만 공용(공개) 마운트
+    job_token = (b.get("userHfToken") or "").strip(); out_repo = f"{un}/{nm}"; mount_repo = f"{prov}/cai-merge-script"
     # 🛡️ 캡 선점 (경쟁/무카운트 과금 방지) — 실패 시 롤백
     g["merge"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gres = False
@@ -324,11 +319,7 @@ async def merge(req: Request):
             g["merge"]["count"] = used; gate_set(sid, g)
             return {"ok": False, "gated": True, "error": "이번 달 무료 서버 전체 한도에 도달했어요. 다음 달에 다시 가능해요(운영자가 한도를 늘릴 수 있어요)."}
         gres = True
-        if un:
-            commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)], public=True)   # 공용 스크립트(공개)
-        else:
-            commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)])
-            ensure_model_public(out_repo)
+        commit_dataset(mount_repo, [("merge_uv.py", MERGE_SCRIPT)], public=True)   # 공용 스크립트(공개)
         job = launch_job({
             "dockerImage": "ghcr.io/astral-sh/uv:python3.12-bookworm",
             "command": ["uv", "run", "/data/merge_uv.py"],

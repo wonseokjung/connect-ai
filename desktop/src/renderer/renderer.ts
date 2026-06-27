@@ -2479,7 +2479,7 @@ async function openAuth() {
   if (!me?.configured) { $('authTitle').textContent = '회원'; body.innerHTML = `<div class="muted small" style="line-height:1.6">회원 시스템이 아직 설정되지 않았어요. ⚙️ 설정 → 고급에 <b>회원 Firebase API Key</b>를 넣어주세요.</div>`; return; }
   if (me?.email) {
     $('authTitle').textContent = '내 계정';
-    body.innerHTML = `<div class="auth-me"><div class="auth-ava">👤</div><div><div class="auth-email">${escapeHtml(me.email)}</div><div class="muted small">로그인됨 · 무료 학습 가능</div><div class="muted small" style="margin-top:2px">🔒 베타 비밀번호 = 학습·진화 월 3회 · 🆓 Colab 진화은 무제한(무료)</div></div></div><button class="cyc-btn ghost" id="authLogout" style="width:100%;margin-top:12px">로그아웃</button>`;
+    body.innerHTML = `<div class="auth-me"><div class="auth-ava">👤</div><div><div class="auth-email">${escapeHtml(me.email)}</div><div class="muted small">로그인됨 · 무료 학습 가능</div><div class="muted small" style="margin-top:2px">🔒 베타 비밀번호 = 학습·진화 월 5회 · 🆓 Colab 진화은 무제한(무료)</div></div></div><button class="cyc-btn ghost" id="authLogout" style="width:100%;margin-top:12px">로그아웃</button>`;
     $('authLogout')?.addEventListener('click', async () => { await connect.authLogout?.(); refreshAuthBtn(); openAuth(); hint('로그아웃했어요'); });
     return;
   }

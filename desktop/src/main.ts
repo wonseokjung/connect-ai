@@ -1809,7 +1809,7 @@ function brainToConversationsJsonl(): string {
 //    👑 관리자 비밀번호(0003) = 무제한 (횟수 제한·카운트 모두 무시)
 const GPU_PW = '0001';
 const GPU_ADMIN_PW = '0003';
-const GPU_MONTHLY_LIMIT = 3;
+const GPU_MONTHLY_LIMIT = 5;
 type GpuKind = 'train' | 'surgery';
 function gpuMonth() { return new Date().toISOString().slice(0, 7); }   // YYYY-MM
 function isGpuAdmin(password: string): boolean { return (password || '').trim() === GPU_ADMIN_PW; }
