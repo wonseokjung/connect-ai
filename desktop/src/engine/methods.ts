@@ -31,7 +31,14 @@ const code = (lines: string[]) => ({ cell_type: 'code', metadata: {}, execution_
 const cInstall = () => code(['%%capture\n', '!pip install unsloth\n', '!pip install --no-deps "xformers<0.0.30" trl peft accelerate bitsandbytes datasets\n']);
 const cLoad = (base: string) => code(['from unsloth import FastModel\n', 'import torch\n', 'model, tokenizer = FastModel.from_pretrained(model_name="' + base + '", dtype=None, max_seq_length=1024, load_in_4bit=True, full_finetuning=False)\n', 'print("✅ 베이스 모델 로딩")\n']);
 const cLora = (rank: number) => code(['model = FastModel.get_peft_model(model, r=' + rank + ', lora_alpha=' + (rank * 2) + ', lora_dropout=0, bias="none", random_state=3407,\n', '    finetune_language_layers=True, finetune_attention_modules=True, finetune_mlp_modules=True, finetune_vision_layers=False)\n']);
-const cTemplate = () => code(['from unsloth.chat_templates import get_chat_template\n', 'tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")\n']);
+// 🧩 베이스 계열에 맞는 chat 템플릿 — 라마/Qwen에 gemma 템플릿을 쓰면 학습이 망가짐
+const cTemplate = (base: string) => {
+  const fam = /gemma/i.test(base) ? 'gemma' : /qwen/i.test(base) ? 'qwen' : 'llama';
+  const tpl = fam === 'gemma' ? (/gemma-?4/i.test(base) ? 'gemma-4' : /gemma-?3/i.test(base) ? 'gemma-3' : 'gemma-2') : (fam === 'qwen' ? 'qwen-2.5' : 'llama-3.1');
+  return fam === 'gemma'
+    ? code(['from unsloth.chat_templates import get_chat_template\n', 'tokenizer = get_chat_template(tokenizer, chat_template="' + tpl + '")\n'])
+    : code(['# ' + fam + ' Instruct 모델은 내장 chat_template 사용(별도 변환 불필요)\n']);
+};
 const cSave = (out: string, quant: string) => { const nm = (out.split('/').pop() || 'my-model'); return [
   md(['## 💾 저장 → 내 HuggingFace\n', 'write 토큰을 붙여넣으세요. **결과는 로그인한 본인 계정**에 — **safetensors(AI 진화용) + GGUF(실행용)** 둘 다 올라가요.\n']),
   code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
@@ -63,7 +70,7 @@ function nbDPO(datasetRepo: string, base: string, out: string, rank: number, qua
     cInstall(),
     md(['## 🔑 HuggingFace 로그인 (맨 먼저!)\n', 'write 토큰을 붙여넣으세요. 비공개 데이터셋 로드 + 모델 업로드에 필요해요.\n']),
     code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
-    cLoad(base), cLora(rank), cTemplate(),
+    cLoad(base), cLora(rank), cTemplate(base),
     md(['## 📦 내 선호 데이터 (👍 chosen vs 👎 rejected)\n', 'Connect AI에서 답변에 누른 **👍/👎로 만든 내 데이터**입니다.\n']),
     hasData
       ? code(['from datasets import load_dataset\n', 'ds = load_dataset("' + datasetRepo + '", data_files="connect-ai-dpo.jsonl", split="train", token=True)\n', 'print("내 선호 쌍:", len(ds)); print(ds[0])\n'])
@@ -113,6 +120,16 @@ export function buildSurgeryNotebook(method: string, modelA: string, modelB: str
         '결과를 저장할 **무료 HuggingFace 계정**이 필요해요(결제 X). 아래에서 1분이면 됩니다:\n',
         '1. [huggingface.co 무료 가입](https://huggingface.co/join) → 2. [**write** 토큰 만들기](https://huggingface.co/settings/tokens) → 3. 아래 칸에 붙여넣기\n']),
     code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
+    md(['### ✅ 로그인 확인 (먼저!)\n', '위 칸에 **토큰 붙여넣고 Login**을 누른 뒤 실행하세요. 로그인을 안 하면 5분 합성 끝에 업로드가 실패하니, 여기서 **미리** 잡아요.\n']),
+    code([
+      '# 🔐 로그인을 맨 앞에서 확인 — 안 돼 있으면 무거운 합성 전에 바로 멈춰서 시간 낭비 방지\n',
+      'from huggingface_hub import HfApi\n',
+      'try:\n',
+      '    ME = HfApi().whoami()["name"]\n',
+      '    print("✅ 로그인됨:", ME, "— 결과는 내 계정에 올라가요")\n',
+      'except Exception:\n',
+      '    raise SystemExit("❌ 먼저 위 🔑 칸에 HuggingFace write 토큰을 붙여넣고 Login을 누르세요. 그다음 [런타임 → 모두 실행]을 다시 누르면 됩니다.")\n',
+    ]),
     md(['## ⚙️ 설정 — 이 4개만 보면 돼요\n', '`MODEL_A`=원본 · `MODEL_B`=상대(능력) · `METHOD` · `SCALE`(강도)\n', '\n', '> 💡 무료 Colab(T4·16GB)은 **작은 모델 2개**(예: 0.5B~1.5B 같은 구조)에 적합해요. 7B+ 두 개는 메모리 초과될 수 있어요.\n']),
     code([
       'import torch\n',

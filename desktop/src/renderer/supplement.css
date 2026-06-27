@@ -852,9 +852,26 @@ body.office-only .voffice { flex: 0 0 auto; min-height: 0; }
 .grow-lab { font-size: 12px; font-weight: 800; color: var(--text-bright); flex: 0 0 auto; min-width: 40px; }
 .grow-row .method-pick, .grow-row .ts-presets, .grow-row .grow-acts { margin: 0; flex: 1; }
 .grow-do .ts-hint { margin: -2px 0 2px 48px; }
+.base-pick { margin: 2px 0 12px; padding: 10px; border: 1px solid rgba(0,200,220,.28); border-radius: 12px; background: rgba(0,40,46,.18); }
+.base-pick-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.base-pick-head .bp-lab { font-size: 12px; font-weight: 800; color: #cdd6e3; white-space: nowrap; }
+.base-pick-head .bp-cur { flex: 1; font-size: 13px; font-weight: 700; color: #00e5ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.base-pick-head .bp-auto { background: rgba(0,200,220,.14); border: 1px solid rgba(0,200,220,.5); color: #cdf3f8; border-radius: 8px; padding: 4px 8px; font-size: 11px; font-weight: 700; cursor: pointer; }
+.base-search { display: flex; gap: 6px; }
+.base-search input { flex: 1; padding: 8px 10px; border-radius: 10px; background: rgba(20,28,24,.85); color: #eafff0; border: 1px solid rgba(0,200,220,.4); font-size: 13px; }
+.base-search input:focus { outline: none; border-color: #00e5ff; }
+.base-search button { padding: 8px 11px; border-radius: 10px; background: rgba(0,180,200,.16); border: 1px solid rgba(0,200,220,.5); color: #cdf3f8; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.base-search button:hover { background: rgba(0,180,200,.28); }
+.base-results { margin-top: 8px; max-height: 230px; overflow-y: auto; }
+.base-results .surg-pick-card.picked-on { border-color: #00e5ff; box-shadow: 0 0 0 1px #00e5ff inset, 0 0 12px rgba(0,229,255,.35); }
+.base-results .surg-pick-card.picked-on .spc-add { color: #00e5ff; }
 .grow-acts { display: flex; align-items: stretch; gap: 10px; }
-.grow-acts .train-cloud, .grow-acts .train-free { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.25; padding: 12px 8px; border-radius: 12px; font-size: 14px; font-weight: 800; }
-.grow-acts .train-cloud small, .grow-acts .train-free small { font-size: 10px; font-weight: 600; opacity: .85; }
+.grow-acts .train-cloud, .grow-acts .train-free, .grow-acts .train-local { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; line-height: 1.25; padding: 12px 8px; border-radius: 12px; font-size: 14px; font-weight: 800; }
+.grow-acts .train-cloud small, .grow-acts .train-free small, .grow-acts .train-local small { font-size: 10px; font-weight: 600; opacity: .85; }
+/* 💻 내 컴퓨터에서 = 오프라인·무료 (사이언 톤, 무료초록과 구분) */
+.grow-acts .train-local { background: rgba(0,180,200,.14); border: 1px solid rgba(0,200,220,.55); color: #cdf3f8; box-shadow: none; }
+.grow-acts .train-local:hover:not(:disabled) { background: rgba(0,180,200,.24); }
+.grow-acts .train-local small { color: #9fe6ef; opacity: 1; }
 /* 🆓 무료 = '눌러야 할 기본' — 차분한 초록(형광 X), 글자 흰색으로 또렷하게 */
 .grow-acts .train-free { background: #2f9e44; border: 1px solid #40c057; color: #ffffff; box-shadow: none; }
 .grow-acts .train-free:hover:not(:disabled) { background: #37b24d; }
@@ -2161,3 +2178,4 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .surg-compat.bad { color: var(--red); background: color-mix(in srgb, var(--red) 10%, transparent); border-color: color-mix(in srgb, var(--red) 34%, transparent); animation: compatShake .4s; }
 .surg-compat b { font-weight: 800; }
 @keyframes compatShake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
+.train-baseline { margin-bottom:6px; padding:6px 9px; border-radius:8px; background:rgba(0,229,255,.1); border:1px solid rgba(0,229,255,.3); font-size:12px; color:#cdf3f8; }

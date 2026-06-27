@@ -21,6 +21,7 @@ import { encryptPack, decryptPack } from './engine/cryptopack';
 import { uploadDataset, hfUsername, launchTrainingJob, launchJob, jobStatus, cancelJob } from './engine/hf';
 import { buildNotebook } from './engine/train';
 import { METHODS, buildMethodNotebook, buildSurgeryNotebook } from './engine/methods';
+import { buildLocalTrainScript, localBase } from './engine/localtrain';
 import { toConversationsJsonl, fallbackQuestion, trimAnswer, guessBase, nextModelName, noteTitle as dsTitle } from './engine/dataset';
 import { sendEmail, fetchUnseen } from './engine/email';
 import { fetchChannel, ytAccessToken, fetchAnalytics } from './engine/youtube';
@@ -52,6 +53,7 @@ interface Config {
   stats?: { trains: number; datasets: number; fusions: number };   // 🎒 누적 전적 — 학습(레벨업)·데이터셋·진화 횟수 (인벤토리/광장 프로필용)
   createdModels?: Record<string, { id: string; name?: string; avatar?: string; personality?: string; method?: 'train' | 'fusion'; baseModel?: string; createdAt?: number }>;   // 🧬 내 AI 팀 — 학습·진화으로 만든 모델 캐릭터(이름·얼굴·성격)
   trainBackendUrl?: string; installId?: string;   // ☁️ 학습 서비스 백엔드(있으면 토큰 없이 그쪽으로) + 익명 식별자
+  trainBaseSel?: string;   // 🤖 사용자가 고른 학습/합성 베이스 모델(비우면 자동) — 학습 전 경로 공유
   firebaseApiKey?: string; firebaseDbUrl?: string; auth?: { uid: string; email: string; refreshToken: string };   // 👤 회원(Firebase Auth)
   mcpConfig: any;   // 🔌 MCP 서버 설정 ({ mcpServers: {...} })
   voiceQuality: string;   // 🔊 'browser'(기본·빠름) | 'qwen'(Qwen3-TTS 고품질·클라우드)
@@ -1890,10 +1892,15 @@ async function pushMyProfile(uid: string) {
 // 🎒 다른(또는 내) 캐릭터 클릭 시 그 회사의 보유 현황 조회
 ipcMain.handle('plaza:profile', (_e, uid: string) => fetchProfile(uid));
 
-ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
+ipcMain.handle('train:cloud', async (_e, accessCode = '', modelName = '', opts: any = {}) => {
   const gate = gpuGate(accessCode, 'train');   // 🔒 비번 0001 + 학습 월 3회
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   const c = loadConfig();
+  // 🤖 베이스: 고른 모델 우선 → 저장된 선택 → 기존 설정 → 자동.  이름: 입력 우선 → 베이스 계열 자동(라마인데 3B/gemma 섞이는 것 방지)
+  const picked = (opts?.baseModel || c.trainBaseSel || '').trim();
+  const base = (picked && picked.includes('/')) ? picked : (c.trainBaseModel || guessBase(c.llmModel));
+  const wantName = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || autoModelName(base, c.brainModelName);
+  saveConfig({ brainModelName: wantName });
   const backend = trainBackendBase(c);
   // ── 서비스 모드(무료 백엔드) 우선 — 실패하면 내 HF 토큰(HF Jobs)으로 폴백 ──
   const hasHf = !!connOf('huggingface').HF_TOKEN;
@@ -1906,7 +1913,7 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 학습됩니다. 또는 🆓 무료로 시작(코랩)을 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
-        const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode, userHfToken: connOf('huggingface').HF_TOKEN || '' }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유)
+        const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode, userHfToken: connOf('huggingface').HF_TOKEN || '', baseModel: base, outName: wantName }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유) + 고른 베이스·이름 전달
         const d = r.data || {};
         if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', d.outputRepo || '', '', c.trainBaseModel); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
         if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
@@ -1932,20 +1939,16 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '') => {
   const me = await hfUsername(h.HF_TOKEN);
   if (!me) return { ok: false, error: 'HF 토큰 확인 실패 — write 권한 토큰인지 확인하세요.' };
   let dsRepo = (h.HF_REPO || 'connect-ai-brain').trim(); if (!dsRepo.includes('/')) dsRepo = `${me}/${dsRepo}`;
-  // HF repo 이름은 ASCII만 — 한글 모델명은 깨지므로 안전하게 정리(전부 기호면 기본값)
-  let mn = (c.brainModelName || '').replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '');
-  const modelName = /[a-zA-Z0-9]/.test(mn) ? mn : 'my-connect-ai';
-  const outRepo = `${me}/${modelName}`;
+  const outRepo = `${me}/${/[a-zA-Z0-9]/.test(wantName) ? wantName : 'my-connect-ai'}`;   // 🤖 입력한 이름 그대로(베이스 계열 자동 이름)
   // 2) 업로드 — 두뇌 데이터셋 + UV 학습 스크립트(같은 데이터셋 repo에)
   const up = await uploadDataset(h.HF_TOKEN, dsRepo, jsonl, 'connect-ai-brain.jsonl');
   if (!up.ok) return { ok: false, error: '데이터셋 업로드 실패: ' + up.error };
   const script = uvScriptText();
   if (script) { try { await uploadDataset(h.HF_TOKEN, dsRepo, script, 'train_qlora_uv.py'); } catch { /* */ } }
   const scriptUrl = `https://huggingface.co/datasets/${dsRepo}/resolve/main/train_qlora_uv.py`;
-  // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백)
-  const base = c.trainBaseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';
+  // 3) GPU 작업 실행 (best-effort REST + 확실한 CLI 폴백) — base 는 위에서 선택 반영해 계산됨
   const job = await launchTrainingJob(h.HF_TOKEN, me, { datasetRepo: dsRepo, outputRepo: outRepo, baseModel: base, scriptUrl });
-  if (job.ok && job.jobId) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', outRepo, '', guessBase(loadConfig().llmModel)); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
+  if (job.ok && job.jobId) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', outRepo, '', base); saveConfig({ lastCloudTrainAt: Date.now(), cloudJob: { id: job.jobId, namespace: me, outRepo, ts: Date.now() } }); }
   return { ...job, dataset: `https://huggingface.co/datasets/${dsRepo}`, outRepo, modelRepo: `https://huggingface.co/${outRepo}` };
 });
 ipcMain.handle('train:cloudStatus', async () => {
@@ -1981,11 +1984,44 @@ ipcMain.handle('train:cloudInstall', async () => {
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
+// 🔍 합성 전 미리 검사 — GGUF전용/구조불일치를 무거운 작업(9GB 다운로드) 전에 차단. 못 찾으면 통과(새 실패원인 안 만듦).
+async function precheckMerge(a: string, b: string, token = ''): Promise<{ ok: boolean; error?: string }> {
+  const headers: any = token ? { Authorization: `Bearer ${token}` } : undefined;   // 🔑 회원 토큰 — 본인 비공개/게이트 모델도 미리검사 되게
+  async function info(repo: string) {
+    try {
+      const m: any = await axios.get(`https://huggingface.co/api/models/${encodeURIComponent(repo).replace(/%2F/g, '/')}`, { timeout: 12000, headers });
+      const files: string[] = (m.data?.siblings || []).map((s: any) => s.rfilename || '');
+      const hasSafe = files.some((f) => f.endsWith('.safetensors'));
+      const hasAdapter = files.some((f) => f === 'adapter_config.json' || f.endsWith('adapter_model.safetensors'));
+      const hasGguf = files.some((f) => f.toLowerCase().endsWith('.gguf'));
+      let cfg: any = null;
+      try { const c: any = await axios.get(`https://huggingface.co/${repo}/raw/main/config.json`, { timeout: 12000, headers }); cfg = c.data; } catch { /* config 없을 수 있음 */ }
+      return { exists: true, hasSafe, hasAdapter, hasGguf, cfg };
+    } catch { return { exists: false } as any; }
+  }
+  const [ia, ib] = await Promise.all([info(a), info(b)]);
+  for (const [repo, i] of [[a, ia], [b, ib]] as const) {
+    if (!i.exists) continue;   // 못 찾으면 통과 — 서버가 최종 처리
+    if (!i.hasSafe && !i.hasAdapter) {
+      if (i.hasGguf) return { ok: false, error: `❌ '${repo}'는 GGUF만 있어요(LM Studio 전용) — 합성 못 해요.\n👉 같은 모델의 safetensors 버전을 쓰세요 (보통 이름 끝의 '-GGUF'만 떼면 됩니다).` };
+      return { ok: false, error: `❌ '${repo}'에 합칠 가중치(safetensors/LoRA)가 없어요.` };
+    }
+  }
+  if (ia.cfg && ib.cfg) {   // 둘 다 config 있을 때만 구조 비교
+    const ax = ia.cfg, bx = ib.cfg;
+    if (ax.model_type && bx.model_type && ax.model_type !== bx.model_type) return { ok: false, error: `❌ 계열이 달라요: ${a}(${ax.model_type}) vs ${b}(${bx.model_type}). 같은 계열끼리만 합쳐져요.` };
+    if (ax.hidden_size && bx.hidden_size && ax.hidden_size !== bx.hidden_size) return { ok: false, error: `❌ 크기가 달라요: hidden ${ax.hidden_size} vs ${bx.hidden_size}. 같은 크기끼리만 합쳐져요 (예: 1B↔1B).` };
+    if (ax.num_hidden_layers && bx.num_hidden_layers && ax.num_hidden_layers !== bx.num_hidden_layers) return { ok: false, error: `❌ 층 수가 달라요: ${ax.num_hidden_layers}층 vs ${bx.num_hidden_layers}층. 같은 구조끼리만 합쳐져요.` };
+  }
+  return { ok: true };
+}
 // ── 🔪 AI 수술 (합치기) — 장기기억과 같은 HF Jobs GPU에서 실행 (코랩 불필요) ───────
 ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, method = 'slerp', t = '0.5', outName = '', password = '') => {
   const gate = gpuGate(password, 'surgery');   // 🔒 비번 0001 + 월 3회 (학습과 공유)
   if (!gate.ok) return { ok: false, gated: true, error: gate.error };
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요 (같은 베이스·같은 크기여야 합쳐져요).' };
+  const pc = await precheckMerge(modelA, modelB, connOf('huggingface').HF_TOKEN || '');   // 🔍 GGUF전용·구조불일치 미리 차단 (9GB 받고 터지는 것 방지) + 회원 비공개 모델도 검사
+  if (!pc.ok) return { ok: false, error: pc.error };
   const c = loadConfig();
   // ── 우리 서버(무료 백엔드) 우선 — 제공자(사장님) HF Pro 토큰으로 HF Job 실행. 회원 본인 토큰 안 씀(학습과 동일) ──
   const backend = trainBackendBase(c);
@@ -2030,6 +2066,8 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
 ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method = 'task_add', scale = 1.0, outName = '') => {
   if (!modelA || !modelB) return { ok: false, error: '합칠 두 모델을 모두 골라주세요.' };
   const g = connOf('github'), h = connOf('huggingface');
+  const pc = await precheckMerge(modelA, modelB, h.HF_TOKEN || '');   // 🔍 GGUF전용·구조불일치 미리 차단 + 회원 비공개 모델도 검사
+  if (!pc.ok) return { ok: false, error: pc.error };
   const me = h.HF_TOKEN ? await hfUsername(h.HF_TOKEN) : '';
   const owner = me || 'my-hf-id';
   const safe = (outName || `fusion-${Date.now().toString(36)}`).replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || 'my-fusion';
@@ -2040,7 +2078,13 @@ ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method =
   //    (회원의 지식 동기화 레포는 보통 private — 거기 올려서 깨지던 버그. 없는 레포 auto-create(private)도 안 함)
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
     let isPublic = false;
-    try { const [o, n] = g.GITHUB_DEFAULT_REPO.split('/'); const ri: any = await axios.get(`https://api.github.com/repos/${o}/${n}`, { headers: { Authorization: `token ${g.GITHUB_TOKEN}` }, timeout: 10000 }); isPublic = ri?.data?.private === false; } catch { isPublic = false; }
+    try {
+      // ⚠️ 레포는 전체 URL(https://github.com/owner/repo.git)일 수 있음 → owner/repo 정확히 추출(전엔 split('/')로 owner가 'https:'가 돼 404→오판)
+      const slug = g.GITHUB_DEFAULT_REPO.replace(/\.git$/, '').replace(/^https?:\/\/github\.com\//i, '').replace(/^git@github\.com:/i, '');
+      const [o, n] = slug.split('/');
+      const ri: any = await axios.get(`https://api.github.com/repos/${o}/${n}`, { headers: { Authorization: `token ${g.GITHUB_TOKEN}` }, timeout: 10000 });
+      isPublic = ri?.data?.private === false;
+    } catch { isPublic = false; }
     if (isPublic) {
       const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🧬 Connect AI 진화 노트북 (${method})`);
       if (r.ok && r.url) return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, outRepo };
@@ -2149,6 +2193,13 @@ async function realtimeFor(agentId: string): Promise<string> {
 // 🚀 학습 노트북 생성 → GitHub 커밋 → Colab 원클릭 URL
 // 🎓 학습 방법론 목록 (배움용)
 ipcMain.handle('methods:list', () => METHODS);
+// 🏷️ 자동 모델 이름 — 베이스 계열을 따름(라마 학습인데 'gemma…'로 나오는 혼동 방지). 같은 계열이면 버전업, 계열 바뀌면 새 이름.
+function autoModelName(base: string, prev?: string): string {
+  const fam = /gemma/i.test(base) ? 'gemma' : /qwen/i.test(base) ? 'qwen' : /llama/i.test(base) ? 'llama' : 'my';
+  if (prev && new RegExp('^' + fam, 'i').test(prev)) return nextModelName(prev);   // 같은 계열 → 기존 이름 버전업(누적)
+  const size = (base.match(/(\d+(?:\.\d+)?)b/i)?.[1] || '');   // 1B·1.5B·3B …
+  return `${fam}${size ? '-' + size + 'b' : ''}-brain-v1`;   // 계열 바뀌면 새 이름 (예: llama-1b-brain-v1)
+}
 // ☁️ HF AutoTrain — 클라우드 GPU 유료 학습. 업로드된 데이터셋·추천설정으로 AutoTrain UI에 넘김.
 //   (실제 GPU 실행·과금은 사용자 HF 계정에서. 사용자 과금[Stripe]은 별도 결제 백엔드 필요 — 로컬앱에 키 두지 않음.)
 ipcMain.handle('train:autotrain', async (_e, modelName?: string, opts?: any) => {
@@ -2203,23 +2254,56 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
     uploadedDs = dataset;   // nbDPO 가 load_dataset(dataset, "connect-ai-dpo.jsonl") 으로 사용
   }
   const owner = dataset.includes('/') ? dataset.split('/')[0] : '';
-  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || nextModelName(c.brainModelName);   // HF repo 영어만 (한글 제거)
+  const picked = (opts?.baseModel || c.trainBaseSel || '').trim();   // opts 우선, 없으면 저장된 선택(config) — 둘 다 비면 자동
+  const base = (picked && picked.includes('/')) ? picked : guessBase(c.llmModel);   // 🤖 사용자가 고른 모델 우선, 없으면 내가 로드한 모델 위에 누적
+  const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g,'') || autoModelName(base, c.brainModelName);   // HF repo 영어만 · 자동 이름은 베이스 계열을 따름(라마인데 gemma이름 방지)
   const trainOpts = { rank: opts?.rank, alpha: opts?.alpha, dropout: opts?.dropout, learningRate: opts?.learningRate, maxSteps: opts?.maxSteps, epochs: opts?.epochs, warmup: opts?.warmup, maxSeq: opts?.maxSeq, scheduler: opts?.scheduler, quant: opts?.quant };
   saveConfig({ brainModelName: name, trainOpts, trainMethod: method } as any);
   const outRepo = name.includes('/') ? name : (owner ? `${owner}/${name}` : name);   // owner 없으면 Colab 로그인 계정으로 push_to_hub
-  const base = guessBase(c.llmModel);                          // 내가 로드한 모델 위에 누적 학습
   const nb = buildMethodNotebook(method, dataset, base, outRepo, lastBrainPairs || noteCount(), trainOpts, inlineJsonl);
   const fileName = `connect-ai/train-${method}.ipynb`;
   // GitHub 연결돼 있으면 커밋 → Colab 원클릭
   if (g.GITHUB_TOKEN && (g.GITHUB_DEFAULT_REPO || '').includes('/')) {
     const r = await pushFile(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, fileName, nb, `🚀 Connect AI 학습 노트북 (${method.toUpperCase()})`);
     // r.url 은 이미 정규화된 github blob 주소 → 그걸 그대로 colab 주소로 변환(전체 URL·.git 입력해도 안전)
-    if (r.ok && r.url) { return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, dataset: uploadedDs || undefined }; }
+    if (r.ok && r.url) { return { ok: true, colab: r.url.replace('https://github.com/', 'https://colab.research.google.com/github/'), github: r.url, dataset: uploadedDs || undefined, base, outRepo }; }
   }
   // 폴백: 바탕화면 저장 + Colab 업로드 페이지
   const out = path.join(os.homedir(), 'Desktop', `connect-ai-train-${method}.ipynb`);
-  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.', dataset: uploadedDs || undefined }; }
+  try { fs.writeFileSync(out, nb, 'utf8'); shell.showItemInFolder(out); return { ok: true, local: out, colab: 'https://colab.research.google.com/#create=true', note: 'GitHub 미연결 — 바탕화면 노트북을 Colab에 업로드하세요.', dataset: uploadedDs || undefined, base, outRepo }; }
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
+});
+// 💻 내 컴퓨터에서 직접 학습 — Colab/서버 없이 (Windows=CUDA·Mac=MPS·CPU 자동). 진행은 앱 내장 터미널에 출력.
+ipcMain.handle('train:local', async (_e, modelName?: string, opts?: any) => {
+  try {
+    const c: any = loadConfig();
+    if (!noteCount()) return { ok: false, error: '학습할 지식이 없어요. 먼저 ⚡ 단기 기억에 지식을 쌓으세요.' };
+    const jsonl = lastBrainJsonl || brainToConversationsJsonl();   // ① 변환했으면 그걸, 아니면 지식 그대로
+    if (!jsonl) return { ok: false, error: '학습할 내용이 너무 짧아요 — 문장 단위로 좀 더 쌓아주세요.' };
+    const dataCount = jsonl.split('\n').filter(Boolean).length;
+    // 🐍 파이썬 확인 (로컬 학습 필수)
+    let pyCmd = process.platform === 'win32' ? 'python' : 'python3';
+    const tryPy = (cmd: string) => { try { const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 8000 }); return r.status === 0 || /python\s*3/i.test(((r.stdout || '') + (r.stderr || ''))); } catch { return false; } };
+    if (!tryPy(pyCmd)) { const alt = process.platform === 'win32' ? ['py', 'python3'] : ['python']; let found = ''; for (const a of alt) { if (tryPy(a)) { found = a; break; } } if (found) pyCmd = found; else return { ok: false, error: '파이썬(3.10+)이 필요해요. https://www.python.org/downloads 에서 설치 후 다시 시도하세요. (설치 시 "Add to PATH" 체크)' }; }
+    const picked = (opts?.baseModel || c.trainBaseSel || '').trim();   // opts 우선, 없으면 저장된 선택(config)
+    const base = (picked && picked.includes('/')) ? picked : localBase(guessBase(c.llmModel));   // 🤖 고른 모델 우선, 없으면 로컬용 가벼운 베이스로 자동 다운시프트
+    const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '') || autoModelName(base, c.brainModelName);
+    const workDir = path.join(app.getPath('userData'), 'localtrain');
+    try { fs.mkdirSync(workDir, { recursive: true }); } catch { /* */ }
+    const dataJsonl = path.join(workDir, 'brain.jsonl');
+    const outGguf = path.join(modelsDir(), `${name}.gguf`);
+    fs.writeFileSync(dataJsonl, jsonl, 'utf8');
+    const opt = { rank: opts?.rank, alpha: opts?.alpha, dropout: opts?.dropout, learningRate: opts?.learningRate, maxSteps: opts?.maxSteps, epochs: opts?.epochs, warmup: opts?.warmup, maxSeq: opts?.maxSeq, quant: opts?.quant };
+    const scriptPath = path.join(workDir, 'train_local.py');
+    fs.writeFileSync(scriptPath, buildLocalTrainScript(base, { dataJsonl, outGguf, workDir }, opt as any, dataCount), 'utf8');
+    saveConfig({ brainModelName: name, trainOpts: opt } as any);
+    // 터미널에 표시하고 실행 (스트리밍 = 실패는 시끄럽게)
+    try { win?.webContents.send('term:show'); } catch { /* */ }
+    termSend('cmd', `$ 💻 내 컴퓨터에서 학습 시작 — 베이스 ${base} → ${name}.gguf`);
+    const child = spawnInTerminal(`${pyCmd} "${scriptPath}"`, workDir);
+    if (!child) return { ok: false, error: '학습 프로세스를 시작하지 못했어요. (터미널 확인)' };
+    return { ok: true, name, base, gguf: outGguf, script: scriptPath, note: process.platform === 'darwin' ? 'Apple GPU(MPS)로 학습합니다.' : (process.platform === 'win32' ? 'NVIDIA가 있으면 CUDA, 없으면 CPU로 학습합니다.' : 'GPU가 있으면 자동 사용합니다.') };
+  } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 
 // ✅ 승인 큐 — 승인 시 액션이 있으면 실제로 실행(에이전트 행동 = 돈 만들기)

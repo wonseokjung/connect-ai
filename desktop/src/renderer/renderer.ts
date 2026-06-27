@@ -2334,6 +2334,7 @@ $('hfTrainBtn').addEventListener('click', async () => {
     learningRate: lrv ? +lrv : p.lr, epochs: ep ? +ep : p.epochs,
     maxSeq: +sv('tsSeq'), scheduler: sv('tsSched'), quant: sv('tsQuant'),
     maxSteps: steps > 0 ? steps : undefined,
+    baseModel: (($('baseModelPick') as HTMLInputElement)?.value || '').trim() || undefined,   // 🤖 학습할 모델(비우면 자동)
   };
   $('hfStatus').textContent = '🗂️ 변환 · HF 데이터셋 업로드 · 노트북 생성 중…';
   const r = await connect.trainNotebook(name, opts);
@@ -2343,7 +2344,8 @@ $('hfTrainBtn').addEventListener('click', async () => {
     return;
   }
   const dsLine = r.dataset ? ` · 📦 데이터셋 <a href="#" id="dsLink">${escapeHtml(r.dataset)}</a> 업로드됨` : '';
-  $('hfStatus').innerHTML = `✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${dsLine}${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
+  const baseLine = r.base ? `<div class="train-baseline">🤖 학습할 모델: <b>${escapeHtml(r.base)}</b> <span class="muted small">(바꾸려면 위 🤖 학습할 모델에서 골라요)</span></div>` : '';
+  $('hfStatus').innerHTML = `${baseLine}✅ Colab 열기 → <a href="#" id="colabLink">학습 노트북</a> · "런타임 → 모두 실행"${dsLine}${r.note ? ` <span class="muted">(${escapeHtml(r.note)})</span>` : ''}`;
   $('dsLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(`https://huggingface.co/datasets/${r.dataset}`); });
   $('colabLink')?.addEventListener('click', (e) => { e.preventDefault(); connect.openExternal(r.colab); });
   if (r.colab) connect.openExternal(r.colab);
@@ -2352,6 +2354,113 @@ $('hfTrainBtn').addEventListener('click', async () => {
   hint('🆓 Colab 학습 노트북을 열었어요 — "런타임 → 모두 실행"');
   $('lfStep3').classList.add('lf-done');
 });
+// 💻 내 컴퓨터에서 직접 학습 — 인터넷 GPU 없이 (Windows=CUDA·Mac=MPS·CPU). 진행은 앱 내장 터미널에 출력.
+$('localTrainBtn')?.addEventListener('click', async () => {
+  const ga = $('growAuto'); if (ga) ga.style.display = '';
+  const name = ($('modelNameInput') as HTMLInputElement).value.trim();
+  if (name) { const nameErr = validModelName(name); if (nameErr) { hint(nameErr); ($('modelNameInput') as HTMLInputElement).focus(); return; } }
+  const p = TS_PRESET[tsPreset];
+  const sv = (id: string) => ($(id) as HTMLSelectElement).value;
+  const steps = parseInt(($('tsSteps') as HTMLInputElement).value, 10) || 0;
+  const al = sv('tsAlpha'), lrv = sv('tsLr'), ep = sv('tsEpochs');
+  const opts = {
+    rank: +sv('tsRank'), alpha: al === 'auto' ? undefined : +al, dropout: +sv('tsDropout'),
+    learningRate: lrv ? +lrv : p.lr, epochs: ep ? +ep : p.epochs,
+    maxSeq: +sv('tsSeq'), quant: sv('tsQuant'), maxSteps: steps > 0 ? steps : undefined,
+    baseModel: (($('baseModelPick') as HTMLInputElement)?.value || '').trim() || undefined,   // 🤖 학습할 모델(비우면 자동)
+  };
+  $('hfStatus').textContent = '💻 내 컴퓨터 학습 준비 중… (파이썬·라이브러리 확인)';
+  hint('💻 내 컴퓨터에서 학습 시작 — 아래 터미널에 진행 상황이 나와요');
+  let r: any; try { r = await connect.trainLocal?.(name, opts); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  if (!r?.ok) {
+    $('hfStatus').textContent = `⚠️ ${r?.error || '실패'}`; hint(`⚠️ ${r?.error || '실패'}`);
+    if (/지식/.test(r?.error || '')) (document.querySelector('.btab[data-btab="short"]') as HTMLElement)?.click();
+    return;
+  }
+  $('hfStatus').innerHTML = `💻 학습 중 — 베이스 <code>${escapeHtml(r.base)}</code> → <code>${escapeHtml(r.name)}.gguf</code> · 진행은 아래 ⌨️ 터미널에서 확인하세요. ${r.note ? `<span class="muted">(${escapeHtml(r.note)})</span>` : ''}<br><span class="muted">끝나면 🤖 내 AI 에 자동으로 나타나요. 처음엔 라이브러리 설치로 수 분 걸려요.</span>`;
+  playInjection('💻 내 컴퓨터에서 학습', [name || '내 두뇌'], LONG_FX);
+  $('lfStep3')?.classList.add('lf-done');
+});
+// 🤖 학습할 모델 — 진화소처럼 HF API 검색으로 선택 (고정 리스트 X). 비우면 자동(지금 내 AI 모델).
+const BASE_RECO = [
+  { id: 'unsloth/Qwen2.5-0.5B-Instruct', params: '0.5B', family: 'Qwen2.5', license: 'apache-2.0' },
+  { id: 'unsloth/Llama-3.2-1B-Instruct', params: '1B', family: 'Llama', license: 'llama3.2' },
+  { id: 'unsloth/Qwen2.5-1.5B-Instruct', params: '1.5B', family: 'Qwen2.5', license: 'apache-2.0' },
+  { id: 'unsloth/gemma-2-2b-it', params: '2B', family: 'Gemma', license: 'gemma' },
+  { id: 'unsloth/Llama-3.2-3B-Instruct', params: '3B', family: 'Llama', license: 'llama3.2' },
+];
+function baseCards(models: any[], label: string) {
+  const box = $('baseResults'); if (!box) return;
+  const picked = ($('baseModelPick') as HTMLInputElement)?.value || '';
+  box.innerHTML = `<div class="surg-pick-label muted small">${label}</div><div class="surg-pick-grid">` + models.map((raw: any, i: number) => {
+    const m = typeof raw === 'string' ? { id: raw } : raw; const id = m.id || '';
+    const slash = id.indexOf('/'); const org = slash > 0 ? id.slice(0, slash) : '';
+    let hue = 0; for (const ch of (org || id)) hue = (hue * 31 + ch.charCodeAt(0)) % 360;
+    const ava = (org || id).replace(/[^a-zA-Z0-9가-힣]/g, '').charAt(0).toUpperCase() || '🤗';
+    const badges = [
+      (m.params || sizeOf(id)) ? `<span class="spc-b b-size">${m.params || sizeOf(id)}</span>` : '',
+      m.family ? `<span class="spc-b b-fam">${escapeHtml(m.family)}</span>` : '',
+      m.license ? `<span class="spc-b b-lic">${escapeHtml(m.license)}</span>` : '',
+      m.gated ? `<span class="spc-b b-gate" title="라이선스 동의 필요 — 권한 없으면 막혀요">🔒</span>` : '',
+    ].filter(Boolean).join('');
+    const stat = (m.downloads != null) ? `<span class="spc-dl">⬇ ${fmtN(m.downloads)}</span>` : '';
+    const on = picked === id ? ' picked-on' : '';
+    return `<button class="surg-pick-card${m.gated ? ' gated' : ''}${on}" data-m="${escAttr(id)}" style="--i:${i};--h:${hue}" title="${escAttr(id)}${m.gated ? ' · 🔒 게이트' : ''}">
+      <span class="spc-ava">${ava}</span>
+      <span class="spc-main"><span class="spc-name">${escapeHtml(short(id))}</span>
+        <span class="spc-sub">${escapeHtml(org)}${stat ? ' · ' + stat : ''}</span>
+        ${badges ? `<span class="spc-badges">${badges}</span>` : ''}</span>
+      <span class="spc-add">✓</span></button>`;
+  }).join('') + `</div>`;
+  box.querySelectorAll('.surg-pick-card').forEach(c => c.addEventListener('click', () => {
+    const m = (c as HTMLElement).dataset.m!;
+    ($('baseModelPick') as HTMLInputElement).value = m;
+    connect.setConfig?.({ trainBaseSel: m });   // 💾 선택 저장 → 서버가 직접 읽음(전달 실패해도 적용)·재시작 유지
+    const cur = $('baseCur'); if (cur) cur.textContent = short(m);
+    const ab = $('baseAutoBtn') as HTMLButtonElement | null; if (ab) ab.hidden = false;
+    box.querySelectorAll('.surg-pick-card').forEach(x => x.classList.remove('picked-on'));
+    c.classList.add('picked-on', 'picked'); setTimeout(() => c.classList.remove('picked'), 650);
+    hint(`🤖 학습할 모델: ${short(m)}`);
+  }));
+}
+const baseDoSearch = async () => {
+  const q = (($('baseSearch') as HTMLInputElement)?.value || '').trim();
+  if (q.length < 2) { hint('2글자 이상 입력하세요'); return; }
+  const box = $('baseResults'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 검색 중…';
+  const r: any = await connect.hfSearchModels?.(q);
+  if (!r?.ok || !r.models?.length) { if (box) box.innerHTML = `<span class="muted small">${escapeHtml(r?.error || '결과 없음 — 다른 키워드로')}</span>`; return; }
+  baseCards(r.models, `🔍 "${escapeHtml(q)}" 결과 — 탭해서 선택:`);
+};
+$('baseSearchBtn')?.addEventListener('click', baseDoSearch);
+$('baseSearch')?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter') baseDoSearch(); });
+$('baseMineBtn')?.addEventListener('click', async () => {
+  const box = $('baseResults'); if (box) box.innerHTML = '<span class="cyc-spin"></span> 내가 만든 AI 불러오는 중…';
+  const r: any = await connect.hfMyModels?.();
+  if (!r?.ok) { if (box) box.innerHTML = `<span class="muted small">⚠️ ${escapeHtml(r?.error || '불러오기 실패 — 🗂️ 연동에서 HF 토큰 확인')}</span>`; return; }
+  if (!r.models?.length) { if (box) box.innerHTML = '<span class="muted small">아직 내가 만든 AI가 없어요 — 학습하면 여기 떠요.</span>'; return; }
+  baseCards(r.models, '🧬 내가 만든 AI — 탭해서 선택(누적 학습):');
+});
+$('baseAutoBtn')?.addEventListener('click', () => {
+  ($('baseModelPick') as HTMLInputElement).value = '';
+  connect.setConfig?.({ trainBaseSel: '' });   // 💾 선택 해제도 저장
+  const cur = $('baseCur'); if (cur) cur.textContent = '지금 내 AI 모델 (자동)';
+  const ab = $('baseAutoBtn') as HTMLButtonElement | null; if (ab) ab.hidden = true;
+  baseCards(BASE_RECO, '👇 추천 — 탭해서 고르거나 위에서 검색 (비우면 자동):');
+  hint('🤖 자동(지금 내 AI 모델)으로 되돌렸어요');
+});
+// 로드 시 — 저장된 선택 복원(재시작해도 유지). 선택돼 있으면 위에 또렷이 표시.
+(async () => {
+  try {
+    const cfg: any = await connect.getConfig?.();
+    const sel = (cfg?.trainBaseSel || '').trim();
+    if (sel) {
+      ($('baseModelPick') as HTMLInputElement).value = sel;
+      const cur = $('baseCur'); if (cur) cur.textContent = short(sel);
+      const ab = $('baseAutoBtn') as HTMLButtonElement | null; if (ab) ab.hidden = false;
+    }
+    baseCards(BASE_RECO, sel ? `✅ 선택됨: ${escapeHtml(short(sel))} — 바꾸려면 탭/검색, 또는 ↺ 자동` : '👇 추천 — 탭해서 고르거나 위에서 검색 (비우면 자동):');
+  } catch { /* */ }
+})();
 // 💎 유료 학습(클라우드 GPU) — 곧 출시. (AutoTrain 백엔드 train:autotrain 는 준비돼 있고, 출시 때 이 핸들러만 교체.)
 $('hfExportBtn').addEventListener('click', async () => { $('hfStatus').textContent = '📦 바탕화면 connect-ai-brain.jsonl 확인 (변환 시 자동 저장)'; });
 
@@ -2475,7 +2584,7 @@ $('cloudTrainBtn')?.addEventListener('click', async () => {
   const btn = $('cloudTrainBtn') as HTMLButtonElement; btn.disabled = true;
   cloudStat('<span class="cyc-spin"></span> 두뇌 변환 · 데이터셋 업로드 · GPU 작업 요청 중…');
   let r: any = null;
-  try { r = await connect.trainCloud?.(code); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
+  try { r = await connect.trainCloud?.(code, mn, { baseModel: (($('baseModelPick') as HTMLInputElement)?.value || '').trim() || undefined }); } catch (e: any) { r = { ok: false, error: String(e?.message || e) }; }
   btn.disabled = false;
   if (!r) { cloudStat('⚠️ 응답이 없어요.'); return; }
   if (r.badCode) { cloudStat(`🎟️ ${escapeHtml(r.error || '멤버십 코드가 틀렸어요')}`); return; }

@@ -234,10 +234,15 @@ async def train(req: Request):
     un, owner_err = resolve_owner(b)
     if owner_err: return owner_err                       # 토큰 줬는데 검증 실패 → 거부(개인데이터 제공자계정 업로드 방지)
     rid = datetime.datetime.utcnow().strftime("%m%d-%H%M%S")   # 🆔 run id — 이전 학습 모델을 덮어쓰지 않게
+    # 🤖 앱이 보낸 베이스·이름 사용(회원이 고른 모델·이름 반영). 없으면 기본값. 잘못된 값은 무시.
+    import re as _re
+    _rb = str(b.get("baseModel") or "").strip()
+    base_model = _rb if ("/" in _rb and len(_rb) <= 120 and all(ch.isalnum() or ch in "._-/" for ch in _rb)) else BASE_MODEL
+    _rn = _re.sub(r"[^a-zA-Z0-9._-]", "-", str(b.get("outName") or "")).strip("-.")[:80]
     if un:
-        job_token = (b.get("userHfToken") or "").strip(); brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/cai-model-{rid}"; mount_repo = f"{prov}/cai-train-script"
+        job_token = (b.get("userHfToken") or "").strip(); brain_repo = f"{un}/cai-brain"; out_repo = f"{un}/{_rn}" if _rn else f"{un}/cai-model-{rid}"; mount_repo = f"{prov}/cai-train-script"
     else:
-        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/cai-model-{sid}-{rid}"; mount_repo = brain_repo
+        job_token = HF_TOKEN; brain_repo = f"{prov}/cai-brain-{sid}"; out_repo = f"{prov}/{sid}-{_rn}" if _rn else f"{prov}/cai-model-{sid}-{rid}"; mount_repo = brain_repo
     # 🛡️ 캡 선점 — 잡 띄우기 '전에' 카운트 올려 저장(경쟁/무카운트 과금 방지). 실패하면 롤백.
     g["train"] = {"month": m, "count": used + 1, "outputRepo": out_repo, "namespace": prov}
     gres = False
@@ -258,7 +263,7 @@ async def train(req: Request):
             "command": ["uv", "run", "/data/train.py"],
             "flavor": FREE_FLAVOR, "timeout": "1h",
             "environment": {"DATASET_REPO": brain_repo, "DATASET_FILE": "brain.jsonl",
-                            "OUTPUT_REPO": out_repo, "BASE_MODEL": BASE_MODEL, "MAX_STEPS": "120"},
+                            "OUTPUT_REPO": out_repo, "BASE_MODEL": base_model, "MAX_STEPS": "120"},
             "secrets": {"HF_TOKEN": job_token},       # 회원 토큰(소유) or 제공자 토큰. GPU 컴퓨트는 제공자가 launch
             "volumes": [{"type": "dataset", "source": mount_repo, "mountPath": "/data"}],
         })

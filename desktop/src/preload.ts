@@ -70,11 +70,12 @@ contextBridge.exposeInMainWorld('connect', {
   githubPush: () => ipcRenderer.invoke('github:push'),
   githubPull: () => ipcRenderer.invoke('github:pull'),
   trainNotebook: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:notebook', modelName, opts),
+  trainLocal: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:local', modelName, opts),   // 💻 내 컴퓨터에서 직접 학습
   trainAutotrain: (modelName?: string, opts?: any) => ipcRenderer.invoke('train:autotrain', modelName, opts),
   // 🧬 장기기억 만들기: ① 변환 ② 업로드 ③ 모델이름
   brainBuildDataset: (augment?: boolean) => ipcRenderer.invoke('brain:buildDataset', augment),
   hfUploadBrain: () => ipcRenderer.invoke('hf:uploadBrain'),
-  trainCloud: (code?: string) => ipcRenderer.invoke('train:cloud', code || ''),                    // ☁️ 내 AI 키우기(HF Jobs)
+  trainCloud: (code?: string, modelName?: string, opts?: any) => ipcRenderer.invoke('train:cloud', code || '', modelName || '', opts || {}),   // ☁️ 내 AI 키우기(HF Jobs) — 이름·베이스 전달
   trainCloudStatus: () => ipcRenderer.invoke('train:cloudStatus'),
   surgeryMerge: (a: string, b: string, method?: string, t?: string, outName?: string, password?: string) => ipcRenderer.invoke('surgery:merge', a, b, method || 'slerp', t || '0.5', outName || '', password || ''),   // 🔪 합치기 수술(HF Jobs)
   surgeryNotebook: (a: string, b: string, method?: string, scale?: number, outName?: string) => ipcRenderer.invoke('surgery:notebook', a, b, method || 'task_add', scale ?? 1.0, outName || ''),   // 🆓 무료 합성(Colab)

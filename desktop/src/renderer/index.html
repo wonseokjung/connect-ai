@@ -577,8 +577,23 @@
             <span class="lstep-n">5</span>
             <div class="lstep-body">
               <div class="lstep-lab">🚀 학습 시작</div>
+              <div class="base-pick" id="basePick" title="내 지식을 어떤 모델 위에 학습할지 고르세요">
+                <div class="base-pick-head">
+                  <span class="bp-lab">🤖 학습할 모델</span>
+                  <span class="bp-cur" id="baseCur">지금 내 AI 모델 (자동)</span>
+                  <button class="bp-auto" id="baseAutoBtn" title="자동(지금 내 AI 모델)으로 되돌리기" hidden>↺ 자동</button>
+                </div>
+                <div class="base-search">
+                  <input id="baseSearch" placeholder="🔍 모델 검색 — qwen · llama · gemma · phi …" autocomplete="off" />
+                  <button id="baseSearchBtn" title="HuggingFace에서 검색">검색</button>
+                  <button id="baseMineBtn" title="내가 만든 AI 불러오기">🧬 내 AI</button>
+                </div>
+                <div class="base-results" id="baseResults"></div>
+                <input type="hidden" id="baseModelPick" value="" />
+              </div>
               <div class="grow-acts">
                 <button id="hfTrainBtn" class="train-free" title="내 무료 Colab으로 직접 — 누르면 바로 코랩이 열려요 (비번 불필요)">🆓 무료로 시작<small>구글 코랩</small></button>
+                <button id="localTrainBtn" class="train-local" title="인터넷 GPU 없이 내 컴퓨터에서 직접 학습 — 윈도우(NVIDIA)·맥(Apple GPU)·CPU 자동. 파이썬 필요">💻 내 컴퓨터에서<small>오프라인 · 무료</small></button>
                 <button id="cloudTrainBtn" class="train-cloud" title="Connect AI 서버에서 버튼 한 번 학습 — 베타 · 비밀번호 받은 분만">🧪 Connect AI 서버<small>베타 · 비밀번호</small></button>
               </div>
               <input id="cloudCode" class="surg-pw pw-line" placeholder="🔒 베타 비밀번호" maxlength="8" type="password" autocomplete="off" title="베타 비밀번호 (받은 분만)" hidden />

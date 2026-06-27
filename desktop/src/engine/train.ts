@@ -11,6 +11,9 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
   const outName = (outModelRepo.split('/').pop() || 'my-model');   // 🆔 모델 이름만 — 계정은 실행자(whoami)로
   const b64 = inlineJsonl ? Buffer.from(inlineJsonl, 'utf8').toString('base64') : '';
   const base = baseModel || 'unsloth/llama-3.2-3b-instruct-bnb-4bit';   // 검증된 기본(존재·로딩 확인). gemma-4 등은 사용자가 명시할 때만
+  // 🧩 베이스 계열에 맞는 chat 템플릿 — 라마/Qwen에 gemma 템플릿을 쓰면 학습이 망가짐(턴 마커 불일치)
+  const fam = /gemma/i.test(base) ? 'gemma' : /qwen/i.test(base) ? 'qwen' : 'llama';
+  const chatTpl = fam === 'gemma' ? (/gemma-?4/i.test(base) ? 'gemma-4' : /gemma-?3/i.test(base) ? 'gemma-3' : 'gemma-2') : (fam === 'qwen' ? 'qwen-2.5' : 'llama-3.1');
   const rank = opts.rank || 16;
   const alpha = opts.alpha || rank * 2;
   const dropout = opts.dropout ?? 0;
@@ -43,6 +46,14 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
       md(['## 🔑 HuggingFace 로그인 (맨 먼저!)\n', '아래 칸에 **write 토큰**을 붙여넣으세요. *비공개 데이터셋을 불러오고*, 학습된 모델을 *업로드*하는 데 둘 다 필요해요.\n']),
       code(['from huggingface_hub import notebook_login\n', 'notebook_login()\n']),
       code([
+        '# 🔐 로그인을 맨 앞에서 확인 — 안 돼 있으면 긴 학습 전에 바로 멈춰서 시간 낭비 방지\n',
+        'from huggingface_hub import HfApi\n',
+        'try:\n',
+        '    print("✅ 로그인됨:", HfApi().whoami()["name"], "— 결과는 내 계정에 올라가요")\n',
+        'except Exception:\n',
+        '    raise SystemExit("❌ 먼저 위 🔑 칸에 HuggingFace write 토큰을 붙여넣고 Login을 누르세요. 그다음 [런타임 → 모두 실행]을 다시 누르면 됩니다.")\n',
+      ]),
+      code([
         'from unsloth import FastModel\n', 'import torch\n',
         'model, tokenizer = FastModel.from_pretrained(\n',
         '    model_name = "' + base + '",\n',
@@ -66,7 +77,7 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         '_B64 = "' + b64 + '"\n',
         'open("brain.jsonl", "w").write(base64.b64decode(_B64).decode("utf-8"))\n',
         'ds = load_dataset("json", data_files="brain.jsonl", split="train")\n',
-        'tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")\n',
+        (fam === 'gemma' ? 'tokenizer = get_chat_template(tokenizer, chat_template="' + chatTpl + '")\n' : '# ' + fam + ' Instruct 모델은 내장 chat_template 사용(별도 변환 불필요)\n'),
         'def fmt(ex):\n',
         '    texts = [tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=False).removeprefix("<bos>") for c in ex["conversations"]]\n',
         '    return {"text": texts}\n',
@@ -76,7 +87,7 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
         'from datasets import load_dataset\n',
         'from unsloth.chat_templates import get_chat_template\n',
         'ds = load_dataset("' + datasetRepo + '", data_files="connect-ai-brain.jsonl", split="train", token=True)\n',
-        'tokenizer = get_chat_template(tokenizer, chat_template="gemma-4")\n',
+        (fam === 'gemma' ? 'tokenizer = get_chat_template(tokenizer, chat_template="' + chatTpl + '")\n' : '# ' + fam + ' Instruct 모델은 내장 chat_template 사용(별도 변환 불필요)\n'),
         'def fmt(ex):\n',
         '    texts = [tokenizer.apply_chat_template(c, tokenize=False, add_generation_prompt=False).removeprefix("<bos>") for c in ex["conversations"]]\n',
         '    return {"text": texts}\n',
@@ -97,21 +108,32 @@ export function buildNotebook(datasetRepo: string, baseModel: string, outModelRe
       ]),
       code([
         '# 🎭 응답(assistant)만 학습 — 질문 패턴은 마스킹(효율↑·품질↑)\n',
-        '# ⚠️ 마커는 모델/버전마다 다름(<|turn> vs <start_of_turn>) → 실제 텍스트에서 자동 감지\n',
+        '# ⚠️ 마커는 계열마다 다름 → 실제 텍스트에서 자동 감지 (gemma·llama·qwen 모두 지원)\n',
         'from unsloth.chat_templates import train_on_responses_only\n',
         '_t = ds[0]["text"]\n',
-        '_im = "<|turn>user\\n" if "<|turn>user" in _t else "<start_of_turn>user\\n"\n',
-        '_rm = "<|turn>model\\n" if "<|turn>model" in _t else "<start_of_turn>model\\n"\n',
-        'trainer = train_on_responses_only(trainer, instruction_part=_im, response_part=_rm)\n',
-        'print(f"✅ 마스킹 마커 자동감지: {_rm.strip()} — 학습 준비 완료")\n',
+        'if "<start_of_turn>user" in _t: _im, _rm = "<start_of_turn>user\\n", "<start_of_turn>model\\n"\n',
+        'elif "<|start_header_id|>" in _t: _im, _rm = "<|start_header_id|>user<|end_header_id|>\\n\\n", "<|start_header_id|>assistant<|end_header_id|>\\n\\n"\n',
+        'elif "<|im_start|>" in _t: _im, _rm = "<|im_start|>user\\n", "<|im_start|>assistant\\n"\n',
+        'elif "<|turn>user" in _t: _im, _rm = "<|turn>user\\n", "<|turn>model\\n"\n',
+        'else: _im, _rm = None, None\n',
+        'if _rm:\n',
+        '    trainer = train_on_responses_only(trainer, instruction_part=_im, response_part=_rm)\n',
+        '    print(f"✅ 마스킹 마커 자동감지: {_rm.strip()} — 응답만 학습")\n',
+        'else:\n',
+        '    print("ℹ️ 마커 자동감지 실패 → 전체 텍스트로 학습(문제 없음)")\n',
       ]),
       code(['trainer_stats = trainer.train()\n', 'print("🎉 학습 완료! 최종 loss:", round(trainer_stats.training_loss, 4))\n', 'print("💡 loss 0.2~0.4면 sweet spot. 너무 낮으면(<0.1) 과적합 — max_steps 줄이세요.")\n']),
       md(['## 🧪 학습된 모델 테스트 (업로드 전에 확인!)\n', '내가 가르친 지식을 직접 물어보세요. 답에 그 내용이 나오면 학습 성공이에요. 질문은 자유롭게 바꿔도 됩니다.\n']),
       code([
         'from unsloth import FastModel\n', 'FastModel.for_inference(model)\n',
         'def chat(prompt, max_tokens=220):\n',
-        '    msg = [{"role":"user","content":[{"type":"text","text":prompt}]}]\n',
-        '    inp = tokenizer.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt").to("cuda")\n',
+        '    try:\n',
+        '        msg = [{"role":"user","content":[{"type":"text","text":prompt}]}]\n',
+        '        inp = tokenizer.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt")\n',
+        '    except Exception:\n',
+        '        msg = [{"role":"user","content":prompt}]\n',
+        '        inp = tokenizer.apply_chat_template(msg, add_generation_prompt=True, tokenize=True, return_dict=True, return_tensors="pt")\n',
+        '    inp = inp.to(model.device)\n',
         '    if inp["input_ids"][0,0].item() == tokenizer.bos_token_id:\n',
         '        inp["input_ids"] = inp["input_ids"][:,1:]; inp["attention_mask"] = inp["attention_mask"][:,1:]\n',
         '    out = model.generate(**inp, max_new_tokens=max_tokens, do_sample=False, pad_token_id=tokenizer.eos_token_id)\n',
