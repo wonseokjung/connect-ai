@@ -390,6 +390,7 @@ $('engDetectBtn')?.addEventListener('click', async () => {
   hint(/LM Studio|Ollama/.test(txt) ? '✅ 외부 엔진 연결됨 — 이걸 써요' : 'LM Studio나 Ollama를 켜고 모델 1개를 로드한 뒤 다시 눌러주세요');
 });
 $('engGuide')?.addEventListener('click', () => connect.openExternal?.('https://lmstudio.ai'));
+$('dexLink')?.addEventListener('click', () => connect.openExternal?.('https://www.aicitybuilders.com/dex/'));   // 📖 AI 모델 도감
 // 🧬 내 AI 팀 — 학습/진화으로 만든 모델을 캐릭터(이모지·이름·성격)로. id 해시로 안정적 이모지 배정.
 const CM_EMOJI = ['🤖', '🧠', '🦾', '👾', '🐱', '🦊', '🐻', '🦁', '🐯', '🐲', '🦉', '🦄', '🐙', '🤠', '🥷', '🧙', '🦸', '🐧', '🐸', '🦅'];
 function cmEmoji(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return CM_EMOJI[h % CM_EMOJI.length]; }

@@ -2186,3 +2186,5 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .engine-box .eng-acts .oc-primary { flex: 0 0 auto; }
 .engine-box .eng-guide { font-size: 12px; color: #00e5ff; cursor: pointer; text-decoration: underline; }
 .engine-box .eng-acts .eng-guide:hover { color: #5af0ff; }
+.dex-link { color: #00e5ff; cursor: pointer; text-decoration: underline; font-weight: 600; }
+.dex-link:hover { color: #5af0ff; }
