@@ -239,10 +239,14 @@ function preflightTooBig(modelPath: string): string | null {
     const total = os.totalmem();
     const sz = fs.statSync(modelPath).size;
     if (!sz || !total) return null;
-    // 가중치 파일이 전체 RAM의 90%를 넘으면 OS·앱 메모리까지 합쳐 사실상 못 켬(맥 통합메모리 감안해 보수적으로).
-    if (sz > total * 0.9) {
+    // 실제 필요 메모리 ≈ 가중치 + KV캐시·연산버퍼(~25%) + OS·앱(~3GB). 이게 전체 RAM을 넘으면 OOM(code 1).
+    //   (예: 8GB에 7B[4.5GB] → 4.5×1.25+3 = 8.6GB > 8GB → 미리 막고 작은 모델 안내. 3B[2GB]는 5.5GB라 통과)
+    if (sz * 1.25 + 3e9 > total || sz > total * 0.85) {
       const mGb = (sz / 1e9).toFixed(1), tGb = (total / 1e9).toFixed(0);
-      return `이 모델(${mGb}GB)이 이 컴퓨터 메모리(${tGb}GB)보다 커서 못 켜요. 더 가벼운 모델을 받아주세요 — 추천: Gemma 4 E2B(작고 빠름) 또는 E4B.`;
+      const rec = total <= 9e9
+        ? '이 컴퓨터(메모리 작음)엔 Llama 3.2 1B(0.8GB)·Qwen2.5 1.5B(1GB) 같은 초경량'
+        : 'Gemma 4 E2B·Qwen2.5 3B 같은 더 작은';
+      return `이 모델(${mGb}GB)은 이 컴퓨터 메모리(${tGb}GB)엔 너무 커서 안 켜져요. ${rec} 모델을 받아주세요. (또는 LM Studio를 켜두면 앱이 자동으로 그걸 써요)`;
     }
   } catch { /* 파일 못 읽으면 그냥 시도 */ }
   return null;

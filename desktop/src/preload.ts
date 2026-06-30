@@ -88,6 +88,7 @@ contextBridge.exposeInMainWorld('connect', {
   trainCloudInstall: () => ipcRenderer.invoke('train:cloudInstall'),
   authSignup: (email: string, pw: string, profile?: any) => ipcRenderer.invoke('auth:signup', email, pw, profile),   // 👤 회원(이름·전화·약관)
   authLogin: (email: string, pw: string) => ipcRenderer.invoke('auth:login', email, pw),
+  authReset: (email: string) => ipcRenderer.invoke('auth:reset', email),   // 🔑 비밀번호 재설정 메일
   authLogout: () => ipcRenderer.invoke('auth:logout'),
   authCurrent: () => ipcRenderer.invoke('auth:current'),
   brainBuildPreference: () => ipcRenderer.invoke('brain:buildPreference'),   // ⚖️ AI 자동 피드백

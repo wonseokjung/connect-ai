@@ -370,7 +370,26 @@ function switchMtab(tab: string) {
 // 🤖 AI 선택 패널
 const LOCAL_BASE = 'http://127.0.0.1:1235';
 $('aiBtn').addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
-async function loadAiPanel() { renderOfficePreview(); renderTeamRoster(); await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams(), renderCreatedModels()]); }
+async function loadAiPanel() { renderOfficePreview(); renderTeamRoster(); refreshEngine(); await Promise.all([renderAiCurrent(), loadLocalAI(), loadParams(), renderCreatedModels()]); }
+// 🔌 AI 엔진 — 현재 어떤 엔진을 쓰는지(내장/LM Studio/Ollama) 상시 표시 + 연결 확인. 저사양 PC 구제 경로.
+async function refreshEngine() {
+  const el = $('engStatus'); if (!el) return;
+  el.textContent = '엔진 확인 중…';
+  let r: any = null; try { r = await connect.listModels?.(); } catch { /* */ }
+  if (!r || !r.base) { el.innerHTML = '⚪ 아직 연결된 엔진 없음 — <b>내 모델</b>에서 켜거나, LM Studio·Ollama를 켜고 아래 버튼을 누르세요'; return; }
+  const b = String(r.base);
+  const kind = /:1234(\/|$)/.test(b) ? '🟢 LM Studio (외부)' : /:11434/.test(b) ? '🟢 Ollama (외부)' : /:1235(\/|$)/.test(b) ? '🤖 내장 엔진' : (r.engine === 'gemini' ? '☁️ Gemini' : '🟢 외부 엔진');
+  const loaded = r.loaded ? ` · 모델: ${escapeHtml(r.loaded)}` : (r.models?.length ? ` · ${r.models.length}개 사용가능` : '');
+  const ext = /:1234|:11434/.test(b);
+  el.innerHTML = `현재 엔진: <b>${kind}</b>${loaded}${ext ? ' <span class="muted small">(LM Studio·Ollama 우선 사용 중)</span>' : ''}`;
+}
+$('engDetectBtn')?.addEventListener('click', async () => {
+  const el = $('engStatus'); if (el) el.textContent = '🔌 LM Studio·Ollama 찾는 중…';
+  await refreshEngine();
+  const txt = $('engStatus')?.textContent || '';
+  hint(/LM Studio|Ollama/.test(txt) ? '✅ 외부 엔진 연결됨 — 이걸 써요' : 'LM Studio나 Ollama를 켜고 모델 1개를 로드한 뒤 다시 눌러주세요');
+});
+$('engGuide')?.addEventListener('click', () => connect.openExternal?.('https://lmstudio.ai'));
 // 🧬 내 AI 팀 — 학습/진화으로 만든 모델을 캐릭터(이모지·이름·성격)로. id 해시로 안정적 이모지 배정.
 const CM_EMOJI = ['🤖', '🧠', '🦾', '👾', '🐱', '🦊', '🐻', '🦁', '🐯', '🐲', '🦉', '🦄', '🐙', '🤠', '🥷', '🧙', '🦸', '🐧', '🐸', '🦅'];
 function cmEmoji(id: string) { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return CM_EMOJI[h % CM_EMOJI.length]; }
@@ -2500,9 +2519,18 @@ async function openAuth() {
     </div>` : ''}
     <div class="auth-msg" id="authMsg"></div>
     <button class="cyc-btn primary" id="authGo" style="width:100%">${signup ? '회원가입' : '로그인'}</button>
-    <div class="auth-switch">${signup ? '이미 회원? <a id="authToLogin">로그인</a>' : '계정이 없나요? <a id="authToSignup">회원가입</a>'}</div>`;
+    <div class="auth-switch">${signup ? '이미 회원? <a id="authToLogin">로그인</a>' : '계정이 없나요? <a id="authToSignup">회원가입</a>'}</div>
+    ${signup ? '' : '<div class="auth-switch muted small"><a id="authReset">비밀번호를 잊으셨나요? — 재설정 메일 받기</a></div>'}`;
   $('authToSignup')?.addEventListener('click', () => { _authMode = 'signup'; openAuth(); });
   $('authToLogin')?.addEventListener('click', () => { _authMode = 'login'; openAuth(); });
+  $('authReset')?.addEventListener('click', async () => {
+    const email = ($('authEmail') as HTMLInputElement).value.trim();
+    const msg = (t: string) => { $('authMsg').textContent = t; };
+    if (!/\S+@\S+\.\S+/.test(email)) return msg('재설정할 이메일을 위 칸에 먼저 입력하세요.');
+    msg('재설정 메일 보내는 중…');
+    const r = await connect.authReset?.(email);
+    msg(r?.ok ? '✅ 재설정 메일을 보냈어요. 메일함(스팸함도)에서 링크를 눌러 새 비밀번호를 정하세요.' : `⚠️ ${r?.error || '발송 실패'}`);
+  });
   $('lnkTerms')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com/terms'));
   $('lnkPriv')?.addEventListener('click', () => connect.openExternal?.('https://aicitybuilders.com/privacy'));
   const go = async () => {

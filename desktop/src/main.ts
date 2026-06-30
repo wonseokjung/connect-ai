@@ -1583,6 +1583,17 @@ ipcMain.handle('auth:signup', async (_e, email: string, password: string, profil
 ipcMain.handle('auth:login', async (_e, email: string, password: string) => await fbAuth('signInWithPassword', (email || '').trim(), password || ''));
 ipcMain.handle('auth:logout', () => { saveConfig({ auth: undefined } as any); return { ok: true }; });
 ipcMain.handle('auth:current', () => { const c = loadConfig(); return c.auth ? { uid: c.auth.uid, email: c.auth.email, configured: !!fbApiKey() } : { configured: !!fbApiKey() }; });
+// 🔑 비밀번호 재설정 — 가입된 이메일로 재설정 링크 발송 (비번 잊은 회원 셀프 해결)
+ipcMain.handle('auth:reset', async (_e, email: string) => {
+  const key = fbApiKey();
+  if (!key) return { ok: false, error: '회원 기능이 아직 설정되지 않았어요.' };
+  const em = (email || '').trim();
+  if (!em || !/.+@.+\..+/.test(em)) return { ok: false, error: '이메일을 정확히 입력하세요.' };
+  try {
+    await axios.post(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${key}`, { requestType: 'PASSWORD_RESET', email: em }, { timeout: 15000 });
+    return { ok: true };   // 보안상 가입 여부와 무관하게 성공 처리(이메일 존재 노출 방지) — 가입된 메일이면 실제 발송됨
+  } catch (e: any) { return { ok: false, error: authPretty(e) }; }
+});
 
 // 📊 대시보드 통계
 ipcMain.handle('dashboard:stats', () => {

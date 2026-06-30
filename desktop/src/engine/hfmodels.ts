@@ -96,7 +96,8 @@ export function deleteLocalModel(filePath: string): boolean {
 
 // 비개발자용 추천(잘 지원되고 가벼운 모델). 한 번 클릭으로 받게.
 export const RECOMMENDED: { label: string; repo: string; hint: string }[] = [
+  { label: 'Llama 3.2 1B', repo: 'bartowski/Llama-3.2-1B-Instruct-GGUF', hint: '0.8GB · 8GB PC·초경량 ⭐' },
   { label: 'Qwen2.5 1.5B', repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', hint: '1GB · 가벼움' },
-  { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형' },
-  { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 똑똑함' },
+  { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형(8GB OK)' },
+  { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 16GB+ 권장' },
 ];

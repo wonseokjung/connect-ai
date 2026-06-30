@@ -374,6 +374,15 @@
       <div class="ai-current" id="aiCurrent"></div>
       <div class="ai-sec">내 모델</div>
       <div class="local-models" id="localModels"></div>
+      <div class="ai-sec">🔌 AI 엔진 <span class="muted small" style="font-weight:400">— PC가 약하면 LM Studio·Ollama로</span></div>
+      <div class="engine-box" id="engineBox">
+        <div class="eng-status" id="engStatus">엔진 확인 중…</div>
+        <div class="eng-acts">
+          <button class="oc-primary" id="engDetectBtn">🔌 LM Studio·Ollama 연결 확인</button>
+          <a class="eng-guide" id="engGuide" title="설치·실행 방법">설치 방법</a>
+        </div>
+        <div class="muted small" id="engHint">💡 내장 엔진이 안 켜지면(저사양·8GB PC) <b>LM Studio</b>나 <b>Ollama</b>를 켜고 모델 1개 로드 → 위 버튼 → 앱이 자동으로 그걸 써요. (예전 익스텐션과 같은 방식)</div>
+      </div>
       <button class="surgery-entry" id="surgeryOpenBtn"><span class="se-ic">🧬</span><span class="se-tx"><b>AI 진화소</b><span>두 두뇌를 하나로 — 합치기</span></span><span class="se-arr">→</span></button>
       <div class="ai-sec">검색</div>
       <div class="hf-search">

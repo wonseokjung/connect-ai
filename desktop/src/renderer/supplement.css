@@ -2179,3 +2179,10 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .surg-compat b { font-weight: 800; }
 @keyframes compatShake { 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }
 .train-baseline { margin-bottom:6px; padding:6px 9px; border-radius:8px; background:rgba(0,229,255,.1); border:1px solid rgba(0,229,255,.3); font-size:12px; color:#cdf3f8; }
+/* 🔌 AI 엔진 박스 (내장/LM Studio/Ollama 상시 표시) */
+.engine-box { padding: 10px; border: 1px solid rgba(0,200,220,.3); border-radius: 12px; background: rgba(0,40,46,.16); margin-bottom: 10px; }
+.engine-box .eng-status { font-size: 13px; color: #eafff0; margin-bottom: 8px; }
+.engine-box .eng-acts { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.engine-box .eng-acts .oc-primary { flex: 0 0 auto; }
+.engine-box .eng-guide { font-size: 12px; color: #00e5ff; cursor: pointer; text-decoration: underline; }
+.engine-box .eng-acts .eng-guide:hover { color: #5af0ff; }
