@@ -2188,3 +2188,12 @@ details.mentor-bar > .mentor-form { margin-top: 8px; }
 .engine-box .eng-acts .eng-guide:hover { color: #5af0ff; }
 .dex-link { color: #00e5ff; cursor: pointer; text-decoration: underline; font-weight: 600; }
 .dex-link:hover { color: #5af0ff; }
+.engine-box .eng-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 5px; }
+.engine-box .eng-steps > div { font-size: 12px; color: #dbe6f0; line-height: 1.45; }
+.engine-box .eng-steps code { background: rgba(0,0,0,.35); padding: 1px 5px; border-radius: 4px; }
+/* 🎯 추천 두뇌 RAM 맞춤 배지 */
+.reco-fit { font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 8px; margin-left: 6px; vertical-align: 1px; }
+.reco-fit.best { background: rgba(0,255,65,.15); color: #00FF41; border: 1px solid rgba(0,255,65,.45); }
+.reco-fit.heavy { background: rgba(255,80,80,.12); color: #ff9a9a; border: 1px solid rgba(255,80,80,.4); }
+.reco-card.heavy { opacity: .55; }
+.reco-card.heavy .reco-get:disabled { cursor: not-allowed; }

@@ -56,8 +56,21 @@ export async function downloadGGUF(repo: string, filePath: string, destDir: stri
     const now = Date.now();
     if (now - lastTick > 300 || (total && received >= total)) { lastTick = now; onProgress({ received, total, percent: total ? Math.round((received / total) * 100) : 0 }); }
   });
-  await new Promise<void>((resolve, reject) => { r.data.pipe(ws); ws.on('finish', () => resolve()); ws.on('error', reject); r.data.on('error', reject); });
-  fs.renameSync(tmp, out);
+  try {
+    await new Promise<void>((resolve, reject) => {
+      r.data.pipe(ws);
+      ws.on('finish', () => resolve());
+      ws.on('error', reject);
+      r.data.on('error', reject);
+      r.data.on('aborted', () => reject(new Error('다운로드가 중단됐어요 — 네트워크 확인 후 다시 받아주세요')));   // 🩹 CDN 끊김이 error 없이 끝나면 영원히 대기하던 것 방지
+    });
+    // 🛡️ 무결성 — 조기 종료로 잘린 파일을 .gguf 로 두면 "모델을 못 켰어요"만 반복(재다운로드도 불가). 크기 검증 후에만 완성 처리.
+    if (total && received < total) throw new Error(`다운로드가 중간에 끊겼어요 (${Math.round(received / 1e6)}MB/${Math.round(total / 1e6)}MB) — 다시 받아주세요`);
+    fs.renameSync(tmp, out);
+  } catch (e) {
+    try { ws.destroy(); fs.unlinkSync(tmp); } catch { /* 찌꺼기 정리 실패는 무시 */ }
+    throw e;
+  }
   onProgress({ received: total || received, total: total || received, percent: 100 });
   return out;
 }
@@ -95,9 +108,9 @@ export function deleteLocalModel(filePath: string): boolean {
 }
 
 // 비개발자용 추천(잘 지원되고 가벼운 모델). 한 번 클릭으로 받게.
-export const RECOMMENDED: { label: string; repo: string; hint: string }[] = [
-  { label: 'Llama 3.2 1B', repo: 'bartowski/Llama-3.2-1B-Instruct-GGUF', hint: '0.8GB · 8GB PC·초경량 ⭐' },
-  { label: 'Qwen2.5 1.5B', repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', hint: '1GB · 가벼움' },
-  { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형(8GB OK)' },
-  { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 16GB+ 권장' },
+export const RECOMMENDED: { label: string; repo: string; hint: string; sizeGB: number }[] = [
+  { label: 'Llama 3.2 1B', repo: 'bartowski/Llama-3.2-1B-Instruct-GGUF', hint: '0.8GB · 초경량', sizeGB: 0.8 },
+  { label: 'Qwen2.5 1.5B', repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', hint: '1GB · 가벼움', sizeGB: 1.0 },
+  { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형', sizeGB: 2.0 },
+  { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 똑똑함', sizeGB: 4.5 },
 ];

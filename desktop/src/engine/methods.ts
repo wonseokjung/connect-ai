@@ -78,7 +78,10 @@ function nbDPO(datasetRepo: string, base: string, out: string, rank: number, qua
     md(['## 🎯 DPO 학습\n', '`beta`(0.1)는 원래 모델에서 얼마나 벗어날지. 작을수록 보수적.\n']),
     code([
       'from trl import DPOTrainer, DPOConfig\n',
-      'trainer = DPOTrainer(model=model, ref_model=None, tokenizer=tokenizer, train_dataset=ds,\n',
+      'import inspect\n',
+      '# trl 0.16+ 는 tokenizer= 대신 processing_class= — 설치된 버전에 맞춰 자동 (구버전 Colab 호환)\n',
+      '_tk = {"processing_class": tokenizer} if "processing_class" in inspect.signature(DPOTrainer.__init__).parameters else {"tokenizer": tokenizer}\n',
+      'trainer = DPOTrainer(model=model, ref_model=None, train_dataset=ds, **_tk,\n',
       '    args=DPOConfig(per_device_train_batch_size=1, gradient_accumulation_steps=4, warmup_steps=5,\n',
       '        max_steps=30, learning_rate=5e-5, beta=0.1, logging_steps=1, optim="adamw_8bit",\n',
       '        lr_scheduler_type="linear", seed=3407, report_to="none"))\n',

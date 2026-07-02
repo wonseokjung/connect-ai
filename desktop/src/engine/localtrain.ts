@@ -26,7 +26,9 @@ export function buildLocalTrainScript(base: string, paths: LocalTrainPaths, opts
   const epochs = opts.epochs || 8;
   const warmup = opts.warmup ?? 5;
   const maxSeq = opts.maxSeq || 1024;
-  const quant = (opts.quant && /^q8_0$|^f16$|^q4_k_m$/i.test(opts.quant)) ? opts.quant.toLowerCase() : 'q8_0';
+  // ⚠️ convert_hf_to_gguf.py 는 f32/f16/bf16/q8_0 만 받음 — q4_k_m 은 별도 llama-quantize 필요라 로컬에선 q8_0 으로 매핑
+  const rawQ = (opts.quant || '').toLowerCase();
+  const quant = rawQ === 'f16' ? 'f16' : 'q8_0';
   // 로컬(특히 CPU)은 느리니 step을 보수적으로 클램프
   const maxSteps = opts.maxSteps || Math.max(30, Math.min(150, Math.round((dataCount / 4) * epochs)));
   const DATA = fwd(paths.dataJsonl), OUT = fwd(paths.outGguf), WORK = fwd(paths.workDir);
@@ -82,7 +84,8 @@ from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training, Pe
 has_cuda = torch.cuda.is_available()
 has_mps  = bool(getattr(torch.backends, "mps", None)) and torch.backends.mps.is_available()
 device   = "cuda" if has_cuda else ("mps" if has_mps else "cpu")
-dtype    = torch.float16 if (has_cuda or has_mps) else torch.float32
+# MPS/CPU는 fp32 — AMP(loss scaling) 없는 순수 fp16 학습은 NaN 위험 (작은 모델이라 fp32도 OK)
+dtype    = torch.float16 if has_cuda else torch.float32
 print(f"🖥️  장치: {device}  ({'NVIDIA GPU' if has_cuda else 'Apple GPU(MPS)' if has_mps else 'CPU(느림)'})", flush=True)
 if device == "cpu":
     print("  ⚠️ GPU가 없어 CPU로 학습합니다 — 느려요. 작은 모델·적은 데이터로 테스트하세요.", flush=True)
@@ -120,12 +123,15 @@ lconf = LoraConfig(r=RANK, lora_alpha=ALPHA, lora_dropout=DROPOUT, bias="none", 
                    target_modules=["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"])
 model = get_peft_model(model, lconf)
 from trl import SFTTrainer, SFTConfig
+import inspect
+_p = inspect.signature(SFTConfig.__init__).parameters
+_seqkw = "max_length" if "max_length" in _p else "max_seq_length"   # trl 0.16+ 은 max_length (구버전 호환)
 cfg = SFTConfig(output_dir=os.path.join(WORK, "out"), dataset_text_field="text",
                 per_device_train_batch_size=1, gradient_accumulation_steps=4,
                 warmup_steps=WARMUP, max_steps=MAXSTEPS, learning_rate=LR,
                 logging_steps=1, optim="adamw_torch", weight_decay=0.001,
-                lr_scheduler_type="linear", seed=3407, report_to="none", max_seq_length=MAXSEQ,
-                fp16=has_cuda, bf16=False)
+                lr_scheduler_type="linear", seed=3407, report_to="none",
+                fp16=has_cuda, bf16=False, **{_seqkw: MAXSEQ})
 trainer = SFTTrainer(model=model, train_dataset=ds, args=cfg)
 stats = trainer.train()
 print("🎉 학습 완료! loss:", round(float(stats.training_loss), 4), flush=True)
@@ -138,6 +144,9 @@ del model, trainer
 try:
     import gc; gc.collect()
     if has_cuda: torch.cuda.empty_cache()
+    if has_mps:
+        try: torch.mps.empty_cache()   # 🍎 MPS 캐시도 비워야 병합 때 베이스+병합본 이중 로드로 스왑/OOM 안 남
+        except Exception: pass
 except Exception: pass
 # 깨끗한 fp16 베이스에 어댑터를 얹어 병합(4bit 병합 품질 문제 회피)
 base_fp = AutoModelForCausalLM.from_pretrained(BASE, torch_dtype=torch.float16)

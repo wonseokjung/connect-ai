@@ -339,7 +339,7 @@ const inputEl = $('input') as HTMLTextAreaElement;
 function sendFromInput() { if (!inputEl.value.trim() && !attachments.length) return; ask(inputEl.value); inputEl.value = ''; inputEl.style.height = 'auto'; }
 $('sendBtn').addEventListener('click', sendFromInput);
 $('stopBtn').addEventListener('click', () => { connect.stop(); hint('중단하는 중…'); });
-inputEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendFromInput(); } });
+inputEl.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendFromInput(); } });   // !isComposing = 한글 조합 중 Enter 무시
 inputEl.addEventListener('input', () => { inputEl.style.height = 'auto'; inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + 'px'; });
 $('newChatBtn').addEventListener('click', async () => { await connect.reset(); $('chat').innerHTML = ''; greet(); hint('새 대화를 시작했어요'); });
 
@@ -376,7 +376,13 @@ async function refreshEngine() {
   const el = $('engStatus'); if (!el) return;
   el.textContent = '엔진 확인 중…';
   let r: any = null; try { r = await connect.listModels?.(); } catch { /* */ }
-  if (!r || !r.base) { el.innerHTML = '⚪ 아직 연결된 엔진 없음 — <b>내 모델</b>에서 켜거나, LM Studio·Ollama를 켜고 아래 버튼을 누르세요'; return; }
+  if (!r || !r.base) {
+    el.innerHTML = '⚪ <b>켜진 AI 엔진이 없어요.</b> 아래 셋 중 하나로 켠 뒤 [연결 확인] 버튼:'
+      + '<div class="eng-steps"><div>① 위 <b>내 모델</b>에서 모델 받아 켜기 <span class="muted">(우리 내장 엔진)</span></div>'
+      + '<div>② <b>LM Studio</b>: 앱 열고 → <b>Developer(개발자) 탭 → Start Server</b> → 모델 로드 <span class="muted">⚠️ 그냥 열기만 하면 안 잡혀요! Start Server를 꼭 눌러야 함</span></div>'
+      + '<div>③ <b>Ollama</b>: 실행 + 모델 하나 <span class="muted">(터미널: <code>ollama run llama3.2</code>)</span></div></div>';
+    return;
+  }
   const b = String(r.base);
   const kind = /:1234(\/|$)/.test(b) ? '🟢 LM Studio (외부)' : /:11434/.test(b) ? '🟢 Ollama (외부)' : /:1235(\/|$)/.test(b) ? '🤖 내장 엔진' : (r.engine === 'gemini' ? '☁️ Gemini' : '🟢 외부 엔진');
   const loaded = r.loaded ? ` · 모델: ${escapeHtml(r.loaded)}` : (r.models?.length ? ` · ${r.models.length}개 사용가능` : '');
@@ -386,8 +392,9 @@ async function refreshEngine() {
 $('engDetectBtn')?.addEventListener('click', async () => {
   const el = $('engStatus'); if (el) el.textContent = '🔌 LM Studio·Ollama 찾는 중…';
   await refreshEngine();
-  const txt = $('engStatus')?.textContent || '';
-  hint(/LM Studio|Ollama/.test(txt) ? '✅ 외부 엔진 연결됨 — 이걸 써요' : 'LM Studio나 Ollama를 켜고 모델 1개를 로드한 뒤 다시 눌러주세요');
+  // ⚠️ 실패 안내문에도 "LM Studio/Ollama/내장" 단어가 들어가 정규식이 항상 성공으로 오판했음 → 성공 전용 접두("현재 엔진:")로만 판정
+  const ok = ($('engStatus')?.textContent || '').startsWith('현재 엔진:');
+  hint(ok ? '✅ 엔진 연결됨 — 이걸 써요' : '⚠️ LM Studio는 [Developer 탭 → Start Server]를 눌러야 잡혀요 · Ollama는 실행+모델 하나. 그다음 다시 눌러주세요');
 });
 $('engGuide')?.addEventListener('click', () => connect.openExternal?.('https://lmstudio.ai'));
 $('dexLink')?.addEventListener('click', () => connect.openExternal?.('https://www.aicitybuilders.com/dex/'));   // 📖 AI 모델 도감
@@ -1227,7 +1234,10 @@ async function loadLocalAI() {
     `<button class="lm-use oc-primary" data-path="${encodeURIComponent(m.path)}">${m.path === liveCur ? '사용 중' : (m.path === cur && _localStatus?.error ? '🔁 다시 켜기' : '사용')}</button>` +
     `<button class="lm-del" data-del="${encodeURIComponent(m.path)}" data-rm="${m.removable ? 1 : 0}" data-nm="${escAttr(m.name)}" data-sz="${fmtGB(m.size)}" data-src="${escAttr(m.source || '')}" title="삭제">🗑️</button></div>`).join('')
     : (recos.length
-      ? `<div class="muted small" style="margin-bottom:8px">받은 두뇌가 없어요. 추천 두뇌를 한 번에 받으세요 👇</div>` + recos.map((r: any) => `<div class="reco-card" data-repo="${escAttr(r.repo)}"><div class="reco-info"><div class="reco-name">${escapeHtml(r.label)}</div><div class="reco-hint muted small">${escapeHtml(r.hint)}</div></div><button class="reco-get oc-primary">받기</button></div>`).join('')
+      ? `<div class="muted small" style="margin-bottom:8px">받은 두뇌가 없어요. 추천 두뇌를 한 번에 받으세요 👇 <span style="opacity:.7">(내 PC 메모리에 맞춰 표시)</span></div>` + recos.map((r: any) => {
+        const badge = r.fit === 'best' ? '<span class="reco-fit best">🎯 내 PC에 딱</span>' : r.fit === 'heavy' ? '<span class="reco-fit heavy">⛔ 내 PC엔 무거움</span>' : '';
+        return `<div class="reco-card${r.fit === 'heavy' ? ' heavy' : ''}" data-repo="${escAttr(r.repo)}"><div class="reco-info"><div class="reco-name">${escapeHtml(r.label)} ${badge}</div><div class="reco-hint muted small">${escapeHtml(r.hint)}</div></div><button class="reco-get oc-primary"${r.fit === 'heavy' ? ' disabled title="이 컴퓨터 메모리엔 커요 — 위 가벼운 모델을 받으세요"' : ''}>받기</button></div>`;
+      }).join('')
       : '<div class="muted small">받은 모델이 없어요. 아래 검색에서 받으세요.</div>'));
   // 📁 모델 저장 폴더 버튼 와이어링
   $('mdChange')?.addEventListener('click', async () => {
@@ -1237,7 +1247,10 @@ async function loadLocalAI() {
   });
   $('mdOpen')?.addEventListener('click', () => connect.localOpenModelsDir?.());
   $('mdReset')?.addEventListener('click', async () => { await connect.localResetModelsDir?.(); hint('기본 폴더로 되돌렸어요'); loadLocalAI(); });
-  $('localModels').querySelectorAll('.reco-card').forEach(c => c.addEventListener('click', () => pickRepo((c as HTMLElement).dataset.repo!)));
+  $('localModels').querySelectorAll('.reco-card').forEach(c => c.addEventListener('click', () => {
+    if ((c as HTMLElement).classList.contains('heavy')) { hint('⛔ 이 모델은 내 컴퓨터 메모리엔 커요 — 위의 가벼운 모델을 받아주세요'); return; }   // 버튼만 막고 카드는 뚫리던 구멍
+    pickRepo((c as HTMLElement).dataset.repo!);
+  }));
   $('localModels').querySelectorAll('.lm-use').forEach(b => b.addEventListener('click', async () => {
     if ((b as HTMLButtonElement).disabled) return;
     const p = decodeURIComponent((b as HTMLElement).dataset.path!);
@@ -1477,7 +1490,7 @@ async function renderDash() {
 async function loadServices() {
   const list = await connect.servicesList();
   $('svcList').innerHTML = list.length
-    ? list.map((s: any) => `<div class="svc-item"><div class="si-main"><div class="si-name">${escapeHtml(s.name)}</div>${s.url ? `<a class="si-url" href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}${s.repo ? `<div class="si-repo">💻 ${escapeHtml(s.repo)} <span class="si-repo-tag">코드 편집 가능</span></div>` : ''}${s.desc ? `<div class="si-desc">${escapeHtml(s.desc)}</div>` : ''}</div><button class="bn-x" data-id="${s.id}">✕</button></div>`).join('')
+    ? list.map((s: any) => `<div class="svc-item"><div class="si-main"><div class="si-name">${escapeHtml(s.name)}</div>${s.url && /^https?:\/\//i.test(s.url) ? `<a class="si-url" href="${escAttr(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}${s.repo ? `<div class="si-repo">💻 ${escapeHtml(s.repo)} <span class="si-repo-tag">코드 편집 가능</span></div>` : ''}${s.desc ? `<div class="si-desc">${escapeHtml(s.desc)}</div>` : ''}</div><button class="bn-x" data-id="${s.id}">✕</button></div>`).join('')
     : '<div class="muted" style="padding:16px;text-align:center">아직 등록한 서비스가 없어요. 위에 추가하세요.</div>';
   $('svcList').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.servicesDelete((b as HTMLElement).dataset.id); loadServices(); }));
 }
@@ -3655,12 +3668,12 @@ async function sendTopic() {
   const i = $('topicInput') as HTMLInputElement;
   const t = i.value.trim(); if (!t) return;
   if (!plazaJoined) { $('plazaStatus').textContent = '⚠️ 먼저 🏫 광장 입장부터 하세요!'; return; }
+  i.value = '';   // ⛔ await 전에 즉시 비움 — 한글 IME가 Enter를 두 번 쏴도 중복 등록 안 되게 (taskInput과 동일 패턴)
   const r = await connect.plazaTopic(t);
-  if (r && r.ok === false) { hint(r.notAdmin ? '🛡️ 주제 등록은 관리자(선생님)만 할 수 있어요.' : (r.error || '실패')); return; }
-  i.value = '';
+  if (r && r.ok === false) { hint(r.notAdmin ? '🛡️ 주제 등록은 관리자(선생님)만 할 수 있어요.' : (r.error || '실패')); i.value = t; return; }
 }
 $('topicBtn').addEventListener('click', sendTopic);
-$('topicInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter') sendTopic(); });
+$('topicInput').addEventListener('keydown', (e: any) => { if (e.key === 'Enter' && !e.isComposing) sendTopic(); });   // !isComposing = 한글 조합 중 Enter 무시
 
 // 🌾 지식 수확 + 🏅 기여도 (localStorage 누적) (localStorage 누적)
 function loadBoard(): Record<string, number> { try { return JSON.parse(localStorage.getItem('academy_board') || '{}'); } catch { return {}; } }

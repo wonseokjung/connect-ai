@@ -405,20 +405,42 @@ ipcMain.handle('app:relaunch', () => { app.relaunch(); app.exit(0); });
 const modelsDir = () => {
   const o = (loadConfig().modelsDirOverride || '').trim();   // 📁 사용자가 다른 드라이브/폴더로 바꿨으면 거기로 (윈도우 C: 용량 회피)
   if (o) { try { fs.mkdirSync(o, { recursive: true }); return o; } catch { /* 권한·경로 문제면 기본으로 폴백 */ } }
-  return path.join(app.getPath('userData'), 'models');
+  const def = path.join(app.getPath('userData'), 'models');
+  // 🇰🇷 윈도우 한글 사용자명(C:\Users\한글\...)이면 llama.cpp가 모델 파일을 못 여는 PC가 있음(JohnLee 제보)
+  //    → 항상 ASCII인 공용 경로(C:\Users\Public)로 저장. (기존 한글경로 모델은 local:models 가 목록에 같이 보여줌)
+  if (process.platform === 'win32' && /[^\x20-\x7E]/.test(def)) {
+    const pub = path.join(process.env.PUBLIC || 'C:\\Users\\Public', 'ConnectAI', 'models');
+    try { fs.mkdirSync(pub, { recursive: true }); return pub; } catch { /* 공용 경로 실패 → 기본 */ }
+  }
+  return def;
 };
+// 🗂️ 옛 기본 폴더(한글경로 등)에 이미 받아둔 모델도 목록에 병합 — 경로가 바뀌어도 모델이 "사라져 보이지" 않게
+const legacyModelsDir = () => { const def = path.join(app.getPath('userData'), 'models'); return def !== modelsDir() ? def : ''; };
 const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('local:status', s); } catch { /* */ } };   // 🏢 사무실 창 'Brain' 배지도 갱신되게
 onEngineStatus((s) => sendLocal(s));   // 🔁 GPU→CPU 폴백 등 엔진 진행 상황을 실시간으로 화면에 표시
 async function bootLocalEngine(modelPath: string) {
   const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN });
-  try { sendLocal({ ...localStatus(), loading: true }); await startLocalEngine(modelPath); saveConfig({ localModelPath: modelPath }); sendLocal(localStatus()); }
+  try {
+    sendLocal({ ...localStatus(), loading: true });
+    await startLocalEngine(modelPath);
+    // 🩹 다른 모델이 로딩 중이면 startLocalEngine 이 조용히 양보함 — 그때 config 에 이 모델을 저장하면
+    //    "실행 중인 모델 ≠ 저장된 모델"로 어긋나 다음 부팅에 엉뚱한 모델이 켜짐 → 실제로 그 모델일 때만 저장
+    const st = localStatus();
+    if (st.modelPath === modelPath) saveConfig({ localModelPath: modelPath });
+    sendLocal(st);
+  }
   catch (e: any) { sendLocal({ ...localStatus(), loading: false, error: String(e?.message || e) }); }
 }
 ipcMain.handle('local:status', () => localStatus());
 ipcMain.handle('local:base', () => LOCAL_BASE);
 ipcMain.handle('local:start', async (_e, modelPath: string) => { await bootLocalEngine(modelPath); return localStatus(); });
 ipcMain.handle('local:stop', async () => { await stopLocalEngine(); saveConfig({ localModelPath: '' }); const s = localStatus(); sendLocal(s); return s; });
-ipcMain.handle('local:models', () => listLocalModels(modelsDir()));
+ipcMain.handle('local:models', () => {
+  const cur = listLocalModels(modelsDir());
+  const legacy = legacyModelsDir();
+  if (!legacy) return cur;
+  try { const old = listLocalModels(legacy).filter(o => !cur.some(c2 => path.basename(c2.path) === path.basename(o.path))); return [...cur, ...old]; } catch { return cur; }
+});
 ipcMain.handle('local:modelsDir', () => ({ dir: modelsDir(), custom: !!(loadConfig().modelsDirOverride || '').trim() }));   // 📁 현재 모델 저장 폴더
 ipcMain.handle('local:pickModelsDir', async () => {   // 📁 다른 드라이브/폴더로 변경 (윈도우 C: 꽉 찰 때 D: 등으로)
   const r = await dialog.showOpenDialog(win!, { properties: ['openDirectory', 'createDirectory'], title: '모델을 저장할 폴더 선택 (예: D:\\ConnectAI-모델)' });
@@ -441,7 +463,15 @@ ipcMain.handle('local:setOptions', async (_e, o: any) => {
   return getLocalOptions();
 });
 ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
-ipcMain.handle('hf:recommended', () => RECOMMENDED);
+// 📖 추천 두뇌 + 내 PC RAM 맞춤 배지 — 사전차단(preflight)과 같은 공식으로 "딱/무거움" 표시 (도감 컨셉 인앱)
+ipcMain.handle('hf:recommended', () => {
+  const total = os.totalmem();
+  return RECOMMENDED.map(r => {
+    const need = r.sizeGB * 1e9;
+    const fit = (need * 1.25 + 3e9 > total || need > total * 0.85) ? 'heavy' : (r.sizeGB <= (total / 1e9) / 8 ? 'best' : 'ok');
+    return { ...r, fit };   // best=내 PC에 딱 · ok=가능 · heavy=너무 큼(못 켬)
+  });
+});
 ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
 // 🔍 HF 모델 검색 — 수술실에서 합칠 모델(gemma·llama 등) 찾기 (전체 모델, GGUF 아님)
 ipcMain.handle('hf:searchModels', async (_e, q: string) => {
@@ -1561,24 +1591,22 @@ async function fbAuth(kind: 'signUp' | 'signInWithPassword', email: string, pass
   } catch (e: any) { return { ok: false, error: authPretty(e) }; }
 }
 // 저장된 refreshToken → 새 idToken (로그인 유지)
-// _authNetErr: 직전 fbIdToken 실패가 '네트워크 일시오류'였는지(true) vs '진짜 만료/미로그인'(false)
-//   → 라이브 중 와이파이 끊김에 멀쩡히 로그인한 회원을 "다시 로그인"으로 내쫓지 않게.
-let _authNetErr = false;
-async function fbIdToken(): Promise<{ uid: string; email: string; idToken: string } | null> {
-  _authNetErr = false;
-  const c = loadConfig(); const key = fbApiKey(); if (!c.auth?.refreshToken || !key) return null;   // 미로그인
+// 네트워크 일시오류(true) vs 진짜 만료/미로그인(false)을 '호출별로' 구분 — 전역 플래그는 12초/20초 상태폴링의
+// fbIdToken 호출이 리셋해버려, 와이파이 깜빡임에 멀쩡히 로그인한 회원이 로그인창으로 쫓겨나는 레이스가 있었음.
+async function fbIdTokenEx(): Promise<{ user: { uid: string; email: string; idToken: string } | null; netErr: boolean }> {
+  const c = loadConfig(); const key = fbApiKey(); if (!c.auth?.refreshToken || !key) return { user: null, netErr: false };   // 미로그인
   try {
     const r = await axios.post(`https://securetoken.googleapis.com/v1/token?key=${key}`, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: c.auth.refreshToken }), { timeout: 15000 });
     const d = r.data; if (d.refresh_token && d.refresh_token !== c.auth.refreshToken) saveConfig({ auth: { ...c.auth, refreshToken: d.refresh_token } });
-    return { uid: d.user_id || c.auth.uid, email: c.auth.email, idToken: d.id_token };
+    return { user: { uid: d.user_id || c.auth.uid, email: c.auth.email, idToken: d.id_token }, netErr: false };
   } catch (e: any) {
     const st = e?.response?.status; const body = String(e?.response?.data?.error?.message || e?.response?.data?.error || '');
-    // 진짜 만료/무효(토큰 거부) → 재로그인 필요(null)
-    if (st === 400 || /TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_NOT_FOUND|USER_DISABLED|INVALID_GRANT|invalid_grant/i.test(body)) return null;
-    _authNetErr = true;   // 네트워크·타임아웃·5xx → 로그인은 유지, 일시 오류
-    return null;
+    // 진짜 만료/무효(토큰 거부) → 재로그인 필요
+    if (st === 400 || /TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_NOT_FOUND|USER_DISABLED|INVALID_GRANT|invalid_grant/i.test(body)) return { user: null, netErr: false };
+    return { user: null, netErr: true };
   }
 }
+async function fbIdToken(): Promise<{ uid: string; email: string; idToken: string } | null> { return (await fbIdTokenEx()).user; }
 ipcMain.handle('auth:signup', async (_e, email: string, password: string, profile?: any) => await fbAuth('signUp', (email || '').trim(), password || '', profile));
 ipcMain.handle('auth:login', async (_e, email: string, password: string) => await fbAuth('signInWithPassword', (email || '').trim(), password || ''));
 ipcMain.handle('auth:logout', () => { saveConfig({ auth: undefined } as any); return { ok: true }; });
@@ -1911,30 +1939,32 @@ ipcMain.handle('train:cloud', async (_e, accessCode = '', modelName = '', opts: 
   const picked = (opts?.baseModel || c.trainBaseSel || '').trim();
   const base = (picked && picked.includes('/')) ? picked : (c.trainBaseModel || guessBase(c.llmModel));
   const wantName = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/-{2,}/g, '-').replace(/^[-.]+|[-.]+$/g, '') || autoModelName(base, c.brainModelName);
-  saveConfig({ brainModelName: wantName });
+  // (이름 저장은 잡이 '성공'했을 때만 — 실패해도 v2/v3 로 이름만 올라가던 것 방지)
+  // 🚧 학습/진화는 상태창(cloudJob)을 공유 — 진화가 진행 중이면 겹쳐 쓰지 않게 차단 (진행표시·설치가 뒤섞이던 버그)
+  const oj: any = c.cloudJob;
+  if (oj && oj.kind === 'merge' && Date.now() - (oj.ts || 0) < 30 * 60e3) return { ok: false, error: '🧬 AI 진화가 진행 중이에요 — 끝난 뒤(또는 🚫 취소 후) 학습을 시작해주세요.' };
   const backend = trainBackendBase(c);
   // ── 서비스 모드(무료 백엔드) 우선 — 실패하면 내 HF 토큰(HF Jobs)으로 폴백 ──
   const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
     const jsonl = lastBrainJsonl || brainToJsonl();
     if (!jsonl) return { ok: false, error: '두뇌에 지식이 없어요. 먼저 지식을 쌓으세요.' };
-    const user = await fbIdToken();
+    const { user, netErr } = await fbIdTokenEx();
     // 🆓 무료 서버 우선 — 본인 토큰이 있어도 로그인하면 우리 서버에서 무료. (옛 레슨 따라 토큰 넣은 회원이 결제벽에 빠지지 않게)
-    if (fbApiKey() && !user && _authNetErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
+    if (fbApiKey() && !user && netErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 학습됩니다. 또는 🆓 무료로 시작(코랩)을 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/train`, { userId: user?.uid || installId(), idToken: user?.idToken, jsonl, accessCode, userHfToken: connOf('huggingface').HF_TOKEN || '', baseModel: base, outName: wantName }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유) + 고른 베이스·이름 전달
         const d = r.data || {};
-        if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); recordCreatedModel('train', d.outputRepo || '', '', c.trainBaseModel); saveConfig({ cloudJob: { backend: true, outRepo: (d.outputRepo || '') } }); return { ...d, viaBackend: true }; }
-        if (!hasHf) return { ...d, viaBackend: true };   // 백엔드가 거절 + HF 없음 → 백엔드 응답 그대로
+        if (d.ok) { gpuUse('train', accessCode); bumpStat('train'); saveConfig({ brainModelName: wantName, cloudJob: { backend: true, kind: 'train', outRepo: (d.outputRepo || ''), ts: Date.now() } }); recordCreatedModel('train', d.outputRepo || '', '', base); return { ...d, viaBackend: true }; }
+        return { ...d, viaBackend: true };   // 백엔드가 명확히 거절(코드·로그인·토큰·캡) → 그대로 안내. 직접모드 폴백 금지(이중 실행·이중 카운트·회원 계정 과금 방지)
       } catch (e: any) {
         const st = e?.response?.status;
-        if (!hasHf) return { ok: false, error: `학습 서버가 잠시 불안정해요(${st || '네트워크'}). 🗂️ 연동에 HuggingFace 토큰을 넣으면 내 계정(HF Jobs)으로 바로 학습돼요.` };
-        // HF 토큰 있음 → 아래 직접 모드(HF Jobs)로 폴백
+        // ⚠️ 네트워크/타임아웃 — 백엔드가 잡을 이미 받았을 수 있음 → 직접모드로 겹쳐 쏘면 잡 2개·카운트 2번. 폴백하지 않고 재시도 안내.
+        return { ok: false, error: `학습 서버 응답이 늦어요(${st || '네트워크'}). 이미 시작됐을 수 있으니 1분 뒤 상태를 확인하거나 다시 시도해주세요. (🆓 무료 코랩은 항상 가능)` };
       }
     }
-    // 여기로 오면: 백엔드 실패/거절 + HF 토큰 있음 → 직접 모드로 폴백
   }
   // ── 직접 모드 — 사용자 본인 HF Pro 토큰 (검증/파워유저용) ──
   const h = connOf('huggingface');
@@ -2000,14 +2030,17 @@ async function precheckMerge(a: string, b: string, token = ''): Promise<{ ok: bo
   const headers: any = token ? { Authorization: `Bearer ${token}` } : undefined;   // 🔑 회원 토큰 — 본인 비공개/게이트 모델도 미리검사 되게
   async function info(repo: string) {
     try {
-      const m: any = await axios.get(`https://huggingface.co/api/models/${encodeURIComponent(repo).replace(/%2F/g, '/')}`, { timeout: 12000, headers });
-      const files: string[] = (m.data?.siblings || []).map((s: any) => s.rfilename || '');
-      const hasSafe = files.some((f) => f.endsWith('.safetensors'));
-      const hasAdapter = files.some((f) => f === 'adapter_config.json' || f.endsWith('adapter_model.safetensors'));
+      // 모델정보+config 병렬 (직렬 12s×2 로 UI가 오래 멈추던 것 단축)
+      const [m, cfgR] = await Promise.all([
+        axios.get(`https://huggingface.co/api/models/${encodeURIComponent(repo).replace(/%2F/g, '/')}`, { timeout: 12000, headers }),
+        axios.get(`https://huggingface.co/${repo}/raw/main/config.json`, { timeout: 12000, headers }).catch(() => null),
+      ]);
+      const files: string[] = ((m as any).data?.siblings || []).map((s: any) => s.rfilename || '');
+      // 서버(merge_uv.py)와 동일 기준: safetensors 또는 pytorch_model*.bin(옛 모델) = 풀 가중치 (bin만 있는 정상 모델을 막지 않게)
+      const hasSafe = files.some((f) => f.endsWith('.safetensors') && !f.startsWith('adapter')) || files.some((f) => f.endsWith('.bin') && f.includes('pytorch_model'));
+      const hasAdapter = files.includes('adapter_config.json') && files.some((f) => f.startsWith('adapter_model.'));   // 서버는 config+가중치 둘 다 필요
       const hasGguf = files.some((f) => f.toLowerCase().endsWith('.gguf'));
-      let cfg: any = null;
-      try { const c: any = await axios.get(`https://huggingface.co/${repo}/raw/main/config.json`, { timeout: 12000, headers }); cfg = c.data; } catch { /* config 없을 수 있음 */ }
-      return { exists: true, hasSafe, hasAdapter, hasGguf, cfg };
+      return { exists: true, hasSafe, hasAdapter, hasGguf, cfg: (cfgR as any)?.data || null };
     } catch { return { exists: false } as any; }
   }
   const [ia, ib] = await Promise.all([info(a), info(b)]);
@@ -2035,22 +2068,23 @@ ipcMain.handle('surgery:merge', async (_e, modelA: string, modelB: string, metho
   if (!pc.ok) return { ok: false, error: pc.error };
   const c = loadConfig();
   // ── 우리 서버(무료 백엔드) 우선 — 제공자(사장님) HF Pro 토큰으로 HF Job 실행. 회원 본인 토큰 안 씀(학습과 동일) ──
+  // 🚧 학습이 진행 중이면 상태창(cloudJob)을 겹쳐 쓰지 않게 차단 (진행표시·설치가 뒤섞여 엉뚱한 모델을 받던 버그)
+  const ojm: any = c.cloudJob;
+  if (ojm && ojm.kind !== 'merge' && ojm.backend !== undefined && Date.now() - (ojm.ts || 0) < 30 * 60e3) return { ok: false, error: '🌱 학습이 진행 중이에요 — 끝난 뒤(또는 🚫 취소 후) 진화를 시작해주세요.' };
   const backend = trainBackendBase(c);
-  const hasHf = !!connOf('huggingface').HF_TOKEN;
   if (backend) {
-    const user = await fbIdToken();
-    if (fbApiKey() && !user && _authNetErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
+    const { user, netErr } = await fbIdTokenEx();
+    if (fbApiKey() && !user && netErr) return { ok: false, error: '⚠️ 네트워크가 잠시 불안정해요. 로그인은 유지되니 잠시 후 다시 눌러주세요.' };
     if (fbApiKey() && !user) return { ok: false, needLogin: true, error: '회원으로 로그인하시면 우리 서버에서 무료로 진화됩니다. 또는 🆓 무료로 직접 하기(Colab)를 이용하세요.' };
     if (!fbApiKey() || user) {
       try {
         const r = await axios.post(`${backend}/merge`, { userId: user?.uid || installId(), idToken: user?.idToken, accessCode: password, modelA, modelB, method, t: String(t), outName, userHfToken: connOf('huggingface').HF_TOKEN || '' }, { timeout: 60000 });   // 🎁 회원 HF 연동 시 결과를 회원 계정에(소유)
         const d = r.data || {};
         if (d.ok) { gpuUse('surgery', password); bumpStat('fusion'); recordCreatedModel('fusion', d.outputRepo || '', outName, `${modelA}+${modelB}`); saveConfig({ cloudJob: { backend: true, kind: 'merge', id: d.jobId, namespace: d.namespace, outRepo: d.outputRepo || '', ts: Date.now() } }); return { ...d, viaBackend: true, modelRepo: d.modelRepo || `https://huggingface.co/${d.outputRepo}` }; }
-        if (!hasHf) return { ...d, viaBackend: true };   // 백엔드 거절(코드·로그인·캡) + 본인 HF 없음 → 그대로 안내
+        return { ...d, viaBackend: true };   // 백엔드가 명확히 거절 → 그대로 안내. 직접모드 폴백 금지(잡 2개·카운트 2번·회원 계정 과금 방지)
       } catch (e: any) {
         const st = e?.response?.status;
-        if (!hasHf) return { ok: false, error: `진화 서버가 잠시 불안정해요(${st || '네트워크'}). 잠시 후 다시 시도하거나 🆓 무료로 직접 하기(Colab)를 쓰세요.` };
-        // 본인 HF 토큰 있으면 아래 직접 모드로 폴백(파워유저)
+        return { ok: false, error: `진화 서버 응답이 늦어요(${st || '네트워크'}). 이미 시작됐을 수 있으니 1분 뒤 상태를 확인하거나 다시 시도해주세요. (🆓 무료로 직접 하기는 항상 가능)` };
       }
     }
   }
@@ -2110,9 +2144,10 @@ ipcMain.handle('surgery:notebook', async (_e, modelA = '', modelB = '', method =
 ipcMain.handle('cloud:cancel', async () => {
   const c: any = loadConfig(); const j = c.cloudJob; const h = connOf('huggingface');
   let cancelled = false;
-  if (j?.id && j?.namespace && h.HF_TOKEN) { try { cancelled = await cancelJob(h.HF_TOKEN, j.namespace, j.id); } catch { /* */ } }
+  if (j?.id && j?.namespace && h.HF_TOKEN && !j?.backend) { try { cancelled = await cancelJob(h.HF_TOKEN, j.namespace, j.id); } catch { /* */ } }   // 직접모드 잡만 원격취소 가능
   saveConfig({ cloudJob: null } as any);
-  return { ok: true, cancelled };
+  // 🩹 정직한 안내 — 백엔드(서버) 잡은 원격 취소가 안 됨: 상태만 지워지고 서버 작업은 그대로 끝까지 감(카운트도 유지)
+  return { ok: true, cancelled, note: cancelled ? undefined : (j?.backend ? '서버 작업 자체는 계속 진행돼요 — 여기 상태 표시만 지웠어요. (완료되면 HF 계정에 결과가 올라와요)' : undefined) };
 });
 ipcMain.handle('memstatus', async () => {
   const g = connOf('github'), h = connOf('huggingface');
@@ -2285,6 +2320,14 @@ ipcMain.handle('train:notebook', async (_e, modelName?: string, opts?: any) => {
   catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });
 // 💻 내 컴퓨터에서 직접 학습 — Colab/서버 없이 (Windows=CUDA·Mac=MPS·CPU 자동). 진행은 앱 내장 터미널에 출력.
+// 💻 로컬 학습 전용 프로세스 슬롯 — 공유 터미널(termProc)과 분리 (터미널 명령이 학습을 죽이지 않게)
+let _trainLocalProc: ChildProcess | null = null;
+function killTrainLocal() {
+  const p = _trainLocalProc; if (!p) return;
+  _trainLocalProc = null;
+  try { if (process.platform === 'win32' && p.pid) spawn('taskkill', ['/pid', String(p.pid), '/T', '/F']); else { p.kill(); if (p.pid) { try { process.kill(-p.pid, 'SIGTERM'); } catch { /* */ } } } } catch { /* */ }
+}
+app.on('before-quit', killTrainLocal);
 ipcMain.handle('train:local', async (_e, modelName?: string, opts?: any) => {
   try {
     const c: any = loadConfig();
@@ -2292,10 +2335,16 @@ ipcMain.handle('train:local', async (_e, modelName?: string, opts?: any) => {
     const jsonl = lastBrainJsonl || brainToConversationsJsonl();   // ① 변환했으면 그걸, 아니면 지식 그대로
     if (!jsonl) return { ok: false, error: '학습할 내용이 너무 짧아요 — 문장 단위로 좀 더 쌓아주세요.' };
     const dataCount = jsonl.split('\n').filter(Boolean).length;
-    // 🐍 파이썬 확인 (로컬 학습 필수)
+    // 🐍 파이썬 확인 (로컬 학습 필수) — 3.10+ 만 통과 (2.x·3.8이 exit 0 으로 통과해 10분 pip 후에 죽던 것 방지)
     let pyCmd = process.platform === 'win32' ? 'python' : 'python3';
-    const tryPy = (cmd: string) => { try { const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 8000 }); return r.status === 0 || /python\s*3/i.test(((r.stdout || '') + (r.stderr || ''))); } catch { return false; } };
-    if (!tryPy(pyCmd)) { const alt = process.platform === 'win32' ? ['py', 'python3'] : ['python']; let found = ''; for (const a of alt) { if (tryPy(a)) { found = a; break; } } if (found) pyCmd = found; else return { ok: false, error: '파이썬(3.10+)이 필요해요. https://www.python.org/downloads 에서 설치 후 다시 시도하세요. (설치 시 "Add to PATH" 체크)' }; }
+    const tryPy = (cmd: string) => {
+      try {
+        const r = spawnSync(cmd, ['--version'], { encoding: 'utf8', timeout: 8000 });
+        const m = ((r.stdout || '') + (r.stderr || '')).match(/Python\s+(\d+)\.(\d+)/i);
+        return !!m && +m[1] === 3 && +m[2] >= 10;
+      } catch { return false; }
+    };
+    if (!tryPy(pyCmd)) { const alt = process.platform === 'win32' ? ['py', 'python3'] : ['python']; let found = ''; for (const a of alt) { if (tryPy(a)) { found = a; break; } } if (found) pyCmd = found; else return { ok: false, error: '파이썬 3.10 이상이 필요해요. https://www.python.org/downloads 에서 설치 후 다시 시도하세요. (설치 시 "Add to PATH" 체크)' }; }
     const picked = (opts?.baseModel || c.trainBaseSel || '').trim();   // opts 우선, 없으면 저장된 선택(config)
     const base = (picked && picked.includes('/')) ? picked : localBase(guessBase(c.llmModel));   // 🤖 고른 모델 우선, 없으면 로컬용 가벼운 베이스로 자동 다운시프트
     const name = (modelName || '').trim().replace(/[^a-zA-Z0-9._-]/g, '-').replace(/^-+|-+$/g, '') || autoModelName(base, c.brainModelName);
@@ -2309,10 +2358,19 @@ ipcMain.handle('train:local', async (_e, modelName?: string, opts?: any) => {
     fs.writeFileSync(scriptPath, buildLocalTrainScript(base, { dataJsonl, outGguf, workDir }, opt as any, dataCount), 'utf8');
     saveConfig({ brainModelName: name, trainOpts: opt } as any);
     // 터미널에 표시하고 실행 (스트리밍 = 실패는 시끄럽게)
+    // ⚠️ 전용 프로세스 슬롯 — spawnInTerminal(공유 termProc)을 쓰면 터미널 명령·서버 실행·에이전트가 killTerm으로
+    //    몇 시간짜리 학습을 소리 없이 죽였음. 학습은 자체 슬롯: 새 학습만 이전 학습을 교체.
     try { win?.webContents.send('term:show'); } catch { /* */ }
     termSend('cmd', `$ 💻 내 컴퓨터에서 학습 시작 — 베이스 ${base} → ${name}.gguf`);
-    const child = spawnInTerminal(`${pyCmd} "${scriptPath}"`, workDir);
+    killTrainLocal();   // 같은 기능(학습) 재클릭만 이전 학습 교체
+    let child: ChildProcess | null = null;
+    try { child = spawn(`${pyCmd} "${scriptPath}"`, { cwd: workDir, shell: true, detached: process.platform !== 'win32', env: { ...process.env, PYTHONUNBUFFERED: '1' } }); } catch { child = null; }
     if (!child) return { ok: false, error: '학습 프로세스를 시작하지 못했어요. (터미널 확인)' };
+    _trainLocalProc = child;
+    child.stdout?.on('data', (d: Buffer) => termSend('out', d.toString('utf8')));
+    child.stderr?.on('data', (d: Buffer) => termSend('out', d.toString('utf8')));
+    child.on('error', (e) => termSend('out', `학습 오류: ${e?.message || e}`));
+    child.on('exit', (code) => { if (_trainLocalProc === child) _trainLocalProc = null; termSend('exit', code === 0 ? `✅ 💻 학습 완료 — 🤖 내 AI 에서 ${name} 을 확인하세요` : `[학습 종료 코드 ${code ?? '?'}] — 위 로그에서 원인을 확인하세요`); });
     return { ok: true, name, base, gguf: outGguf, script: scriptPath, note: process.platform === 'darwin' ? 'Apple GPU(MPS)로 학습합니다.' : (process.platform === 'win32' ? 'NVIDIA가 있으면 CUDA, 없으면 CPU로 학습합니다.' : 'GPU가 있으면 자동 사용합니다.') };
   } catch (e: any) { return { ok: false, error: e?.message || String(e) }; }
 });

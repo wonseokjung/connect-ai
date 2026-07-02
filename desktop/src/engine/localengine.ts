@@ -224,6 +224,8 @@ export async function stopLocalEngine(): Promise<void> {
   _startSeq++;                                      // 진행 중 기동 무효화
   await killProc();
   _ready = false; _modelPath = ''; _modelName = '';
+  // 🛑 로딩 중에 끄면 그 기동의 finally가 (seq 불일치로) _loading을 못 되돌림 → 영원히 "로딩 중"에 갇히던 버그
+  _loading = false; _loadMsg = ''; emitStatus();
 }
 
 // 마지막 로그에서 사람이 읽을 만한 에러 줄만 추려 보여줌.

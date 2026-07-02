@@ -57,7 +57,9 @@ export function chooseModel(want: string, models: ModelInfo[]): string | null {
   if (!models.length) return null;
   if (want && models.some(m => m.id === want)) return want;   // 저장 모델이 실제로 있으면 그대로
   const ranked = rank(models);
-  return ranked[0]?.id || models[0]?.id || null;              // 없으면 채팅가능·로드된 모델 우선
+  // ⚠️ 채팅 가능한 모델이 없으면(임베딩·whisper뿐) null — 이 엔드포인트를 건너뛰고 다음(내장 엔진 등)을 찾게.
+  //    (전엔 models[0] 폴백이 임베딩 모델을 채팅에 골라 모든 대화가 이상한 에러로 죽었음)
+  return ranked[0]?.id || null;
 }
 
 // 엔진 자동 감지 → 로드된 채팅 모델 우선 선택. 사용자가 base/model 지정 시 우선.
@@ -68,18 +70,19 @@ export async function detectTarget(pref?: Partial<LlmTarget>): Promise<LlmTarget
   }
   const want = pref?.model || '';   // 저장된 모델 — 단, '실제로 존재할 때만' 쓴다(유령/삭제된 모델 고집 방지)
   const candidates = [pref?.base, 'http://127.0.0.1:1234', 'http://127.0.0.1:11434', 'http://127.0.0.1:1235'].filter(Boolean) as string[];
-  let firstUp: { base: string; p: NonNullable<Awaited<ReturnType<typeof probe>>> } | null = null;
+  let firstChat: { base: string; p: NonNullable<Awaited<ReturnType<typeof probe>>> } | null = null;   // 채팅 가능한 모델이 있는 첫 엔진
   for (const base of candidates) {
     const p = await probe(base);
     if (!p) continue;
-    if (!firstUp) firstUp = { base, p };
     // 저장된 모델이 이 엔드포인트에 실제로 있으면 그걸 사용
     if (want && p.models.some(m => m.id === want)) return { base, model: want, engine: p.engine };
-    // 저장된 모델 지정이 없으면(자동) 응답한 첫 엔진의 최선 모델로 바로
-    if (!want) { const model = chooseModel('', p.models); if (model) return { base, model, engine: p.engine }; }
+    const best = chooseModel('', p.models);   // 채팅 가능한 최선 (임베딩·whisper뿐이면 null → 다음 엔진으로)
+    if (best && !firstChat) firstChat = { base, p };
+    // 저장된 모델 지정이 없으면(자동) 채팅 가능한 첫 엔진의 최선 모델로 바로
+    if (!want && best) return { base, model: best, engine: p.engine };
   }
-  // 🩹 저장된 모델이 어디에도 없음(삭제됐거나 다른 모델만 깔림) → 유령 모델 고집 말고 가용한 최선 모델로 폴백
-  if (firstUp) { const model = chooseModel(want, firstUp.p.models); if (model) return { base: firstUp.base, model, engine: firstUp.p.engine }; }
+  // 🩹 저장된 모델이 어디에도 없음(삭제됐거나 다른 모델만 깔림) → 유령 모델 고집 말고 '채팅 가능한' 첫 엔진으로 폴백
+  if (firstChat) { const model = chooseModel(want, firstChat.p.models); if (model) return { base: firstChat.base, model, engine: firstChat.p.engine }; }
   return null;
 }
 
@@ -97,16 +100,20 @@ export async function listModels(pref?: Partial<LlmTarget>): Promise<{ base: str
 }
 
 // 🧠 임베딩 — 두뇌 의미 검색용. LM Studio 에 임베딩 모델 있으면 사용, 없으면 null(키워드 폴백).
-let _embModel: string | null | undefined;
+//    캐시는 base별 + 시간제한(5분) — 엔진이 꺼진 순간 조회 실패가 앱 세션 내내 임베딩을 죽이지 않게.
+const _embCache = new Map<string, { model: string | null; ts: number }>();
 export async function embed(base: string, text: string): Promise<number[] | null> {
   const b = base || 'http://127.0.0.1:1234';
-  if (_embModel === undefined) {
+  let hit = _embCache.get(b);
+  if (!hit || (hit.model === null && Date.now() - hit.ts > 300000)) {   // 실패(null)는 5분 뒤 재시도, 성공은 유지
     try {
       const r = await axios.get(`${b}/v1/models`, { timeout: 1500 });
       const ids = (r.data?.data || []).map((x: any) => x.id);
-      _embModel = ids.find((id: string) => /embed|nomic|bge|gte|e5/i.test(id)) || null;
-    } catch { _embModel = null; }
+      hit = { model: ids.find((id: string) => /embed|nomic|bge|gte|e5/i.test(id)) || null, ts: Date.now() };
+    } catch { hit = { model: null, ts: Date.now() }; }
+    _embCache.set(b, hit);
   }
+  const _embModel = hit.model;
   if (!_embModel) return null;
   try {
     const r = await axios.post(`${b}/v1/embeddings`, { model: _embModel, input: sanitizeContent((text || '').slice(0, 6000)) }, { timeout: 15000 });   // 🧹 깨진 이모지 제거 — 지식 주입/검색도 parse_error 500 방지
@@ -333,6 +340,7 @@ export async function completeMessages(t: LlmTarget, messages: ChatMessage[], op
     msgs = [...messages,
       { role: 'assistant', content: full },
       { role: 'user', content: '바로 직전 답변이 길이 제한으로 중간에 끊겼다. 끊긴 지점에서 곧바로 이어서 계속 작성해라. 인사·서론·이미 쓴 내용 반복 없이 이어지는 부분만.' }];
+    if (flattened) msgs = flattenMessages(msgs);   // 🩹 빡빡한 템플릿 모델은 이어쓰기 메시지도 평탄화 유지 (안 하면 2번째 청크에서 같은 에러로 사망)
   }
   return full;
 }
