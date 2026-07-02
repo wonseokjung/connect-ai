@@ -10,7 +10,7 @@ import { search as brainSearch } from './engine/brain';
 import { quickIntent, planServe } from './engine/intent';
 import { fetchRevenue } from './engine/paypal';
 import { fetchTossRevenue, mergeRevenue } from './engine/toss';
-import { detectTarget, chat, listModels, embed } from './engine/llm';
+import { detectTarget, chat, listModels, embed, setGenMaxTokens } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions, onEngineStatus } from './engine/localengine';
@@ -419,7 +419,7 @@ const legacyModelsDir = () => { const def = path.join(app.getPath('userData'), '
 const sendLocal = (s: any) => { try { win?.webContents.send('local:status', s); } catch { /* */ } try { if (officeWin && !officeWin.isDestroyed()) officeWin.webContents.send('local:status', s); } catch { /* */ } };   // 🏢 사무실 창 'Brain' 배지도 갱신되게
 onEngineStatus((s) => sendLocal(s));   // 🔁 GPU→CPU 폴백 등 엔진 진행 상황을 실시간으로 화면에 표시
 async function bootLocalEngine(modelPath: string) {
-  const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN });
+  const c = loadConfig(); setLocalOptions({ flashAttn: c.localFlashAttn, ctxSize: c.localCtxSize, temp: c.localTemp, maxTokens: c.localMaxTokens, topP: c.localTopP, topK: c.localTopK, minP: c.localMinP, repeatPenalty: c.localRepeatPenalty, freqPenalty: c.localFreqPenalty, presPenalty: c.localPresPenalty, repeatLastN: c.localRepeatLastN }); setGenMaxTokens(c.localMaxTokens);
   try {
     sendLocal({ ...localStatus(), loading: true });
     await startLocalEngine(modelPath);
@@ -427,6 +427,7 @@ async function bootLocalEngine(modelPath: string) {
     //    "실행 중인 모델 ≠ 저장된 모델"로 어긋나 다음 부팅에 엉뚱한 모델이 켜짐 → 실제로 그 모델일 때만 저장
     const st = localStatus();
     if (st.modelPath === modelPath) saveConfig({ localModelPath: modelPath });
+    setGenMaxTokens(loadConfig().localMaxTokens, st.ctxSize || 0);   // 🎚️ 실제 로드된 문맥 크기 반영 → 예방 절삭 정확
     sendLocal(st);
   }
   catch (e: any) { sendLocal({ ...localStatus(), loading: false, error: String(e?.message || e) }); }
@@ -455,7 +456,7 @@ ipcMain.handle('local:openModelsDir', () => { try { shell.openPath(modelsDir());
 ipcMain.handle('local:resetModelsDir', () => { saveConfig({ modelsDirOverride: '' }); return { dir: modelsDir(), custom: false }; });
 ipcMain.handle('local:options', () => getLocalOptions());
 ipcMain.handle('local:setOptions', async (_e, o: any) => {
-  const prev = getLocalOptions(); setLocalOptions(o); const g = getLocalOptions();
+  const prev = getLocalOptions(); setLocalOptions(o); const g = getLocalOptions(); setGenMaxTokens(g.maxTokens);
   saveConfig({ localFlashAttn: g.flashAttn, localCtxSize: g.ctxSize, localTemp: g.temp, localMaxTokens: g.maxTokens, localTopP: g.topP, localTopK: g.topK, localMinP: g.minP, localRepeatPenalty: g.repeatPenalty, localFreqPenalty: g.freqPenalty, localPresPenalty: g.presPenalty, localRepeatLastN: g.repeatLastN });
   const needReload = (o.flashAttn !== undefined && o.flashAttn !== prev.flashAttn) || (o.ctxSize !== undefined && o.ctxSize !== prev.ctxSize);
   const s = localStatus();

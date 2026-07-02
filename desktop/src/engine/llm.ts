@@ -121,7 +121,12 @@ export async function embed(base: string, text: string): Promise<number[] | null
   } catch { return null; }
 }
 
-export interface ChatOpts { temperature?: number; onToken?: (t: string) => void; signal?: AbortSignal; frequencyPenalty?: number; presencePenalty?: number; }
+export interface ChatOpts { temperature?: number; onToken?: (t: string) => void; signal?: AbortSignal; frequencyPenalty?: number; presencePenalty?: number; maxTokens?: number; }
+// 🎚️ 생성 상한 — 앱 '출력 길이' 슬라이더 값. 요청 body 에 max_tokens 로 실어 (전엔 아예 안 보내 슬라이더가 죽어있었고,
+//    출력 예약이 없어 문맥이 살짝만 가득 차도 "한두 글자 뒤 length 종료"가 나던 것도 이걸로 완화).
+let _genMaxTokens = 1024;
+let _genCtx = 0;   // 실제 로드된 문맥 크기(0=모름) — 예방 절삭용
+export function setGenMaxTokens(n: number, ctx?: number) { if (n && n > 0) _genMaxTokens = Math.min(8192, n); if (ctx && ctx > 0) _genCtx = ctx; }
 export interface ChatMessage { role: 'system' | 'user' | 'assistant' | 'tool'; content: string | any[] | null; tool_calls?: any[]; tool_call_id?: string; name?: string; }   // 배열 content = 비전, tool 역할/tool_calls = 네이티브 함수 호출
 
 // 네이티브 함수(도구) 호출 — OpenAI 호환(LM Studio/Ollama/Gemini). 모델이 tool_calls 를 구조화해서 반환.
@@ -264,6 +269,7 @@ export function apiError(e: any): string {
   else if (status === 429) hint = ' — 요청 한도를 넘었어요. 이건 보통 클라우드(Gemini)를 쓸 때 나요 — 🤖 내 AI에서 로컬 모델(내장·LM Studio·Ollama)로 바꾸면 한도 없이 무제한이에요';
   else if (status === 500 || status === 503) hint = /surrogate|parse_error|invalid string|json\.exception/i.test(detail) ? ' — 입력에 깨진 이모지/문자가 있었어요(자동 정리됨 — 다시 보내주세요)' : ' — 엔진 내부 오류(모델을 다시 로드해 보세요)';
   else if (/timeout|ETIMEDOUT|exceeded/i.test(detail + code)) hint = ' — 응답이 너무 오래 걸려요(저사양이면 더 작은 모델을 쓰거나 잠시 후 다시)';
+  else if (/\baborted\b|ERR_STREAM_PREMATURE_CLOSE|응답 도중 꺼졌/i.test(detail + code)) hint = ' — 응답 도중 엔진이 꺼졌어요(대개 메모리 부족). 더 작은 모델(1B~3B)을 쓰거나 ⚙️ 문맥 길이를 줄여보세요';
   else if (/ECONNREFUSED|ECONNRESET|socket hang up|Network|ENOTFOUND/i.test(detail + code)) hint = ' — AI 엔진에 연결하지 못했어요(🤖 내 AI 팀에서 두뇌가 켜져 있는지 확인)';
   return (status ? `HTTP ${status}: ${detail}` : detail) + hint;
 }
@@ -280,7 +286,23 @@ export async function chat(t: LlmTarget, system: string, user: string, opts: Cha
 interface OneShot { text: string; truncated: boolean; }
 
 // 모델 1회 호출 — 문맥 초과(400)면 오래된 히스토리를 자동 절삭하고 1회 재시도(채팅이 막히지 않게).
+// 문자 종류별 대략 토큰 추정 (한글·CJK ≈ 1.2, 그 외 ASCII/공백 ≈ 0.3). 예방 절삭 판단용(정확한 절삭은 400 실측이 함).
+function estTokens(messages: ChatMessage[]): number {
+  let cjk = 0, other = 0;
+  for (const m of messages) { const s = msgChars(m) ? String(typeof m.content === 'string' ? m.content : JSON.stringify(m.content)) : ''; for (const ch of s) { if (/[ᄀ-퟿　-〿＀-￯一-鿿]/.test(ch)) cjk++; else other++; } }
+  return Math.round(cjk * 1.2 + other * 0.3);
+}
 async function callOnce(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts, stream: boolean): Promise<OneShot> {
+  // 🩹 예방 절삭 — 로컬(내장/LM Studio)에서 프롬프트가 문맥에 거의 꽉 차면 llama-server가 400을 안 내고
+  //    '한두 글자만' 내고 length 로 멈춘다(near-fit band). 출력 예약분을 확보해 미리 히스토리를 줄인다.
+  if (_genCtx && t.engine !== 'gemini') {
+    const reserve = Math.min(opts.maxTokens ?? _genMaxTokens, Math.floor(_genCtx / 2));
+    const est = estTokens(messages);
+    if (est + reserve > _genCtx) {
+      const trimmed = trimForCtx(cleanMessages(messages), { req: est, ctx: _genCtx });
+      if (trimmed.length) messages = trimmed;
+    }
+  }
   try { return await callOnceRaw(t, messages, opts, stream); }
   catch (e: any) {
     const ov = ctxOverflow(e);
@@ -296,7 +318,7 @@ async function callOnceRaw(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts
     // OpenAI 호환 (LM Studio 로컬 / Gemini 클라우드)
     const url = t.engine === 'gemini' ? `${t.base}/chat/completions` : `${t.base}/v1/chat/completions`;
     const headers: any = t.key ? { Authorization: `Bearer ${t.key}` } : {};
-    const body: any = { model: t.model, messages, temperature: opts.temperature ?? 0.6, stream };
+    const body: any = { model: t.model, messages, temperature: opts.temperature ?? 0.6, stream, max_tokens: opts.maxTokens ?? _genMaxTokens };
     if (opts.frequencyPenalty != null) body.frequency_penalty = opts.frequencyPenalty;
     if (opts.presencePenalty != null) body.presence_penalty = opts.presencePenalty;
     if (!stream) {
@@ -308,7 +330,7 @@ async function callOnceRaw(t: LlmTarget, messages: ChatMessage[], opts: ChatOpts
   }
   // Ollama
   const url = `${t.base}/api/chat`;
-  const body: any = { model: t.model, messages, stream, options: { temperature: opts.temperature ?? 0.6, num_predict: -1 } };
+  const body: any = { model: t.model, messages, stream, options: { temperature: opts.temperature ?? 0.6, num_predict: opts.maxTokens ?? _genMaxTokens } };
   if (opts.frequencyPenalty != null) body.options.repeat_penalty = 1 + opts.frequencyPenalty; // 0.6 → 1.6
   if (!stream) {
     const r = await axios.post(url, body, { timeout: 600000, signal: opts.signal as any });
@@ -336,8 +358,13 @@ export async function completeMessages(t: LlmTarget, messages: ChatMessage[], op
     const { text, truncated } = res;
     full += text;
     if (!truncated || !text) break;   // 정상 종료거나 더 안 나오면 끝
-    // 길이로 잘림 → 끊긴 지점부터 이어쓰기 요청 (스트리밍이면 onToken으로 계속 흘러나감)
-    msgs = [...messages,
+    // ⚠️ 문맥이 거의 가득 차 '한두 글자만' 나온 잘림 → 이어쓰기로 원본 프롬프트를 통째로 다시 보내면 더 커져서
+    //    같은 일이 반복(작은 PC에서 조용히 멈춤). 이땐 무리하게 이어쓰지 않고 현재까지로 마감.
+    if (cont === 0 && text.length < 24) break;
+    // 길이로 잘림 → 끊긴 지점부터 이어쓰기 요청 (원본 전체가 아니라 system + 직전답변 + 이어쓰기 지시만 → 프롬프트 비대 방지)
+    const sys = messages.find(m => m.role === 'system');
+    msgs = [
+      ...(sys ? [sys] : []),
       { role: 'assistant', content: full },
       { role: 'user', content: '바로 직전 답변이 길이 제한으로 중간에 끊겼다. 끊긴 지점에서 곧바로 이어서 계속 작성해라. 인사·서론·이미 쓴 내용 반복 없이 이어지는 부분만.' }];
     if (flattened) msgs = flattenMessages(msgs);   // 🩹 빡빡한 템플릿 모델은 이어쓰기 메시지도 평탄화 유지 (안 하면 2번째 청크에서 같은 에러로 사망)
@@ -361,17 +388,19 @@ async function streamSSE(url: string, body: any, onToken: (t: string) => void, s
   let res;
   try { res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any, headers }); }
   catch (e: any) { throw await bufferStreamError(e); }   // 400 등 에러 본문(스트림)을 문자열로 읽어 ctxOverflow 등이 감지하게
-  let acc = '', truncated = false;
+  let acc = '', truncated = false, done = false, streamErr = '';
   const processLine = (line: string) => {
     const s = line.trim();
     if (!s.startsWith('data:')) return;
     const payload = s.slice(5).trim();
-    if (payload === '[DONE]') return;
+    if (payload === '[DONE]') { done = true; return; }
     try {
-      const ch = JSON.parse(payload)?.choices?.[0];
+      const j = JSON.parse(payload);
+      if (j?.error) { streamErr = String(j.error?.message || j.error); return; }   // 🩹 200으로 시작한 뒤 생기는 슬롯 에러(decode/alloc)를 조용히 버리지 않게
+      const ch = j?.choices?.[0];
       const tok = ch?.delta?.content || '';
       if (tok) { acc += tok; onToken(tok); }
-      if (ch?.finish_reason === 'length') truncated = true;
+      if (ch?.finish_reason) { done = true; if (ch.finish_reason === 'length') truncated = true; }
     } catch { /* keep-alive */ }
   };
   await new Promise<void>((resolve, reject) => {
@@ -385,6 +414,9 @@ async function streamSSE(url: string, body: any, onToken: (t: string) => void, s
     res.data.on('end', () => { if (buf.trim()) processLine(buf); resolve(); });   // 🔧 개행 없이 끝난 마지막 줄도 처리 — 안 하면 마지막 토큰 유실("저는"에서 끊김)
     res.data.on('error', reject);
   });
+  if (streamErr) throw new Error(streamErr);   // 스트림 중 에러 → 위에서 apiError로 안내
+  // ⚠️ finish_reason/[DONE] 을 못 본 채 끝남 = 생성 도중 엔진이 죽은 것(8GB OOM 등). "한두 글자 뒤 조용히 멈춤"의 주범.
+  if (!done) throw Object.assign(new Error('AI 엔진이 응답 도중 꺼졌어요(메모리 부족일 수 있어요 — 더 작은 모델을 쓰거나 문맥 길이를 줄여보세요).'), { partial: acc, interrupted: true });
   return { text: acc, truncated };
 }
 
@@ -392,14 +424,15 @@ async function streamNdjson(url: string, body: any, onToken: (t: string) => void
   let res;
   try { res = await axios.post(url, body, { responseType: 'stream', timeout: 0, signal: signal as any }); }
   catch (e: any) { throw await bufferStreamError(e); }
-  let acc = '', truncated = false;
+  let acc = '', truncated = false, done = false, streamErr = '';
   const processLine = (line: string) => {
     const s = line.trim();
     if (!s) return;
     try {
       const j = JSON.parse(s);
+      if (j?.error) { streamErr = String(j.error); return; }
       const tok = j?.message?.content; if (tok) { acc += tok; onToken(tok); }
-      if (j?.done_reason === 'length') truncated = true;
+      if (j?.done) { done = true; if (j?.done_reason === 'length') truncated = true; }
     } catch { /* partial */ }
   };
   await new Promise<void>((resolve, reject) => {
@@ -413,5 +446,7 @@ async function streamNdjson(url: string, body: any, onToken: (t: string) => void
     res.data.on('end', () => { if (buf.trim()) processLine(buf); resolve(); });   // 🔧 마지막 줄 유실 방지
     res.data.on('error', reject);
   });
+  if (streamErr) throw new Error(streamErr);
+  if (!done) throw Object.assign(new Error('AI 엔진이 응답 도중 꺼졌어요(메모리 부족일 수 있어요 — 더 작은 모델을 쓰거나 문맥 길이를 줄여보세요).'), { partial: acc, interrupted: true });
   return { text: acc, truncated };
 }

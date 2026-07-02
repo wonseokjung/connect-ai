@@ -328,9 +328,9 @@ async function ask(text: string) {
   });
   try {
     await connect.run(text || '첨부한 파일/이미지를 봐줘.', { paths: att.map(a => a.path).filter(Boolean), images: att.map(a => a.image).filter(Boolean) });
-    // 🚨 모델이 한두 글자만 내고 즉시 멈춤(즉시 EOS) → 조용히 "저는"만 뜨던 문제를 화면에 진단으로 표면화 [[feedback_fail_loudly]]
-    if (!toolUsed && finalText.trim().length <= 2) {
-      addLog('⚠️ 진단', `모델이 **${finalText.trim() || '빈 응답'}** 한 토큰만 내고 멈췄어요(즉시 EOS). 보통 ① 모델 파일이 손상·미완성 다운로드 ② **과도한 양자화**(IQ2 등 2비트는 깨지기 쉬움) ③ 챗 템플릿 불일치 때문이에요.\n→ 🤖 내 AI에서 **Q4_K_M 같은 표준 모델**로 바꿔보세요(예: Llama-3.2-3B). 같은 모델을 **다시 받으면** 손상이 풀리기도 해요.`, false, true, '#ffab40');
+    // 🚨 모델이 몇 글자만 내고 멈춤 → 조용히 "저는"만 뜨던 문제를 화면에 진단으로 표면화 [[feedback_fail_loudly]]
+    if (!toolUsed && finalText.trim().length > 0 && finalText.trim().length <= 10) {
+      addLog('⚠️ 진단', `모델이 **${finalText.trim()}** 만 내고 멈췄어요. 보통 ① **메모리 부족**(저사양 PC — 생성 중 엔진이 꺼짐) ② 모델 파일 손상·미완성 다운로드 ③ **과도한 양자화**(IQ2 등 2비트) ④ 챗 템플릿 불일치 때문이에요.\n→ 🤖 내 AI에서 **더 작은 표준 모델**(Llama-3.2-1B·3B, Q4_K_M)로 바꾸거나, ⚙️ **문맥 길이를 줄여**보세요. 안 되면 🔌 **LM Studio/Ollama 연결**을 쓰세요.`, false, true, '#ffab40');
     }
   }
   finally { off(); busy = false; ($('stopBtn') as HTMLElement).hidden = true; ($('sendBtn') as HTMLElement).hidden = false; $('thinkingBar').classList.remove('active'); $('brandSuffix').textContent = cfg.company ? `· ${cfg.company}` : ''; setTimeout(() => { if (!busy && !speechSynthesis.speaking) brainEnergy(0.13); }, 600); }
