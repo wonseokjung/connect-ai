@@ -617,7 +617,7 @@ async function startOps() {
   await opsWait(560); if (!opsRunning) return;
   // ④ 분석 완료 → 오늘의 3단계 성장 사이클 홈으로
   const summary = ops?.summary ? `<div class="ops-summary">“${escapeHtml(ops.summary)}”</div>` : '';
-  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>투두리스트</b>가 준비됐어요 — 위에서부터 하나씩, 🤖 AI 몫은 시키고 🙋 내 몫은 하고 보고해요</div><button class="ops-go" id="opsGo">✅ 오늘의 투두 열기 →</button></div>`;
+  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<button class="ops-go" id="opsGo">✅ 오늘의 투두 열기 →</button></div>`;
   const finish = () => { closeOps(); openCyclePanel(); };
   $('opsGo')?.addEventListener('click', finish);
   opsAutoTimer = window.setTimeout(finish, 4500);   // 요약을 천천히 읽을 시간
@@ -889,8 +889,7 @@ function buildOpsLoop(s: any) {
     const hasHistory = grassTotal() > 0;
     body.innerHTML = `<div class="loop-hero">
       <div class="lh-emoji">✨</div>
-      <div class="lh-headline">오늘도 AI 팀이<br>같이 일해줘요</div>
-      <div class="lh-sub">버튼만 누르면 — AI가 <b>오늘 할 일</b>을 짜드려요.<br>마음에 드는 걸 고르기만 하면 끝이에요.</div>
+      <div class="lh-headline">오늘의 투두,<br>AI 팀이 짜드려요</div>
       <button class="cyc-btn primary lh-go" id="loopStart">▶ 오늘 운영 시작</button>
       <div class="lh-cats">${CATS.map(c => `<span class="lh-cat">${c.ic} ${c.name}</span>`).join('')}</div>
       ${hasHistory ? `<div class="lh-mini">🔥 ${grassStreak()}일 연속 · ${currentRank().ic} ${currentRank().name} · 올해 ${grassTotal()}일</div>` : ''}
@@ -966,16 +965,14 @@ function renderTodo(s: any): string {
     const av = me
       ? `<div class="tc-av emoji">🙋</div>`
       : im ? `<div class="tc-av" style="background-image:url('${escAttr(im)}')"></div>` : `<div class="tc-av emoji">${AGENTS[a.agent]?.emoji || '🤖'}</div>`;
-    const status = running
-      ? `WORKING · ${escapeHtml(an)} 일하는 중`
-      : me ? 'YOUR TURN · 사장님 차례' : `READY · ${escapeHtml(an)} 대기 중`;
+    const status = running ? 'WORKING' : me ? '사장님 차례' : 'READY';
     const controls = running
-      ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> 진행 상황은 아래와 🏢 사무실에서 실시간으로 보여요</span></div>${liveFeedHtml(s)}`
+      ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> ${escapeHtml(an)} 일하는 중</span></div>${liveFeedHtml(s)}`
       : me
-        ? `<div class="ts-doing"><div class="ts-guide">이건 <b>사장님이 직접</b> 하는 일이에요. 끝나면 결과를 한 줄로 — AI 팀이 이어받아요.</div>
-           <input id="todoReport" class="ts-input" placeholder="어떻게 됐어요? 한 줄 보고 (링크도 좋아요)" maxlength="200">
-           <div class="ts-btns"><button class="cyc-btn primary" id="todoDone">✅ 완료했어요</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToAi" title="AI에게 맡기기">🤖 AI에게</button></div></div>`
-        : `<div class="ts-doing">${failed ? '<div class="ts-guide">⚠️ 아까는 결과물 없이 끝났어요 — 다시 시키거나, 건너뛰거나, 직접 해보세요.</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${failed ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div>${risky ? '<div class="ts-guide">🛡️ 발송·결제·배포 단계는 실행 전에 결재로 물어봐요</div>' : ''}</div>`;
+        ? `<div class="ts-doing">
+           <input id="todoReport" class="ts-input" placeholder="끝나면 한 줄 보고 — AI 팀이 이어받아요" maxlength="200">
+           <div class="ts-btns"><button class="cyc-btn primary" id="todoDone">✅ 완료</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToAi" title="AI에게 맡기기">🤖 AI에게</button></div></div>`
+        : `<div class="ts-doing">${failed ? '<div class="ts-guide">⚠️ 결과물 없이 끝났어요</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${failed ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div></div>`;
     return `<div class="tr-item now${meCls}" data-idx="${i}"><div class="tr-node">${i + 1}</div>
       <div class="tr-card now${me ? ' me' : ''}">
         <div class="tc-status">${status}</div>
@@ -1002,7 +999,7 @@ function renderFeedback(s: any): string {
   }).join('');
   return `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">오늘 운영 완료</div><div class="cyc-complete-s">${acts.length}개 수행 · 완료 ${okN}개</div></div>
     ${weekStrip()}
-    <div class="fb-hint muted small">👍/👎로 평가하면 <b>다음 플랜이 더 똑똑해져요</b> — 내일은 오늘의 결과를 이어받아요</div>${items}
+    <div class="fb-hint muted small">👍👎 평가는 다음 플랜에 반영돼요</div>${items}
     ${activityTimeline()}`;
 }
 
