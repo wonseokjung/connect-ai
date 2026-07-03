@@ -931,38 +931,60 @@ function liveFeedHtml(s: any): string {
   }).join('')}</div>`;
 }
 
-// ✅ 오늘의 투두리스트 — 위에서부터 하나씩만 열린다. AI 몫은 시키고, 🙋 내 몫은 하고 나서 한 줄 보고.
+// ✅ 오늘의 투두 — 퀘스트 로그 레일: 빛나는 선이 위에서부터 차오르고, 지금 할 일 딱 하나만 미션 카드로 떠오른다
 function renderTodo(s: any): string {
   const acts: any[] = s.actions || [];
   if (!acts.length) return '<div class="cyc-loading">투두가 없어요 — 🔄 다시 짜기를 눌러보세요</div>';
   const doneN = acts.filter(a => a.step).length;
   const curIdx = acts.findIndex(a => !a.step);
+  // 세그먼트 진행바 — 칸 하나 = 일 하나 (내 몫은 금색으로 채워진다)
+  const seg = acts.map((a, i) =>
+    `<span class="th-seg-i${a.step === 'done' ? ' ok' : a.step === 'skipped' ? ' sk' : i === curIdx ? ' on' : ''}${a.assignee === 'human' ? ' me' : ''}"></span>`).join('');
   const rows = acts.map((a, i) => {
     const me = a.assignee === 'human';
-    const an = AGENTS[a.agent]?.name || '에이전트';
+    const an = agName(a.agent) !== a.agent ? agName(a.agent) : (AGENTS[a.agent]?.name || '에이전트');
     const cm = catMeta(catOf(a.title));
     const ship = shipFor(s, a.title);
-    const who = me ? '<span class="ts-who me">🙋 내가</span>' : `<span class="ts-who">🤖 ${escapeHtml(an)}</span>`;
+    const who = me ? '<span class="td-who me">🙋 내가</span>' : `<span class="td-who">🤖 ${escapeHtml(an)}</span>`;
+    const meCls = me ? ' me-item' : '';
     if (a.step === 'done') {
-      return `<div class="todo-step done"><span class="ts-n ok">✓</span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}
-        ${a.report ? `<div class="ts-report">💬 ${escapeHtml(a.report)}</div>` : ''}${ship && !me ? artsHtml(ship) : ''}</div>`;
+      return `<div class="tr-item done${meCls}"><div class="tr-node">✓</div><div class="tr-card done">
+        <span class="td-t">${escapeHtml(a.title)}</span>${who}
+        ${a.report ? `<div class="ts-report">💬 ${escapeHtml(a.report)}</div>` : ''}${ship && !me ? artsHtml(ship) : ''}</div></div>`;
     }
-    if (a.step === 'skipped') return `<div class="todo-step skip"><span class="ts-n">⏭</span><span class="cyc-cat">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span><span class="ts-who">건너뜀</span></div>`;
-    if (i !== curIdx) return `<div class="todo-step lock"><span class="ts-n">${i + 1}</span><span class="cyc-cat">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}<span class="ts-lock">앞의 일 먼저</span></div>`;
-    // ▶ 지금 할 차례 — 딱 이 항목만 버튼이 열린다
+    if (a.step === 'skipped') {
+      return `<div class="tr-item skip"><div class="tr-node">⏭</div><div class="tr-card skip"><span class="td-t">${escapeHtml(a.title)}</span><span class="td-who">건너뜀</span></div></div>`;
+    }
+    if (i !== curIdx) {
+      return `<div class="tr-item lock${meCls}"><div class="tr-node">${i + 1}</div><div class="tr-card lock"><span class="td-t">${escapeHtml(a.title)}</span>${who}</div></div>`;
+    }
+    // ▶ 지금 이 일 — 미션 카드 (아바타 + 상태등 + 큰 버튼)
     const running = s.executing && s.executingTitle === a.title;
     const risky = a.risk && a.risk !== 'safe';
+    const failed = !!(ship && !ship.ok);
+    const im = me ? '' : agImgSrc(a.agent);
+    const av = me
+      ? `<div class="tc-av emoji">🙋</div>`
+      : im ? `<div class="tc-av" style="background-image:url('${escAttr(im)}')"></div>` : `<div class="tc-av emoji">${AGENTS[a.agent]?.emoji || '🤖'}</div>`;
+    const status = running
+      ? `WORKING · ${escapeHtml(an)} 일하는 중`
+      : me ? 'YOUR TURN · 사장님 차례' : `READY · ${escapeHtml(an)} 대기 중`;
     const controls = running
-      ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> ${escapeHtml(an)} 일하는 중… (🏢 사무실에서 실시간으로 보여요)</span></div>${liveFeedHtml(s)}`
+      ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> 진행 상황은 아래와 🏢 사무실에서 실시간으로 보여요</span></div>${liveFeedHtml(s)}`
       : me
-        ? `<div class="ts-doing"><div class="ts-guide">🙋 이건 사장님이 직접 하는 일이에요. 끝나면 <b>결과를 한 줄</b>로 알려주세요 — AI 팀이 이어받아요.</div>
+        ? `<div class="ts-doing"><div class="ts-guide">이건 <b>사장님이 직접</b> 하는 일이에요. 끝나면 결과를 한 줄로 — AI 팀이 이어받아요.</div>
            <input id="todoReport" class="ts-input" placeholder="어떻게 됐어요? 한 줄 보고 (링크도 좋아요)" maxlength="200">
            <div class="ts-btns"><button class="cyc-btn primary" id="todoDone">✅ 완료했어요</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToAi" title="AI에게 맡기기">🤖 AI에게</button></div></div>`
-        : `<div class="ts-doing">${ship && !ship.ok ? '<div class="ts-guide">⚠️ 아까는 결과물 없이 끝났어요 — 다시 시키거나, 건너뛰거나, 직접 해보세요.</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${ship && !ship.ok ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div>${risky ? '<div class="ts-guide">🛡️ 발송·결제·배포 단계는 실행 전에 결재로 물어봐요</div>' : ''}</div>`;
-    return `<div class="todo-step now${me ? ' is-me' : ''}" data-idx="${i}"><span class="ts-n now">${i + 1}</span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}${controls}</div>`;
+        : `<div class="ts-doing">${failed ? '<div class="ts-guide">⚠️ 아까는 결과물 없이 끝났어요 — 다시 시키거나, 건너뛰거나, 직접 해보세요.</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${failed ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div>${risky ? '<div class="ts-guide">🛡️ 발송·결제·배포 단계는 실행 전에 결재로 물어봐요</div>' : ''}</div>`;
+    return `<div class="tr-item now${meCls}" data-idx="${i}"><div class="tr-node">${i + 1}</div>
+      <div class="tr-card now${me ? ' me' : ''}">
+        <div class="tc-status">${status}</div>
+        <div class="tc-main">${av}<div class="tc-tt"><div class="tc-title">${escapeHtml(a.title)}</div><div class="tc-meta">${cm.ic} ${cm.name}${risky ? ' · 🛡️ 결재 필요' : ''}</div></div></div>
+        ${controls}
+      </div></div>`;
   }).join('');
-  return `<div class="todo-prog"><span class="tp-n">오늘의 투두 <b>${doneN} / ${acts.length}</b></span><span class="tp-bar"><span class="tp-fill" style="width:${Math.round(doneN / acts.length * 100)}%"></span></span></div>
-    <div class="todo-hint muted small">위에서부터 <b>하나씩</b> 해결해요 — 🙋 내 몫의 보고는 다음 계획에 반영돼요.</div>${rows}`;
+  return `<div class="todo-head"><span class="th-label">TODAY'S OPS</span><span class="th-count"><b>${doneN}</b> / ${acts.length}</span><div class="th-seg">${seg}</div></div>
+    <div class="todo-rail">${rows}</div>`;
 }
 
 // 👍👎 피드백 — 결과 평가(다음 플랜의 보상신호) + 트래킹. 🙋 사장님 완료·보고도 함께 보인다
@@ -988,8 +1010,8 @@ function wireLoop() {
   $('loopStart')?.addEventListener('click', () => { closeOverlay('opsCyclePanel'); startOps(); });   // 버튼 없이 바로 전체 루프(분석→투두) 실행
   $('ideaGo')?.addEventListener('click', runCycleIdea);
   $('cycEnd')?.addEventListener('click', async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 닫았어요'); });
-  // ✅ 투두 한 개씩 — 지금 열린 항목(.todo-step.now)의 버튼만 배선
-  const stepEl = document.querySelector('.todo-step.now') as HTMLElement | null;
+  // ✅ 투두 한 개씩 — 지금 열린 항목(.tr-item.now)의 버튼만 배선
+  const stepEl = document.querySelector('.tr-item.now') as HTMLElement | null;
   const idx = stepEl ? parseInt(stepEl.dataset.idx || '-1', 10) : -1;
   if (idx >= 0) {
     const runB = $('todoRun'); if (runB) runB.onclick = async () => {
@@ -1000,7 +1022,7 @@ function wireLoop() {
       const report = ($('todoReport') as HTMLInputElement | null)?.value?.trim() || '';
       doneB.setAttribute('disabled', '');
       _ops = await connect.opsStepDone?.(idx, report).catch(() => _ops); renderCycle(_ops);
-      const doneTitle = stepEl?.querySelector('.ts-t')?.textContent || '내 몫 완료';
+      const doneTitle = stepEl?.querySelector('.tc-title')?.textContent || '내 몫 완료';
       track('done', doneTitle, catOf(doneTitle), 1, '🙋');
       hint(report ? '✅ 보고 저장 — AI 팀이 이어받아요' : '✅ 완료했어요');
     };

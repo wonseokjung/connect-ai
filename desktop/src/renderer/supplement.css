@@ -290,35 +290,75 @@
 .cyc-who.me { color: #ffd166; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.5); }
 .cyc-task.is-me { background: rgba(255,209,102,.04); border-color: rgba(255,209,102,.25); }
 .cyc-legend { flex-basis: 100%; font-size: 11px; color: var(--text-dim); text-align: center; padding-bottom: 2px; }
-/* ✅ 오늘의 투두리스트 — 위에서부터 하나씩만 열린다 (사람–AI 협업 루프) */
-.todo-prog { display: flex; align-items: center; gap: 12px; padding: 4px 2px; }
-.tp-n { font-size: 12.5px; font-weight: 700; color: #b6ffce; white-space: nowrap; }
-.tp-n b { color: #39ff14; }
-.tp-bar { flex: 1; height: 7px; border-radius: 999px; background: rgba(57,255,20,.1); overflow: hidden; }
-.tp-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #16a34a, #39ff14); transition: width .4s ease; }
-.todo-hint { text-align: center; padding-bottom: 2px; }
-.todo-step { display: flex; align-items: center; gap: 11px; padding: 12px 15px; border-radius: 12px; background: rgba(255,255,255,.02); border: 1px solid var(--border2); flex-wrap: wrap; }
-.todo-step .ts-t { flex: 1; font-size: 14px; font-weight: 600; color: #eaffef; line-height: 1.4; min-width: 0; }
-.ts-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-size: 12px; font-weight: 800; font-family: ui-monospace, monospace; color: var(--text-dim); border: 1.5px solid var(--border2); }
-.ts-n.now { color: #052; background: linear-gradient(135deg, #39ff14, #16a34a); border-color: #39ff14; }
-.ts-n.ok { color: #052; background: rgba(57,255,20,.85); border-color: #39ff14; }
-.ts-who { flex-shrink: 0; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 4px 11px; white-space: nowrap; color: #74ffb4; background: rgba(57,255,20,.08); border: 1px solid rgba(57,255,20,.3); }
-.ts-who.me { color: #ffd166; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.5); }
-.todo-step.done { opacity: .82; border-color: rgba(57,255,20,.22); background: rgba(57,255,20,.03); }
-.todo-step.skip { opacity: .4; }
-.todo-step.lock { opacity: .45; }
-.ts-lock { flex-shrink: 0; font-size: 10.5px; font-weight: 700; color: var(--text-dim); white-space: nowrap; }
-.todo-step.now { border-color: rgba(57,255,20,.55); background: rgba(57,255,20,.06); box-shadow: 0 0 18px rgba(57,255,20,.12); }
-.todo-step.now.is-me { border-color: rgba(255,209,102,.55); background: rgba(255,209,102,.05); box-shadow: 0 0 18px rgba(255,209,102,.1); }
-.ts-doing { flex-basis: 100%; display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
-.ts-guide { font-size: 12.5px; line-height: 1.5; color: #d9c78a; }
-.todo-step.now:not(.is-me) .ts-guide { color: #9fd8b0; }
+/* ✅ 오늘의 투두 — 퀘스트 로그 레일: 빛나는 선이 차오르고, 지금 할 일만 미션 카드로 떠오른다 */
+.todo-head { display: flex; align-items: center; gap: 12px; padding: 2px 3px 10px; }
+.th-label { font: 800 10px/1 ui-monospace, 'SF Mono', monospace; letter-spacing: 3.5px; color: #74ffb4; opacity: .85; white-space: nowrap; }
+.th-count { font-size: 12px; font-weight: 700; color: #8fae9c; white-space: nowrap; }
+.th-count b { color: #39ff14; font-size: 15px; font-family: ui-monospace, monospace; }
+.th-seg { display: flex; gap: 5px; flex: 1; max-width: 240px; margin-left: auto; }
+.th-seg-i { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,.07); transition: all .35s ease; }
+.th-seg-i.ok { background: linear-gradient(90deg, #16a34a, #39ff14); box-shadow: 0 0 8px rgba(57,255,20,.45); }
+.th-seg-i.ok.me { background: linear-gradient(90deg, #c9932a, #ffd166); box-shadow: 0 0 8px rgba(255,209,102,.4); }
+.th-seg-i.sk { background: rgba(255,255,255,.16); }
+.th-seg-i.on { background: rgba(57,255,20,.28); box-shadow: inset 0 0 0 1px rgba(57,255,20,.6); animation: segPulse 1.4s ease-in-out infinite; }
+.th-seg-i.on.me { background: rgba(255,209,102,.25); box-shadow: inset 0 0 0 1px rgba(255,209,102,.6); }
+@keyframes segPulse { 0%, 100% { opacity: .5; } 50% { opacity: 1; } }
+/* 레일 — 노드와 노드를 잇는 선이 진행을 보여준다 */
+.todo-rail { display: flex; flex-direction: column; padding: 2px 1px; }
+.tr-item { position: relative; display: flex; gap: 13px; padding-bottom: 13px; }
+.tr-item::before { content: ''; position: absolute; left: 15px; top: 34px; bottom: -1px; width: 2px; background: rgba(255,255,255,.08); }
+.tr-item.done::before { background: linear-gradient(180deg, rgba(57,255,20,.55), rgba(57,255,20,.15)); }
+.tr-item.done.me-item::before { background: linear-gradient(180deg, rgba(255,209,102,.5), rgba(255,209,102,.12)); }
+.tr-item:last-child { padding-bottom: 2px; }
+.tr-item:last-child::before { display: none; }
+.tr-node { position: relative; z-index: 1; width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+  font: 800 13px/1 ui-monospace, monospace; color: var(--text-dim); background: #04120a; border: 2px solid rgba(255,255,255,.13); transition: all .3s; }
+.tr-item.done .tr-node { background: linear-gradient(135deg, #39ff14, #16a34a); border-color: #39ff14; color: #052; }
+.tr-item.done.me-item .tr-node { background: linear-gradient(135deg, #ffd166, #e0a82e); border-color: #ffd166; color: #4a3305; }
+.tr-item.skip .tr-node { opacity: .55; font-size: 11px; }
+.tr-item.now .tr-node { border-color: #39ff14; color: #39ff14; animation: nodePulse 1.6s ease-in-out infinite; }
+.tr-item.now.me-item .tr-node { border-color: #ffd166; color: #ffd166; animation-name: nodePulseMe; }
+@keyframes nodePulse { 0%, 100% { box-shadow: 0 0 6px rgba(57,255,20,.3); } 50% { box-shadow: 0 0 18px rgba(57,255,20,.7); } }
+@keyframes nodePulseMe { 0%, 100% { box-shadow: 0 0 6px rgba(255,209,102,.28); } 50% { box-shadow: 0 0 18px rgba(255,209,102,.62); } }
+/* 지나간·잠긴 일 — 한 줄로 조용히 */
+.tr-card { flex: 1; min-width: 0; border-radius: 13px; }
+.tr-card.done, .tr-card.lock, .tr-card.skip { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 7px 12px; min-height: 32px; box-sizing: border-box; }
+.tr-card.done { background: rgba(57,255,20,.035); border: 1px solid rgba(57,255,20,.16); }
+.tr-item.done.me-item .tr-card.done { background: rgba(255,209,102,.04); border-color: rgba(255,209,102,.18); }
+.tr-card.lock, .tr-card.skip { border: 1px dashed rgba(255,255,255,.11); opacity: .5; }
+.td-t { flex: 1; min-width: 0; font-size: 13.5px; font-weight: 600; color: #dfffe8; line-height: 1.45; }
+.tr-card.lock .td-t, .tr-card.skip .td-t { color: #9fb3a6; }
+.td-who { flex-shrink: 0; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 3px 10px; white-space: nowrap;
+  color: #74ffb4; background: rgba(57,255,20,.08); border: 1px solid rgba(57,255,20,.25); }
+.td-who.me { color: #ffd166; background: rgba(255,209,102,.1); border-color: rgba(255,209,102,.4); }
+/* ▶ 지금 이 일 — 미션 카드 (상태등 + 아바타 + 큰 버튼) */
+.tr-card.now { padding: 14px 16px 15px; border: 1px solid rgba(57,255,20,.5); animation: cardIn .38s cubic-bezier(.2,1.4,.4,1);
+  background: linear-gradient(165deg, rgba(57,255,20,.09), rgba(3,14,7,.65) 55%); box-shadow: 0 0 28px rgba(57,255,20,.13), inset 0 0 34px rgba(57,255,20,.03); }
+.tr-card.now.me { border-color: rgba(255,209,102,.5); background: linear-gradient(165deg, rgba(255,209,102,.09), rgba(16,12,3,.65) 55%);
+  box-shadow: 0 0 28px rgba(255,209,102,.11), inset 0 0 34px rgba(255,209,102,.03); }
+@keyframes cardIn { 0% { opacity: 0; transform: translateY(10px) scale(.985); } 100% { opacity: 1; transform: none; } }
+.tc-status { display: flex; align-items: center; gap: 8px; margin-bottom: 11px;
+  font: 800 10px/1 ui-monospace, 'SF Mono', monospace; letter-spacing: 2.5px; color: #39ff14; }
+.tr-card.now.me .tc-status { color: #ffd166; }
+.tc-status::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 9px currentColor; animation: liveDot 1.2s ease-in-out infinite; }
+.tc-main { display: flex; align-items: center; gap: 12px; }
+.tc-av { width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; background-size: cover; background-position: center;
+  border: 2px solid rgba(57,255,20,.5); box-shadow: 0 0 12px rgba(57,255,20,.2); }
+.tc-av.emoji { display: grid; place-items: center; font-size: 21px; background: rgba(57,255,20,.1); }
+.tr-card.now.me .tc-av { border-color: rgba(255,209,102,.55); box-shadow: 0 0 12px rgba(255,209,102,.18); }
+.tr-card.now.me .tc-av.emoji { background: rgba(255,209,102,.12); }
+.tc-tt { min-width: 0; }
+.tc-title { font-size: 15.5px; font-weight: 800; color: #f2fff5; line-height: 1.45; letter-spacing: -.2px; }
+.tc-meta { margin-top: 4px; font-size: 11.5px; font-weight: 600; color: #8fae9c; }
+.ts-doing { display: flex; flex-direction: column; gap: 10px; margin-top: 13px; }
+.ts-guide { font-size: 12.5px; line-height: 1.55; color: #9fd8b0; }
+.tr-card.now.me .ts-guide { color: #d9c78a; }
 .ts-input { width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 10px; font-size: 13.5px; color: #eaffef; background: rgba(0,12,5,.55); border: 1px solid rgba(255,209,102,.35); outline: none; }
 .ts-input:focus { border-color: #ffd166; box-shadow: 0 0 10px rgba(255,209,102,.2); }
 .ts-input::placeholder { color: var(--text-dim); }
-.ts-btns { display: flex; gap: 9px; flex-wrap: wrap; }
+.ts-btns { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
 .cyc-btn.sm { font-size: 11.5px; padding: 8px 12px; }
-.ts-report { flex-basis: 100%; font-size: 12.5px; line-height: 1.5; color: #ffe9b8; background: rgba(255,209,102,.07); border-left: 2px solid rgba(255,209,102,.5); border-radius: 0 8px 8px 0; padding: 7px 11px; margin-top: 6px; }
+.ts-report { flex-basis: 100%; font-size: 12.5px; line-height: 1.5; color: #ffe9b8; background: rgba(255,209,102,.07); border-left: 2px solid rgba(255,209,102,.5); border-radius: 0 8px 8px 0; padding: 7px 11px; margin-top: 2px; }
 /* 🔴 실시간 작업 로그 — 에이전트가 도구 쓰는 게 그대로 흐른다 */
 .cyc-feed { margin-top: 10px; border: 1px solid rgba(57,255,20,.18); border-radius: 12px; background: rgba(0,12,5,.55); padding: 10px 12px; max-height: 220px; overflow-y: auto; }
 .cyc-feed-h { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #74ffb4; margin-bottom: 7px; }
