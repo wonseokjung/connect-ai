@@ -290,6 +290,27 @@
 .cyc-who.me { color: #ffd166; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.5); }
 .cyc-task.is-me { background: rgba(255,209,102,.04); border-color: rgba(255,209,102,.25); }
 .cyc-legend { flex-basis: 100%; font-size: 11px; color: var(--text-dim); text-align: center; padding-bottom: 2px; }
+/* 🎓 학습 유도 — 분야 두뇌가 30개 차면 "학습시킬 수 있어요" (운영→학습 플라이휠) */
+.train-nudge { display: flex; align-items: center; gap: 12px; margin: 12px 1px; padding: 13px 15px; border-radius: 14px;
+  border: 1px solid rgba(57,255,20,.35); background: linear-gradient(150deg, rgba(57,255,20,.08), rgba(3,14,7,.5)); }
+.tn-ic { font-size: 24px; flex-shrink: 0; }
+.tn-tx { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.tn-tx > b { font-size: 13.5px; color: #eaffef; }
+.tn-go { flex-shrink: 0; }
+/* 📊 스코어보드 — 지난 사이클 이후 실제 지표 변화 (운영이 숫자를 움직였나) */
+.ops-score { margin: 2px 1px 12px; padding: 11px 13px; border-radius: 13px; border: 1px solid rgba(255,255,255,.09); background: rgba(255,255,255,.02); }
+.osc-h { font: 800 10px/1 ui-monospace, 'SF Mono', monospace; letter-spacing: 2px; color: #8fae9c; }
+.osc-items { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.osc-item { display: inline-flex; align-items: center; gap: 6px; padding: 6px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 700;
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.09); }
+.osc-ic { font-size: 13px; }
+.osc-lb { color: #b7c4bb; }
+.osc-dl { font-family: ui-monospace, monospace; font-weight: 800; font-variant-numeric: tabular-nums; }
+.osc-item.up { border-color: rgba(46,204,64,.4); background: rgba(46,204,64,.07); }
+.osc-item.up .osc-dl { color: #4ade80; }
+.osc-item.down { border-color: rgba(255,110,110,.38); background: rgba(255,110,110,.06); }
+.osc-item.down .osc-dl { color: #ff8a8a; }
+.osc-item.flat .osc-dl { color: #8fae9c; }
 /* ✅ 오늘의 투두 — 퀘스트 로그 레일: 빛나는 선이 차오르고, 지금 할 일만 미션 카드로 떠오른다 */
 .todo-head { display: flex; align-items: center; gap: 12px; padding: 2px 3px 10px; }
 .th-label { font: 800 10px/1 ui-monospace, 'SF Mono', monospace; letter-spacing: 3.5px; color: #74ffb4; opacity: .85; white-space: nowrap; }

@@ -915,6 +915,7 @@ function buildOpsLoop(s: any) {
       track('cycle', `운영 사이클 #${cyc} 완주`, 'manage', 2, '🎯');
       markCycleTracked(cyc);
     }
+    patchTrainNudge();   // 🎓 분야 두뇌 30개 차면 학습 유도
   }
   renderGrass();
   wireLoop();
@@ -967,10 +968,18 @@ $('opsCyclePanel')?.addEventListener('click', (e) => {
   else if (p === 'integ') { openOverlay('managePanel'); try { switchMtab('integ'); loadIntegrations(); } catch { /* */ } }
 });
 
+// 📊 스코어보드 — 지난 사이클 이후 실제 지표 변화(매출·구독·조회·커밋). 운영이 숫자를 움직였는지 한눈에.
+function scoreboardHtml(s: any): string {
+  const sb: any[] = s.scoreboard || [];
+  if (!sb.length) return '';
+  return `<div class="ops-score"><span class="osc-h">📊 지난 사이클 이후</span><div class="osc-items">${sb.map(i =>
+    `<span class="osc-item ${i.dir === 'up' ? 'up' : i.dir === 'down' ? 'down' : 'flat'}"><span class="osc-ic">${i.ic}</span><span class="osc-lb">${escapeHtml(i.label)}</span><span class="osc-dl">${escapeHtml(i.delta)}</span></span>`).join('')}</div></div>`;
+}
+
 // ✅ 오늘의 투두 — 퀘스트 로그 레일: 빛나는 선이 위에서부터 차오르고, 지금 할 일 딱 하나만 미션 카드로 떠오른다
 function renderTodo(s: any): string {
   const acts: any[] = s.actions || [];
-  if (!acts.length) return '<div class="cyc-loading">투두가 없어요 — 🔄 다시 짜기를 눌러보세요</div>';
+  if (!acts.length) return scoreboardHtml(s) + '<div class="cyc-loading">투두가 없어요 — 🔄 다시 짜기를 눌러보세요</div>';
   const doneN = acts.filter(a => a.step).length;
   const curIdx = acts.findIndex(a => !a.step);
   // 세그먼트 진행바 — 칸 하나 = 일 하나 (내 몫은 금색으로 채워진다)
@@ -1017,7 +1026,7 @@ function renderTodo(s: any): string {
         ${controls}
       </div></div>`;
   }).join('');
-  return `<div class="todo-head"><span class="th-label">TODAY'S OPS</span><span class="th-count"><b>${doneN}</b> / ${acts.length}</span><div class="th-seg">${seg}</div></div>
+  return scoreboardHtml(s) + `<div class="todo-head"><span class="th-label">TODAY'S OPS</span><span class="th-count"><b>${doneN}</b> / ${acts.length}</span><div class="th-seg">${seg}</div></div>
     <div class="todo-rail">${rows}</div>`;
 }
 
@@ -1035,9 +1044,26 @@ function renderFeedback(s: any): string {
     return `<div class="cyc-task exec"><span class="cyc-t">${me ? '🙋 ' : ''}${escapeHtml(a.title)}</span><span class="cyc-st ${ok ? 'ok' : 'fail'}">${ok ? '✅' : '미완'}</span>${fb}${a.report ? `<div class="ts-report">💬 ${escapeHtml(a.report)}</div>` : ''}${sh && !me ? artsHtml(sh) : ''}</div>`;
   }).join('');
   return `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">오늘 운영 완료</div><div class="cyc-complete-s">${acts.length}개 수행 · 완료 ${okN}개</div></div>
+    ${scoreboardHtml(s)}
     ${weekStrip()}
-    <div class="fb-hint muted small">👍👎 평가는 다음 플랜에 반영돼요</div>${items}
+    <div class="fb-hint muted small">👍👎 평가는 다음 플랜에 반영돼요 · 👍한 일은 그 분야 두뇌로 쌓여요</div>${items}
+    <div id="trainNudge"></div>
     ${activityTimeline()}`;
+}
+
+// 🎓 운영→학습 플라이휠 — 분야 두뇌가 임계점(30개) 차면 "이제 학습시킬 수 있어요" 유도. 운영할수록 내 AI가 똑똑해지는 소유 루프.
+async function patchTrainNudge() {
+  const el = $('trainNudge'); if (!el) return;
+  let stats: any[] = []; try { stats = await connect.brainStats(); } catch { return; }
+  const ready = (stats || []).filter((s: any) => s.ready);
+  if (!ready.length) return;
+  el.innerHTML = ready.slice(0, 2).map((s: any) =>
+    `<div class="train-nudge"><span class="tn-ic">🎓</span><div class="tn-tx"><b>${escapeHtml((s.emoji || '🧠') + ' ' + s.label)} 두뇌 ${s.count}개 — 학습 준비 완료</b><span class="muted small">이제 이 취향으로 <b>학습</b>시킬 수 있어요. 운영할수록 내 AI가 똑똑해져요.</span></div><button class="cyc-btn primary sm tn-go">🌱 학습하러 가기 →</button></div>`).join('');
+  el.querySelectorAll('.tn-go').forEach(b => b.addEventListener('click', () => {
+    closeOverlay('opsCyclePanel'); openOverlay('brainPanel');
+    try { selectBtab('long'); } catch { /* */ }
+    hint('🌱 장기 기억 — 쌓인 이 분야 두뇌를 학습시켜 보세요');
+  }));
 }
 
 function wireLoop() {

@@ -639,7 +639,9 @@ type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
 interface OpsFeedItem { icon: string; text: string; agent: string; ok: boolean; ts: number; }
 interface OpsFeedback { title: string; good: boolean; cycle: number; ts: number; }   // 👍/👎 — 다음 사이클 플랜의 보상신호(강화학습 루프)
 interface OpsHumanReport { title: string; report: string; cycle: number; ts: number; }   // 🙋 사장님이 직접 완료하고 남긴 한 줄 보고 — 다음 사이클 계획의 입력
-interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; humanReports: OpsHumanReport[]; }
+interface OpsMetricSnap { ts: number; revNet: number; cur: string; subs: number; views: number; latestCommitDate: string; }   // 📊 사이클 시작 시점 지표 스냅샷 — 다음 사이클과 비교해 '진짜 변화'를 잰다(루프 닫기)
+interface OpsScoreItem { ic: string; label: string; delta: string; dir: 'up' | 'down' | 'flat'; }
+interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; humanReports: OpsHumanReport[]; metricSnapshot?: OpsMetricSnap; scoreboard?: OpsScoreItem[]; }
 let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [], feedback: [], humanReports: [] };
 // 🔒 실제 실행(executeOne) 진행 중 래치 — busy/executing UI 플래그와 별개. ops:stop이 executing을 먼저 꺼도 이 값은 실행이 진짜 끝날 때(finally)까지 유지돼, 플랜 덮어쓰기·이중 실행 레이스를 막는다.
 let opsInFlight = false;
@@ -715,6 +717,36 @@ function buildScan(d: any): OpsScan[] {
 
   return scan;
 }
+// 📊 지표 스냅샷 — 이번 사이클 시작 시점의 진짜 숫자(매출·구독·조회·최근커밋). 다음 사이클에서 이걸 기준으로 변화를 잰다.
+function snapshotMetrics(d: any): OpsMetricSnap {
+  const { rev, yt, gh } = d;
+  let revNet = 0, cur = '';
+  const bc = rev?.data?.totals?.by_currency;
+  if (bc && Object.keys(bc).length) { const t = rev.data.totals; cur = t.primary_currency || Object.keys(bc)[0]; const cc = bc[cur] || {}; revNet = (cc.gross || 0) + (cc.refunds || 0) + (cc.fees || 0); }
+  const ch = (yt?.ok && yt.channel) ? yt.channel : null;
+  const latestCommitDate = (gh?.ok && gh.commits?.length) ? (gh.commits[0].date || '') : '';
+  return { ts: Date.now(), revNet, cur, subs: ch?.subs || 0, views: ch?.views || 0, latestCommitDate };
+}
+// 📊 스코어보드 — 지난 스냅샷 대비 변화. '운영이 실제로 숫자를 움직였나'를 보여주는 강화학습 신호(👍👎는 감상, 이건 결과).
+function scoreboardVs(prev: OpsMetricSnap, cur: OpsMetricSnap, d: any): OpsScoreItem[] {
+  const out: OpsScoreItem[] = [];
+  const dirOf = (n: number): OpsScoreItem['dir'] => n > 0 ? 'up' : n < 0 ? 'down' : 'flat';
+  const sign = (n: number) => (n > 0 ? '+' : n < 0 ? '−' : '±') + fmtN(Math.abs(n));
+  // 매출 — 같은 통화일 때만 delta(통화 바뀌면 뺄셈이 무의미). 다르면 현재 절대액만.
+  if (cur.revNet || prev.revNet) {
+    const sameCur = !prev.cur || !cur.cur || prev.cur === cur.cur;
+    if (sameCur) { const dv = cur.revNet - prev.revNet; out.push({ ic: '💰', label: '매출', delta: `${sign(dv)} ${cur.cur || prev.cur}`, dir: dirOf(dv) }); }
+    else out.push({ ic: '💰', label: '매출', delta: `${fmtN(cur.revNet)} ${cur.cur}`, dir: 'flat' });
+  }
+  if (cur.subs || prev.subs) { const dv = cur.subs - prev.subs; out.push({ ic: '📺', label: '구독', delta: sign(dv), dir: dirOf(dv) }); }
+  if (cur.views || prev.views) { const dv = cur.views - prev.views; out.push({ ic: '👁️', label: '조회', delta: sign(dv), dir: dirOf(dv) }); }
+  const gh = d?.gh;
+  if (gh?.ok && gh.commits?.length && prev.latestCommitDate) {
+    const n = gh.commits.filter((c: any) => c.date && c.date > prev.latestCommitDate).length;
+    if (n) out.push({ ic: '💻', label: '새 커밋', delta: `+${n}`, dir: 'up' });
+  }
+  return out;
+}
 function opsRisk(title: string): OpsAction['risk'] {
   if (/결제|환불|가격|구매|송금|payout|invoice|청구/i.test(title)) return 'money';
   if (/메일|발송|이메일|dm|게시|업로드|발행|공지|email|post|publish/i.test(title)) return 'post';
@@ -764,6 +796,10 @@ async function runOperation(): Promise<OpsState> {
   try {
     const d = await gatherOps();
     const scan = buildScan(d); const c = d.c;
+    // 📊 측정으로 루프 닫기 — 지난 사이클 시작 이후 지표가 어떻게 변했나(매출·구독·조회·커밋)
+    const curSnap = snapshotMetrics(d);
+    opsState.scoreboard = opsState.metricSnapshot ? scoreboardVs(opsState.metricSnapshot, curSnap, d) : [];
+    opsState.metricSnapshot = curSnap;
     let summary = '', actions: OpsAction[] = [];
     const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
     if (target) {
@@ -779,7 +815,10 @@ async function runOperation(): Promise<OpsState> {
       // 🤝 협업 루프 — 사장님이 직접 완료하고 보고한 결과를 이어받는다 (사람→AI 방향의 핸드오프)
       const recentHr = (opsState.humanReports || []).slice(-6);
       const hrCtx = recentHr.length ? `\n\n[사장님이 직접 완료하고 보고한 일 — 이 결과를 이어받아 다음 단계를 제안하라]\n${recentHr.map(h => `🙋 ${h.title.replace(/\s+/g, ' ').slice(0, 50)} → "${h.report.replace(/\s+/g, ' ').slice(0, 80)}"`).join('\n')}` : '';
-      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘. 사람(사장님)과 AI 에이전트가 '협업'하는 1인 기업이다 — 각 일을 누가 더 잘하는지로 나눠라.\n\n핵심:\n- 반드시 이 4개 고정 카테고리 안에서만 제안하라: 💡아이디어(바이브코딩으로 만들 새 서비스)·🗂️관리(고객·일정·정리·운영)·📊자산 분석(매출·지표·경쟁·현황)·📣마케팅(콘텐츠·발행·홍보). 가능하면 네 카테고리를 골고루 다뤄라.\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공/피드백을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 🤖 [에이전트id] = AI가 컴퓨터로 잘하는 일: 리서치·분석·데이터정리·문서·기획초안·콘텐츠 초안·모니터링·관리.\n- 🙋 [사장님] = 사람이 해야 잘되는 일: 코딩/바이브코딩(로컬 AI는 코딩이 약함)·계정 생성·결제수단·연동 입력·촬영·미팅·최종 의사결정·관계.\n- 분담 비율은 일에 따라 자연스럽게(보통 에이전트 2~4 : 사장님 1~2). 코딩이 필요하면 반드시 [사장님] 몫으로.\n- 목록 순서 = 실행 순서다(투두리스트 — 위에서부터 하나씩 해결). 한 작전의 산출물이 다음 작전의 입력이 되도록 짜고, 사장님 몫이 뒤 작전의 전제라면 반드시 앞에 놓아라.\n- 지난 사이클에서 시작한 일(지난 성공·사장님 보고)이 있으면 새 일을 벌이기 전에 그 일을 다음 단계로 전진시키는 작전을 먼저 제안하라 — 매일 리셋 금지, 어제의 결과 위에 쌓아라.\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람이 해야 잘되는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}${fbCtx}${hrCtx}`;
+      // 📊 측정 신호 — 지난 사이클 이후 실제 지표 변화. 오른 건 무엇 덕인지 이어가고, 안 움직였으면 접근을 바꿔라.
+      const sb = opsState.scoreboard || [];
+      const sbCtx = sb.length ? `\n\n[지난 사이클 이후 실제 지표 변화 — 이게 진짜 성과다. 오른 지표는 무슨 작전 덕인지 파악해 이어가고, 안 움직인 지표는 접근을 바꿔라]\n${sb.map(s => `${s.ic} ${s.label} ${s.delta} (${s.dir === 'up' ? '상승' : s.dir === 'down' ? '하락' : '변화없음'})`).join('\n')}` : '';
+      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘. 사람(사장님)과 AI 에이전트가 '협업'하는 1인 기업이다 — 각 일을 누가 더 잘하는지로 나눠라.\n\n핵심:\n- 반드시 이 4개 고정 카테고리 안에서만 제안하라: 💡아이디어(바이브코딩으로 만들 새 서비스)·🗂️관리(고객·일정·정리·운영)·📊자산 분석(매출·지표·경쟁·현황)·📣마케팅(콘텐츠·발행·홍보). 가능하면 네 카테고리를 골고루 다뤄라.\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공/피드백을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 🤖 [에이전트id] = AI가 컴퓨터로 잘하는 일: 리서치·분석·데이터정리·문서·기획초안·콘텐츠 초안·모니터링·관리.\n- 🙋 [사장님] = 사람이 해야 잘되는 일: 코딩/바이브코딩(로컬 AI는 코딩이 약함)·계정 생성·결제수단·연동 입력·촬영·미팅·최종 의사결정·관계.\n- 분담 비율은 일에 따라 자연스럽게(보통 에이전트 2~4 : 사장님 1~2). 코딩이 필요하면 반드시 [사장님] 몫으로.\n- 목록 순서 = 실행 순서다(투두리스트 — 위에서부터 하나씩 해결). 한 작전의 산출물이 다음 작전의 입력이 되도록 짜고, 사장님 몫이 뒤 작전의 전제라면 반드시 앞에 놓아라.\n- 지난 사이클에서 시작한 일(지난 성공·사장님 보고)이 있으면 새 일을 벌이기 전에 그 일을 다음 단계로 전진시키는 작전을 먼저 제안하라 — 매일 리셋 금지, 어제의 결과 위에 쌓아라.\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람이 해야 잘되는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}${fbCtx}${hrCtx}${sbCtx}`;
       try {
         const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -1106,7 +1145,17 @@ ipcMain.handle('ops:stepAssign', (_e, idx: number, human: boolean) => {
 ipcMain.handle('ops:status', () => opsPublic());
 // 👍👎 피드백 — 다음 사이클 플랜에 반영되는 보상신호(강화학습 루프)
 ipcMain.handle('ops:feedback', (_e, title: string, good: boolean) => {
+  const already = (opsState.feedback || []).some(f => f.title === title && f.good && f.cycle === opsState.cycle);   // 이번 사이클에서 이미 👍했으면 중복 적재만 방지(다음 사이클의 같은 제목=새 예제라 적재됨)
   opsState.feedback = [...(opsState.feedback || []), { title: String(title || '').slice(0, 80), good: !!good, cycle: opsState.cycle, ts: Date.now() }].slice(-50);
+  // 🎓 운영→학습 플라이휠 — 사장님이 👍한 AI 산출물 = '이 사업에서 좋은 일'의 검증 예제. 그 분야 두뇌로 적재 → 30개 차면 학습(우리만의 소유 플라이휠).
+  if (good && !already) {
+    const act = opsState.actions.find(a => a.title === title);
+    const ship = opsState.shipped.find(s => s.title === title);
+    if (act && act.assignee !== 'human' && ship?.ok) {
+      const body = `[👍 좋은 운영 예제] ${title}${ship.result ? ` — ${ship.result.slice(0, 180)}` : ''}`;
+      try { brainAddNote(body, undefined, { source: 'me', verified: true, category: AGENT_CATEGORY[act.agent] }); } catch { /* 두뇌 적재 실패해도 피드백은 유지 */ }
+    }
+  }
   saveOpsState(); opsEmit();
   return opsPublic();
 });
