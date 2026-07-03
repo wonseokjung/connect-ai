@@ -61,9 +61,34 @@ async function callLLM(engine, system, user) {
 }
 
 // ───────────────────────── Cycle body ─────────────────────────
+
+// v0.4.9 — 요건#8: 자율 사이클 health 파일. 매 실행 결과를 기록해서 확장/데스크톱이
+// "자율 사이클이 최근에 실패했다"를 감지해 사용자에게 알릴 수 있게.
+// ~/.connect-ai-brain/cycle.health: {ok, ts, reason?, consecutiveFailures}
+const HEALTH_FILE = path.join(BRAIN_DIR, 'cycle.health');
+const ALERT_FILE = path.join(BRAIN_DIR, 'cycle.alert');   // 연속 3회 실패 시 생성
+function writeHealth(ok, reason) {
+    try {
+        let prev = { ok: true, ts: 0, consecutiveFailures: 0 };
+        try { prev = JSON.parse(fs.readFileSync(HEALTH_FILE, 'utf-8')); } catch { /* 첫 실행 */ }
+        const consecutiveFailures = ok ? 0 : (prev.consecutiveFailures || 0) + 1;
+        const entry = { ok, ts: Date.now(), reason: ok ? undefined : (reason || '').slice(0, 500), consecutiveFailures };
+        fs.writeFileSync(HEALTH_FILE, JSON.stringify(entry, null, 2));
+        // 연속 3회 실패 → alert 파일 생성 (확장이 읽어 배지 표시)
+        if (consecutiveFailures >= 3) {
+            fs.writeFileSync(ALERT_FILE, JSON.stringify({ ts: Date.now(), consecutiveFailures, lastReason: reason }));
+            console.error(`🚨 자율 사이클 연속 ${consecutiveFailures}회 실패 — ${ALERT_FILE} 생성 (확장에서 경고 표시됨)`);
+        } else if (ok && fs.existsSync(ALERT_FILE)) {
+            // 성공 복귀 시 alert 해제
+            try { fs.unlinkSync(ALERT_FILE); } catch { /* */ }
+        }
+    } catch { /* health 기록 실패가 사이클을 막으면 안 됨 */ }
+}
+
 async function runCycle() {
     if (!fs.existsSync(path.join(BRAIN_DIR, '_shared'))) {
         console.error(`✗ Brain folder not initialized at ${BRAIN_DIR}. Open the IDE extension once to set up.`);
+        writeHealth(false, 'Brain folder not initialized');
         process.exit(1);
     }
     const engine = await detectEngine();
@@ -121,11 +146,13 @@ ${decisions}
 
     console.log(`✓ Cycle complete. Output saved: ${sessionDir}/_report.md`);
     console.log(`✓ Conversation log: ${dayFile}`);
+    writeHealth(true);   // 요건#8: 성공 기록
 }
 
 // ───────────────────────── Run + error handling ─────────────────────────
 runCycle().catch((e) => {
     console.error('✗ Cycle failed:', e.message);
+    writeHealth(false, e.message);   // 요건#8: 실패 기록 (연속 3회 시 alert)
     process.exit(1);
 });
 

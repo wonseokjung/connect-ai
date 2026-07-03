@@ -165,6 +165,88 @@ else
   fi
 fi
 
+# ───────────────────────── 5. launchd 자율 사이클 (요건 #7) ─────────────────────────
+# node 경로 해석 — asdf shim(/.../.asdf/shims/node)은 bash 스크립트라 launchd 환경
+# (프로파일 미로드)에서 깨질 수 있음. 실제 바이너리 경로를 우선 사용.
+resolve_node_bin() {
+  local candidate=""
+  # (1) asdf 실제 install 경로 (가장 안정)
+  if command -v asdf >/dev/null 2>&1; then
+    candidate="$(asdf which node 2>/dev/null)"
+    if [ -n "$candidate" ] && [ -x "$candidate" ]; then echo "$candidate"; return; fi
+  fi
+  # (2) asdf shim 의 readlink 대상 — shim 파일에서 exec 경로 추출 시도
+  if command -v node >/dev/null 2>&1; then
+    local node_path; node_path="$(command -v node)"
+    # shim 이면 asdf exec 로 위임 — 실제 바이너리 찾기 어려우면 shim 그대로(차선)
+    if echo "$node_path" | grep -q "asdf/shims"; then
+      # asdf 리스트에서 현재 버전의 install 경로 유추
+      local ver; ver="$(asdf current nodejs 2>/dev/null | awk '{print $1}')"
+      if [ -n "$ver" ]; then
+        local install="$HOME/.asdf/installs/nodejs/$ver/bin/node"
+        if [ -x "$install" ]; then echo "$install"; return; fi
+      fi
+    fi
+    # shim 아닌 일반 바이너리면 그대로
+    if [ -x "$node_path" ]; then echo "$node_path"; return; fi
+  fi
+  # (3) homebrew fallback
+  for hb in /opt/homebrew/bin/node /usr/local/bin/node; do
+    if [ -x "$hb" ]; then echo "$hb"; return; fi
+  done
+  echo ""
+}
+
+NODE_BIN="$(resolve_node_bin)"
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PLIST_PATH="$HOME/Library/LaunchAgents/com.connectai.cycle.plist"
+SHIMS_DIR="$HOME/.asdf/shims"
+
+# plist 는 항상 최신 node 경로로 재작성 (idempotent — 덮어쓰기)
+mkdir -p "$(dirname "$PLIST_PATH")"
+cat > "$PLIST_PATH" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.connectai.cycle</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>${NODE_BIN:-node}</string>
+    <string>${REPO_ROOT}/scripts/cycle.js</string>
+  </array>
+  <key>WorkingDirectory</key><string>${REPO_ROOT}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>BRAIN_DIR</key><string>${COMPANY_DIR}</string>
+    <key>MODEL</key><string>${MODEL}</string>
+    <key>OLLAMA_URL</key><string>${OLLAMA_URL}</string>
+    <key>PATH</key><string>${SHIMS_DIR}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><false/>
+  <key>StandardOutPath</key><string>${BRAIN_DIR}/cycle.log</string>
+  <key>StandardErrorPath</key><string>${BRAIN_DIR}/cycle.err</string>
+</dict>
+</plist>
+PLIST
+
+if [ -n "$NODE_BIN" ] && [ -x "$NODE_BIN" ]; then
+  ok "node 경로 해석: $NODE_BIN (실행 가능)"
+else
+  warn "node 바이너리 해석 실패 — plist가 'node' 로 fallback (PATH 의존)"
+fi
+
+# launchd 등록 (이미 있으면 unload 후 load 로 갱신)
+if launchctl list 2>/dev/null | grep -q com.connectai.cycle; then
+  launchctl unload "$PLIST_PATH" 2>/dev/null || true
+fi
+if launchctl load "$PLIST_PATH" 2>/dev/null; then
+  ok "launchd 자율 사이클 등록: $PLIST_PATH (30분 간격)"
+else
+  info "launchd 등록은 macOS 전용 (이 환경에서 스킵 또는 수동)"
+fi
+
 # ───────────────────────── 완료 요약 ─────────────────────────
 echo ""
 echo "────────────────────────────────────────"
