@@ -244,6 +244,11 @@ textarea::placeholder{color:var(--text-dim)}
 .input-hint{font-size:10px;color:var(--text-dim)}
 .input-btns{display:flex;gap:5px}
 .send-btn{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;color:#fff;width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;transition:all .2s;box-shadow:0 2px 12px rgba(124,106,255,.35);position:relative;overflow:hidden}
+.order-btn{background:rgba(0,255,65,.12);border:1px solid rgba(0,255,65,.35);color:#00ff41;width:32px;height:32px;border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:15px;transition:all .15s}
+.order-btn:hover{background:rgba(0,255,65,.22);transform:scale(1.06)}
+.welcome-chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin:16px 0 8px}
+.welcome-chip{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:#c8c8d0;padding:8px 14px;border-radius:20px;font-size:12.5px;cursor:pointer;transition:all .15s}
+.welcome-chip:hover{background:rgba(0,255,65,.12);border-color:rgba(0,255,65,.3);color:#00ff41}
 .send-btn::after{content:'';position:absolute;inset:0;background:linear-gradient(135deg,transparent,rgba(255,255,255,.15));opacity:0;transition:opacity .3s}
 .send-btn:hover{transform:translateY(-2px) scale(1.05);box-shadow:0 6px 24px rgba(124,106,255,.45)}
 .send-btn:hover::after{opacity:1}
@@ -1347,7 +1352,7 @@ body.corp-on .agent-dock::before{
 }
 
 </style></head><body class="init">
-<div class="header"><div class="header-left"><div class="logo">✦</div><span class="brand">Connect AI</span><span class="brand-suffix" id="brandSuffix"></span></div><div class="header-right"><select id="modelSel"></select><button class="ad-chip" id="adChip" type="button" data-expanded="false" title="specialist 모델 매핑 — 클릭해서 펼치기"><span class="adc-model" id="adcModel">…</span><span class="adc-caret">▾</span></button><button class="btn-icon" id="corporateBtn" title="AI 1인 기업 모드 (Solo Mode) — 나만의 에이전트 팀이 자동으로 일합니다 (현재: OFF)" style="opacity:0.5">👔</button><button class="btn-icon" id="brainBtn" title="내 지식 관리">🧠</button><button class="btn-icon" id="historyBtn" title="이전 대화 보기 — 새 대화를 시작해도 이전 대화는 자동 보관됩니다">📂</button><button class="btn-icon" id="newChatBtn" title="새 대화 시작 (이전 대화는 자동 보관)">+</button><div class="more-wrap"><button class="btn-icon" id="moreBtn" title="더보기">…</button><div class="more-menu" id="moreMenu" hidden><button class="more-item" id="internetBtn" title="DuckDuckGo로 웹 검색 — AI가 결과를 읽어와 답변에 반영">🌐 인터넷 검색</button><button class="more-item" id="thinkingBtn" title="AI의 사고 흐름을 별도 패널에 그래프로 시각화 (지식 노드 연결 표시)">🎬 Thinking 시각화</button><button class="more-item" id="skillLibBtn" title="에이전트 스킬·도구 카탈로그 — 내가 만든 것 + 기본 제공 모두 한 곳에서">🛠 내 스킬 라이브러리</button><button class="more-item" id="settingsBtn" title="모델·서버 주소·시스템 프롬프트·키 등 모든 설정">⚙️ 설정</button></div></div></div></div>
+<div class="header"><div class="header-left"><div class="logo">✦</div><span class="brand">Connect AI</span><span class="brand-suffix" id="brandSuffix"></span></div><div class="header-right"><select id="modelSel"></select><button class="ad-chip" id="adChip" type="button" data-expanded="false" title="specialist 모델 매핑 — 클릭해서 펼치기"><span class="adc-model" id="adcModel">…</span><span class="adc-caret">▾</span></button><button class="btn-icon" id="corporateBtn" title="AI 1인 기업 모드 (Solo Mode) — 나만의 에이전트 팀이 자동으로 일합니다 (현재: OFF)" style="opacity:0.5">👔</button><button class="btn-icon" id="brainBtn" title="내 지식 관리">🧠</button><button class="btn-icon" id="historyBtn" title="이전 대화 보기 — 새 대화를 시작해도 이전 대화는 자동 보관됩니다">📂</button><button class="btn-icon" id="newChatBtn" title="새 대화 시작 (이전 대화는 자동 보관)">+</button><div class="more-wrap"><button class="btn-icon" id="moreBtn" title="더보기">…</button><div class="more-menu" id="moreMenu" hidden><button class="more-item" id="internetBtn" title="DuckDuckGo로 웹 검색 — AI가 결과를 읽어와 답변에 반영">🌐 인터넷 검색</button><button class="more-item" id="thinkingBtn" title="AI의 사고 흐름을 별도 패널에 그래프로 시각화 (지식 노드 연결 표시)">🎬 Thinking 시각화</button><button class="more-item" id="skillLibBtn" title="에이전트 스킬·도구 카탈로그 — 내가 만든 것 + 기본 제공 모두 한 곳에서">🛠 내 스킬 라이브러리</button><button class="more-item" id="settingsBtn" title="모델·서버 주소·시스템 프롬프트·키 등 모든 설정">⚙️ 설정</button><button class="more-item" id="diagnoseBtn" title="LLM 엔진 연결·모델·포트 점검 — 문제 생기면 먼저 실행">🔍 LLM 연결 진단</button></div></div></div></div>
 <!-- v2.89.116 — 1인 기업 모드 specialist 모델 dock. 일반 모드에선 숨김.
      body.corp-on이 들어오면 헤더의 #modelSel 자리에서 9명 specialist의
      모델 매핑이 한 줄로 보이고, 클릭하면 인라인 popover로 변경. -->
@@ -1385,9 +1390,9 @@ body.corp-on .agent-dock::before{
 <div id="welcomeRoot"></div></div>
 <div class="input-wrap"><div class="input-box">
 <div class="attach-preview" id="attachPreview"></div>
-<textarea id="input" rows="1" placeholder="무엇을 만들어 드릴까요?"></textarea>
+<textarea id="input" rows="1" placeholder="/order 로 시작하거나 🚀 버튼 — 예) /order 강아지 쇼핑몰 만들어줘"></textarea>
 <div class="input-footer"><span class="input-hint">Enter 전송 · Shift+Enter 줄바꿈</span>
-<div class="input-btns"><button class="attach-btn" id="attachBtn" title="파일 첨부 (AI에게 보여주기)">+</button><button class="attach-btn" id="injectLocalBtn" title="첨부 파일을 내 지식에 영구 저장">⚡</button><button class="stop-btn" id="stopBtn" title="생성 중단">■</button><button class="send-btn" id="sendBtn" title="전송 (Enter)">↑</button></div></div></div>
+<div class="input-btns"><button class="attach-btn" id="attachBtn" title="파일 첨부 (AI에게 보여주기)">+</button><button class="attach-btn" id="injectLocalBtn" title="첨부 파일을 내 지식에 영구 저장">⚡</button><button class="stop-btn" id="stopBtn" title="생성 중단">■</button><button class="order-btn" id="orderBtn" title="🚀 신규 오더 — 5단계 자동 파이프라인 (아이디어→기획→구현→개발→운영)">🚀</button><button class="send-btn" id="sendBtn" title="전송 (Enter)">↑</button></div></div></div>
 <input type="file" id="fileInput" multiple accept="image/*,audio/*,.txt,.md,.csv,.json,.js,.ts,.html,.css,.py,.java,.rs,.go,.yaml,.yml,.xml,.toml" hidden></div>
 </div>
 <script>
@@ -1419,6 +1424,7 @@ function welcomeHtml(){
     + '<div class="ag-badge">⚡ Built for Antigravity</div>'
     + '<div class="welcome-title">AI 1인 기업, 시작하세요</div>'
     + '<div class="welcome-sub">나만의 AI 에이전트 팀과 제2의 두뇌가 한 곳에서.<br>100% 로컬·오프라인·무료 — 인터넷도 API 비용도 없이 내 PC에서.</div>'
+    + '<div class="welcome-chips"><div class="welcome-chip" data-cmd="/order 강아지 용품 쇼핑몰 랜딩페이지 만들어줘">🚀 신규 오더: 강아지 쇼핑몰</div><div class="welcome-chip" data-cmd="/order 포트폴리오 웹사이트 만들어줘">🚀 신규 오더: 포트폴리오</div><div class="welcome-chip" data-cmd="유튜브 영상 기획해줘">📝 영상 기획</div></div>'
     + '<div id="onboardRoot"></div>'
     + '</div>';
 }
@@ -2015,7 +2021,25 @@ function renderPreview(){
   });
 }
 document.addEventListener('click',e=>{if(e.target.classList.contains('qa-btn')){const p=e.target.getAttribute('data-prompt');if(p){input.value=p;send()}}});
+
 sendBtn.addEventListener('click',send);
+/* v2.89.160 — /order 발견성: 🚀 버튼 클릭시 input 에 /order 삽입 + 포커스. welcome chip 클릭 위임. */
+(function(){
+  const ob=document.getElementById('orderBtn');
+  if(ob) ob.addEventListener('click',()=>{
+    const inp=document.getElementById('input');
+    if(inp){ if(!inp.value.trim().startsWith('/order')) inp.value='/order '; inp.focus(); }
+  });
+  document.addEventListener('click',e=>{
+    const chip=e.target.closest('.welcome-chip');
+    if(!chip) return;
+    const cmd=chip.getAttribute('data-cmd');
+    if(!cmd) return;
+    const inp=document.getElementById('input');
+    if(inp){ inp.value=cmd; inp.focus(); }
+    const w=document.querySelector('.welcome'); if(w) w.remove();
+  });
+})();
 input.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
 newChatBtn.addEventListener('click',()=>vscode.postMessage({type:'newChat'}));
 /* v2.89.106-107 — 대화 세션 아카이브 패널. 매 newChat 시 이전 대화 자동 보관.
@@ -2303,6 +2327,8 @@ function _escapeHtml(s){ return String(s||'').replace(/[&<>"']/g, c=>({'&':'&amp
 function _escapeAttr(s){ return _escapeHtml(s).replace(/"/g,'&quot;'); }
 if (historyBtn) historyBtn.addEventListener('click', openSessionsPanel);
 settingsBtn.addEventListener('click',()=>{vscode.postMessage({type:'openSettings'});closeMoreMenu();});
+/* v2.89.160 — 진단 버튼: runCommand 로 진단 명령 실행 */
+const _db=document.getElementById('diagnoseBtn'); if(_db) _db.addEventListener('click',()=>{vscode.postMessage({type:'runCommand',command:'connectAiLab.diagnoseConnection'}); document.getElementById('moreMenu')?.classList.remove('open');});
 const skillLibBtn=document.getElementById('skillLibBtn');
 if(skillLibBtn){skillLibBtn.addEventListener('click',()=>{closeMoreMenu();showSkillLibrary();});}
 const moreBtn=document.getElementById('moreBtn');
@@ -2364,7 +2390,7 @@ function applyCorporateMode(on){
      컨셉(럭셔리 골드)과 안 맞아서 명시적으로 골드 그라디언트 사용. */
   corporateBtn.style.background=on?'linear-gradient(135deg,#FBBF24,#F59E0B)':'';
   corporateBtn.title='AI 1인 기업 모드 (Solo Mode) — '+(on?'ON':'OFF (클릭해서 켜기)');
-  input.placeholder=on?'한 줄 명령을 내리세요. 팀이 알아서 일합니다.':'무엇을 만들어 드릴까요?';
+  input.placeholder=on?'/order 로 시작 — 예) /order 강아지 쇼핑몰 만들어줘':'/order 로 시작하거나 🚀 버튼 — 예) /order 강아지 쇼핑몰 만들어줘';
   /* Tell extension so autonomous corp activity is gated out of the sidebar
      while OFF. Office panel + conversation log keep recording either way. */
   try{vscode.postMessage({type:'corpModeToggle',on:!!on});}catch{}
@@ -4720,7 +4746,7 @@ window.addEventListener('message',e=>{const msg=e.data;switch(msg.type){
       corporateBtn.style.background=officeOpen?'linear-gradient(135deg,#FBBF24,#F59E0B)':'';
       corporateBtn.title=officeOpen?'AI 1인 기업 모드 (Solo Mode) — 사무실 열림 (클릭해서 닫기)':'AI 1인 기업 모드 (Solo Mode) — OFF (클릭해서 사무실 열기)';
     }
-    if(input)input.placeholder=officeOpen?'한 줄 명령을 내리세요. 팀이 알아서 일합니다.':'무엇을 만들어 드릴까요?';
+    if(input)input.placeholder=officeOpen?'/order 로 시작 — 예) /order 강아지 쇼핑몰 만들어줘':'/order 로 시작하거나 🚀 버튼 — 예) /order 강아지 쇼핑몰 만들어줘';
     break;
   }
   case 'error':hideLoader();setSending(false);addMsg(msg.value,'error');break;

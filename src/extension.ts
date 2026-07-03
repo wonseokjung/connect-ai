@@ -741,6 +741,41 @@ const MAX_CONTEXT_SIZE = 12_000; // chars
    __dirname는 esbuild 번들 출력 위치(extension/out)이라 ../assets/prompts 로 한 단계 위. */
 const _PROMPTS_DIR = path.join(__dirname, '..', 'assets', 'prompts');
 const _promptCache = new Map<string, string>();
+/* v2.89.160 — LLM 호출 에러를 친화적 한국어 메시지로 변환 (일반 chat/CEO planner 경로의
+   친화적 로직을 /order 파이프라인에도 적용). raw e.message(ECONNREFUSED, 404 등 영어) 대신
+   사용자가 이해할 수 있는 안내 + 진단 도구 안내 반환. */
+function friendlyLlmError(e: any): string {
+    const { ollamaBase } = getConfig();
+    const isLM = _isLMStudioEngine(ollamaBase);
+    const targetName = isLM ? 'LM Studio' : 'Ollama';
+    const port = isLM ? '1234' : '11434';
+    const code = e?.code || '';
+    const status = e?.response?.status;
+    /* axios stream detail 추출 — 이미 버퍼링된 에러면 response.data에서, 아니면 빈 문자열 */
+    let detail = '';
+    try { detail = (typeof e?.response?.data === 'string' ? e.response.data : (e?.response?.data?.error || e?.response?.data?.message || '')).toString(); } catch { /* ignore */ }
+    if (code === 'ECONNREFUSED' || code === 'ECONNRESET') {
+        return targetName + '에 연결할 수 없어요. ' + targetName + ' 앱이 켜져 있는지, 서버가 시작됐는지 확인하세요. (포트 ' + port + ')\n💡 명령 팔레트(Cmd+Shift+P) → "Connect AI: 🔍 LLM 연결 진단"으로 원인을 찾을 수 있어요.';
+    }
+    if (status === 404) {
+        return '선택한 AI 모델을 찾을 수 없어요. ' + (isLM ? 'LM Studio에서 모델을 다운로드 후 로드(Load)하세요.' : '터미널에서 `ollama pull 모델이름`으로 모델을 먼저 받아주세요.');
+    }
+    if (status === 400) {
+        return '요청 형식 오류(400). 모델 이름이 정확한지 확인하세요. ' + (detail ? '(서버: ' + detail.slice(0, 200) + ')' : '');
+    }
+    if (status === 413) { return '요청이 너무 깁니다(413). 컨텍스트를 줄여주세요.'; }
+    if (code === 'ETIMEDOUT') { return targetName + ' 응답 시간 초과. 모델이 로드 중이거나 메모리 부족일 수 있어요.'; }
+    /* 모델 로드 실패 (detail 문자열 기반) */
+    const dl = (detail || e?.response?.data?.error || '').toString().toLowerCase();
+    if (/model failed to load|failed to load model|resource limitations/.test(dl)) {
+        return 'AI 모델 로드에 실패했어요. 메모리(RAM) 부족일 가능성이 높습니다.\n• 더 작은 모델 사용 (16GB → qwen2.5:7b, 8GB → qwen2.5:3b)\n• ' + targetName + ' 재시작' + (isLM ? '' : ' (pkill ollama && ollama serve)') + '\n• 다른 모델 재다운로드 (ollama pull)';
+    }
+    if (/context length|context window/.test(dl)) { return '컨텍스트 길이 초과. 입력을 줄이거나 더 큰 컨텍스트 모델을 사용하세요.'; }
+    if (/out of memory|oom/.test(dl)) { return '메모리 부족으로 추론 실패. 더 작은 모델을 사용하거나 다른 앱을 종료하세요.'; }
+    /* fallback: 원본 메시지 */
+    return (e?.message || String(e)) + (detail ? ' (' + detail.slice(0, 150) + ')' : '');
+}
+
 function _loadPrompt(file: string): string {
     let cached = _promptCache.get(file);
     if (cached !== undefined) return cached;
@@ -1332,6 +1367,35 @@ function _maybeRecommendCoderModel(webview: vscode.Webview) {
     } catch { /* readonly fs */ }
   } catch { /* never block */ }
 }
+/* v2.89.160 — 일반 LLM 모델 사전 추천. 설치된 모델이 없을 때 RAM 기반으로 적정 모델 안내.
+   기존 14b(9GB) 기본이 16GB 머신에서 RAM 부족으로 느린 문제 해결 — 7b 추천으로 정정.
+   _maybeRecommendCoderModel(개발자 전용) 과 달리 이건 일반 first-run/no-model용.
+   one-shot: _model_recommended 플래그로 한 번만. */
+async function _maybeRecommendModel(webview: vscode.Webview) {
+  try {
+    const active = readActiveAgents();
+    if (active._model_recommended) return;
+    /* 이미 설치된 모델이 있으면 추천 안 함 (사용자가 이미 선택한 것 존중) */
+    let installed: { id: string }[] = [];
+    try { installed = await listInstalledModels(); } catch { /* */ }
+    const chatModels = installed.filter(m => !/embed|whisper|tts|rerank|clip|sdxl|stable-diffusion|flux|bark|musicgen|nomic/i.test(m.id));
+    if (chatModels.length > 0) { active._model_recommended = true; writeActiveAgents(active); return; }
+    /* safeModelBudgetGB 기반 추천 (Apple Silicon 0.65, 그 외 0.5 비율) */
+    const specs = getSystemSpecs();
+    let rec: { name: string; size: string; reason: string };
+    if (specs.safeModelBudgetGB >= 20) {
+      rec = { name: 'qwen2.5:14b', size: '9GB', reason: 'RAM ' + Math.round(specs.totalRamGB) + 'GB — 14b 모델 여유 (한국어·코드 품질 최상)' };
+    } else if (specs.safeModelBudgetGB >= 8) {
+      rec = { name: 'qwen2.5:7b', size: '4.4GB', reason: 'RAM ' + Math.round(specs.totalRamGB) + 'GB — 7b 권장 (14b는 메모리 부족 위험)' };
+    } else {
+      rec = { name: 'qwen2.5:3b', size: '2GB', reason: 'RAM ' + Math.round(specs.totalRamGB) + 'GB — 3b (가장 가벼움)' };
+    }
+    active._model_recommended = true;
+    writeActiveAgents(active);
+    webview.postMessage({ type: 'systemNote', value: '🤖 추천 AI 모델: `' + rec.name + '` (' + rec.size + ') — ' + rec.reason + '\n받기: 터미널에서 `ollama pull ' + rec.name + '`  (또는 🤖 모델 선택 메뉴)' });
+  } catch { /* 추천 실패해도 활성화 막으면 안 됨 */ }
+}
+
 
 /* v2.89.26 — 에이전트별 모델 라우팅. CEO·YouTube·디자이너 등 각자 다른
    로컬 LLM 사용 (작은 모델은 라우팅·결정에, 큰 모델은 분석·창작에).
@@ -10886,6 +10950,7 @@ class CompanyDashboardPanel {
                             /* v2.89.112 — 코다리(developer) 첫 활성화 시 시니어 코더 모델 추천. */
                             if (want && aid === 'developer') {
                                 _maybeRecommendCoderModel(this._panel.webview);
+                                    try { _maybeRecommendModel(this._panel.webview); } catch { /* */ }
                             }
                             await this._sendState();
                             /* 사이드바도 동기화 */
@@ -17762,7 +17827,7 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                         try { this._view?.webview.postMessage({ type: 'activeAgents', value: readActiveAgents() }); } catch { /* ignore */ }
                         /* v2.89.112 — 코다리 첫 활성화 시 시니어 코더 모델 추천 카드 */
                         if (want && aid === 'developer') {
-                            try { if (this._view) _maybeRecommendCoderModel(this._view.webview); } catch { /* ignore */ }
+                            try { if (this._view) _maybeRecommendCoderModel(this._view.webview); try { if (this._view) _maybeRecommendModel(this._view.webview); } catch { /* */ } } catch { /* ignore */ }
                         }
                         try {
                             if (CompanyDashboardPanel.current) CompanyDashboardPanel.current.refresh();
@@ -17809,6 +17874,10 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
                     // 응답 없이 차단됐음. ready 시점에 한 번 더 동기화.
                     this._restoreDisplayMessages();
                     this._sendCompanyState();
+                    break;
+                case 'runCommand':
+                    /* v2.89.160 — 사이드바 UI 버튼이 VS Code 명령 실행 (진단 등). 일반 사용자가 명령 팔레트 안 썀도 접근. */
+                    try { await vscode.commands.executeCommand(String(msg.command || '')); } catch (e: any) { vscode.window.showErrorMessage('명령 실행 실패: ' + (e?.message || e)); }
                     break;
                 case 'openSettings':
                     await this._handleSettingsMenu();
@@ -19584,6 +19653,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
      * 단계별 산출물은 orders/<id>/<stage>.md 로 저장, 상태는 orders.json 에 영속.
      * 실패 시 1회 재시도 후 사용자에게 알리고 중단.
      */
+
     public async _runOrderPipeline(prompt: string, modelName: string): Promise<void> {
         const post = (m: any) => this._broadcastCorporate(m);
         /* v2.89.159 — 자급식 AbortController. 호출자(_handleCorporatePrompt)가 만든 것에
@@ -19682,7 +19752,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                         errMsg = '빈 산출물';
                     }
                 } catch (e: any) {
-                    errMsg = e?.message || String(e);
+                    errMsg = friendlyLlmError(e);   /* v2.89.160 — 친화적 한국어 에러 (이전엔 raw e.message 영어 노출) */
                     post({ type: 'response', value: '⚠️ ' + label + ' 시도 ' + (attempt + 1) + ' 실패: ' + errMsg });
                 }
             }

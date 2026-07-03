@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-2.1.30-blue" alt="version" />
+  <img src="https://img.shields.io/badge/version-2.89.157-blue" alt="version" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
   <img src="https://img.shields.io/badge/integration-Agent_University-purple" alt="integration" />
   <img src="https://img.shields.io/badge/engine-Ollama%20%7C%20LM%20Studio-orange" alt="engine" />
@@ -59,12 +59,18 @@ Ollama 또는 LM Studio에 설치된 모델을 내부 API(`v1/models`)를 호출
 
 ## 📥 Installation (설치 방법)
 
-### A.U 멤버십 유저 (Recommended)
+### 🖥️ 데스크톱 앱 (가장 쉬운 방법 — 일반 사용자용)
+별도 설치 없이 다운로드 → 더블클릭으로 실행하는 독립 데스크톱 앱(Electron). VS Code가 없어도 됩니다.
+- **macOS Apple Silicon (M1/M2/M3/M4)**: `desktop/release/Connect-AI-0.4.8-mac-arm64.dmg` 다운로드 후 더블클릭 설치.
+- 공개 릴리스(GitHub Releases 자동 다운로드)는 코드서명 준비 중 — 현재는 저장소에서 직접 빌드/다운로드.
+- **Intel Mac / Windows**: 빌드 타겟 추가 예정 (`desktop/DISTRIBUTION.md` 참조).
+
+### ⌨️ VS Code 확장 (개발자·파워유저용)
 1. 상단 탭의 [Releases](https://github.com/wonseokjung/connect-ai/releases) 메뉴로 진입.
-2. 최신 `v2.1.30.vsix` 파일을 다운로드.
+2. 최신 `v2.89.157.vsix` 파일을 다운로드.
 3. VS Code 에서 `Cmd+Shift+P` → **Extensions: Install from VSIX** → 다운받은 파일 선택
 
-### 개발자 빌드 (Build from Source)
+### 🔧 소스에서 빌드 (개발자용)
 ```bash
 git clone https://github.com/wonseokjung/connect-ai.git
 cd connect-ai
@@ -72,6 +78,18 @@ npm install
 npm run compile
 npx vsce package
 ```
+
+> 💡 **처음 설치 후**: `bash scripts/init-ai-company.sh` 한 번 실행하면 브레인 폴더·설정·자율 사이클 등록까지 자동 처리. 상세는 [SETUP_AI_COMPANY.md](SETUP_AI_COMPANY.md).
+
+---
+
+## 🚀 핵심 기능: 신규 오더 파이프라인
+
+한 줄 명령으로 **①아이디어 → ②화면기획 → ③화면구현 → ④개발 → ⑤운영** 5단계를 자동 완수합니다. 사이드바 입력창에 `/order` 로 시작하거나 🚀 버튼 클릭:
+```
+/order 강아지 용품 쇼핑몰 랜딩페이지 만들어줘
+```
+각 단계 산출물이 다음 단계로 전달되며, 실제 파일(`site/` 폴더)까지 생성. 상세는 [SETUP_AI_COMPANY.md](SETUP_AI_COMPANY.md).
 
 ---
 
