@@ -15410,6 +15410,36 @@ window.addEventListener('message', e => {
       }, 2200);
       break;
     }
+    case 'pipelineProgress': {
+      /* v2.89.159 — 요건#11: 오더 파이프라인 5단계 도트 바.
+         상단 fixed 바에 5개 도트로 진행 단계 표시 (진행중=점멸, 완료=채움, 미도달=회색). */
+      let bar = document.getElementById('pipelineBar');
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.id = 'pipelineBar';
+        bar.style.cssText = 'position:sticky;top:0;z-index:50;display:flex;gap:6px;align-items:center;padding:8px 12px;background:rgba(10,12,16,.92);backdrop-filter:blur(10px);border-bottom:1px solid rgba(0,255,65,.18);font-size:11px;color:#9aa;font-family:-apple-system,sans-serif;';
+        const agentList = document.querySelector('.office-stage') || document.body;
+        agentList.insertBefore(bar, agentList.firstChild);
+      }
+      const total = m.total || 5;
+      const labels = ['① 아이디어','② 화면기획','③ 화면구현','④ 개발','⑤ 운영'];
+      bar.innerHTML = '';
+      for (let k = 0; k < total; k++) {
+        const dot = document.createElement('span');
+        const isCur = k === m.stageIndex;
+        const isDone = k < m.stageIndex;
+        const color = isDone ? '#00ff41' : isCur ? '#5DE0E6' : '#444';
+        dot.style.cssText = 'display:inline-flex;align-items:center;gap:4px;' +
+          (isCur ? 'animation:pulse 1.2s infinite;' : '');
+        dot.innerHTML = '<span style="width:9px;height:9px;border-radius:50%;background:' + color + ';box-shadow:' + (isCur||isDone ? '0 0 6px '+color : 'none') + ';"></span>' +
+          '<span style="color:' + (isDone||isCur ? color : '#666') + ';">' + (labels[k]||('단계'+(k+1))) + '</span>';
+        bar.appendChild(dot);
+      }
+      if (m.status === 'done' && m.stageIndex === total - 1) {
+        setTimeout(() => { if (bar && bar.parentNode) bar.parentNode.removeChild(bar); }, 6000);
+      }
+      break;
+    }
     case 'agentStart': {
       setDeskState(m.agent, 'working', m.task);
       const persona = PERSONALITY[m.agent] || { status:['⚡'] };
@@ -19576,6 +19606,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
             const agentIds = STAGE_AGENTS[stage];
             await updateStage(order.id, stage, { status: 'running', startedAt: new Date().toISOString(), agentIds });
             post({ type: 'agentStart', agent: agentIds[0], task: label + ' (오더 파이프라인)' });
+            post({ type: 'pipelineProgress', orderId: order.id, stage, stageIndex: STAGE_ORDER.indexOf(stage), total: STAGE_ORDER.length, status: 'running' });
             post({ type: 'response', value: '\n━━━ ' + label + ' 진행 중 ━━━' });
 
             const stagePromptTpl = PIPELINE_PROMPTS[stage] || '';
@@ -19643,6 +19674,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                 prevOutput = out;   // 다음 단계로 핸드오프
                 appendAgentMemory(agentIds[0], label + ' 완료 → ' + (file ? file.replace(os.homedir(), '~') : '') + ' (오더 ' + order.id + ')');
                 post({ type: 'response', value: '✅ ' + label + ' 완료' + (file ? ' → ' + file.replace(os.homedir(), '~') : '') });
+                post({ type: 'pipelineProgress', orderId: order.id, stage, stageIndex: STAGE_ORDER.indexOf(stage), total: STAGE_ORDER.length, status: 'done' });
             } else {
                 await updateStage(order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
                 stageOutputs.push({ stage, label, ok: false });

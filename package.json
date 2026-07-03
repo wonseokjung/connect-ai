@@ -306,7 +306,11 @@
         },
         "connectAiLab.secretaryBridgeMode": {
           "type": "string",
-          "enum": ["off", "output_only", "full"],
+          "enum": [
+            "off",
+            "output_only",
+            "full"
+          ],
           "enumDescriptions": [
             "Off — 비서는 텔레그램에서만 활동. 사이드바는 CEO와 직접 대화 (현재 동작)",
             "출력만 — specialist 산출물 끝에 비서가 한 줄로 사장님께 정리 카드 추가",
@@ -322,14 +326,17 @@
     "vscode:prepublish": "npm run compile",
     "compile": "esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js",
     "watch": "tsc -watch -p ./",
-    "pretest": "npm run compile"
+    "pretest": "npm run compile",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "18.x",
     "@types/vscode": "^1.80.0",
     "@vercel/ncc": "^0.38.4",
     "esbuild": "^0.28.0",
-    "typescript": "^5.1.3"
+    "typescript": "^5.1.3",
+    "vitest": "^4.1.9"
   },
   "dependencies": {
     "axios": "^1.15.0",
