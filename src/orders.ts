@@ -56,6 +56,17 @@ export const STAGE_OUTPUT_FILE: Record<OrderStage, string> = {
 /** 파이프라인 단계의 정의 순서 — iteration 시 항상 이 배열 기준. */
 export const STAGE_ORDER: OrderStage[] = ['idea', 'design', 'build', 'develop', 'operate'];
 
+/** v2.89.159 — 요건#5: 다음 단계로 넘길 산출물의 최대 길이(자). 단계 의존도 차등.
+ *  design→build 는 와이어프레임이 핵심이라 가장 넉넉히, idea→design 은 콘셉트 요약이라 짧게.
+ *  기존엔 무조건 6000자로 잘랐는데 design(4500자+)이 잘려 build 품질이 떨어지던 문제 해결. */
+export const STAGE_HANDOFF_CAP: Record<OrderStage, number> = {
+  idea: 4000,      /* idea→design: 콘셉트·차별점 요약 */
+  design: 8000,    /* design→build: 와이어프레임·카피 전문 (가장 중요) */
+  build: 6000,     /* build→develop: 생성된 파일 구조 */
+  develop: 6000,   /* develop→operate: 검증 결과·로직 */
+  operate: 4000,   /* operate: 종착지라 핸드오프 없음 (참조용) */
+};
+
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed';
 
 export interface OrderStageState {

@@ -701,7 +701,7 @@ function _isLMStudioEngine(ollamaBase: string): boolean {
    _expandTilde, _resolvePathInput 모두 ./paths.ts 로 이동. 모듈 간 import 일원화. */
 import { _getBrainDir, _isBrainDirExplicitlySet, getCompanyDir, COMPANY_SUBDIR, _expandTilde, _resolvePathInput } from './paths';
 /* v2.89.158 — 신규 오더 파이프라인 추적 모듈 (/order <명령> 진입). */
-import { createOrder, getOrder, listOrders, listActiveOrders, updateStage, completeOrder, abortOrder, saveStageOutput, orderSummary, nextPendingStage, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS } from './orders';
+import { createOrder, getOrder, listOrders, listActiveOrders, updateStage, completeOrder, abortOrder, saveStageOutput, orderSummary, nextPendingStage, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP } from './orders';
 
 
 async function _ensureBrainDir(): Promise<string | null> {
@@ -19589,20 +19589,39 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                     const sysBase = _personalizePrompt(stagePromptTpl)
                         .replace(/\{\{ORDER_PROMPT\}\}/g, prompt)
                         .replace(/\{\{ORDER_TITLE\}\}/g, order.title)
-                        .replace(/\{\{PREV_OUTPUT\}\}/g, prevOutput.slice(0, 6000))
+                        .replace(/\{\{PREV_OUTPUT\}\}/g, prevOutput.slice(0, STAGE_HANDOFF_CAP[stage]))
                         .replace(/\{\{SESSION_ROOT\}\}/g, order.sessionRoot);
                     const sys = sysBase + '\n\n' + readAgentSharedContext(agentIds[0]);
-                    const userMsg = '이 오더의 ' + label + ' 단계를 수행하세요. 원본 명령: "' + prompt + '"';
+                    /* v2.89.159 — 요건#4: 재시도 시 이전 검증 에러를 userMsg 에 주입해 모델이 수정. */
+                    const retryHint = errMsg ? '\n\n[이전 시도 피드백 — 반영해서 다시]\n' + errMsg : '';
+                    const userMsg = '이 오더의 ' + label + ' 단계를 수행하세요. 원본 명령: "' + prompt + '"' + retryHint;
 
                     out = await this._callAgentLLM(sys, userMsg, modelName, agentIds[0], true);
 
                     // ③build / ④develop 단계는 <create_file>·<run_command> 태그를 실행
                     if (stage === 'build' || stage === 'develop') {
+                        let actionReport: string[] = [];
                         try {
-                            await this._executeActions(out, { silent: false });
+                            actionReport = await this._executeActions(out, { silent: false, agentId: agentIds[0] });
                         } catch (e: any) {
-                            /* 파일 액션 실패해도 텍스트 산출물은 살아있음 — 경고만 */
                             post({ type: 'response', value: '⚠️ ' + label + ' 파일 액션 일부 실패: ' + (e?.message || e) });
+                        }
+                        /* v2.89.159 — 요건#4: develop 단계 검증 게이트. 첫 시도(attempt===0)에서만.
+                           검증 명령 누락 또는 에러 → errMsg 설정 후 continue (ok 체크 건너뛰고 재시도). */
+                        if (stage === 'develop' && attempt === 0) {
+                            const reportText = (actionReport || []).join('\n');
+                            const hasVerify = /node --check|tsc --noEmit|py_compile|JSON\.parse|npm test|jest|vitest/i.test(out)
+                                || /node --check|tsc --noEmit|py_compile/i.test(reportText);
+                            const hasError = /❌|실패|error TS|SyntaxError|Unexpected token|종료 코드: [1-9]/i.test(reportText);
+                            if (!hasVerify) {
+                                post({ type: 'response', value: '⚠️ ' + label + ': 자기검증 명령(node --check/tsc)이 없습니다. 검증 포함 재생성.' });
+                                errMsg = '검증 명령 누락 — 반드시 node --check 또는 tsc --noEmit 실행 후 결과 보고';
+                                continue;
+                            } else if (hasError) {
+                                post({ type: 'response', value: '⚠️ ' + label + ': 검증 에러 감지 — 수정 재생성.' });
+                                errMsg = '이전 검증 결과:\n' + reportText.slice(0, 1500);
+                                continue;
+                            }
                         }
                     }
 

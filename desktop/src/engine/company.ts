@@ -370,7 +370,7 @@ export async function talkToMyAgent(history: ChatTurn[], userText: string, opts:
 // 확장(src/extension.ts _runOrderPipeline)과 동일한 5단계 매핑.
 import * as fsOrder from 'fs';
 import * as pathOrder from 'path';
-import { createOrder, updateStage, completeOrder, abortOrder, saveStageOutput, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS } from '../orders';
+import { createOrder, updateStage, completeOrder, abortOrder, saveStageOutput, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP } from '../orders';
 
 // 파이프라인 프롬프트 로드 (desktop/assets/prompts/pipeline-<stage>.md).
 // 빌드 시 assets/** 가 번들에 포함되므로 app.getAppPath()/assets 기준.
@@ -423,7 +423,7 @@ export async function runOrderPipeline(
       .replace(/\{\{COMPANY\}\}/g, company)
       .replace(/\{\{ORDER_PROMPT\}\}/g, text)
       .replace(/\{\{ORDER_TITLE\}\}/g, order.title)
-      .replace(/\{\{PREV_OUTPUT\}\}/g, prevOutput.slice(0, 6000))
+      .replace(/\{\{PREV_OUTPUT\}\}/g, prevOutput.slice(0, STAGE_HANDOFF_CAP[stage]))
       .replace(/\{\{SESSION_ROOT\}\}/g, order.sessionRoot);
     // runSpecialist 는 specialistPrompt(id) 로 자기 프롬프트를 만들므로,
     // 파이프라인 프롬프트는 brief(사용자 메시지)로 전달 → 단계 지시가 우선.

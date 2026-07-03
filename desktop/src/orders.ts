@@ -39,6 +39,12 @@ export const STAGE_OUTPUT_FILE: Record<OrderStage, string> = {
 
 export const STAGE_ORDER: OrderStage[] = ['idea', 'design', 'build', 'develop', 'operate'];
 
+/* v0.4.9 — 요건#5: 다음 단계 핸드오프 산출물 최대 길이(자). 단계 의존도 차등.
+   design→build 가 가장 넉넉 (와이어프레임이 구현의 핵심). */
+export const STAGE_HANDOFF_CAP: Record<OrderStage, number> = {
+  idea: 4000, design: 8000, build: 6000, develop: 6000, operate: 4000,
+};
+
 export type StageStatus = 'pending' | 'running' | 'done' | 'failed';
 
 export interface OrderStageState {
