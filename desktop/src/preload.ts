@@ -134,6 +134,7 @@ contextBridge.exposeInMainWorld('connect', {
   approvalsList: () => ipcRenderer.invoke('approvals:list'),
   approvalsApprove: (id: string) => ipcRenderer.invoke('approvals:approve', id),
   approvalsReject: (id: string) => ipcRenderer.invoke('approvals:reject', id),
+  approvalsEdit: (id: string, how: string) => ipcRenderer.invoke('approvals:edit', id, how),   // ✏️ 앱 내 결재 수정
   approvalsTest: () => ipcRenderer.invoke('approvals:test'),
   // 💰 매출 대시보드 (별도 창)
   openRevenue: () => ipcRenderer.invoke('revenue:open'),

@@ -2572,6 +2572,14 @@ ipcMain.handle('approvals:approve', async (_e, id: string) => {
   return { list: listApprovals(), result };
 });
 ipcMain.handle('approvals:reject', (_e, id: string) => { setApprovalStatus(id, 'rejected'); return { list: listApprovals() }; });
+// ✏️ 앱 내 결재 수정 — 초안을 지시대로 고쳐 다시 대기(폰 "수정 …"과 같은 로직). 승인 전 사장님이 앱에서 바로 다듬는다.
+ipcMain.handle('approvals:edit', async (_e, id: string, how: string) => {
+  const a = getApproval(id);
+  if (!a?.action) return { list: listApprovals() };
+  const newPayload = await tgRegenerate(a, String(how || '').slice(0, 200));
+  updateApprovalAction(id, { ...a.action, payload: newPayload });
+  return { list: listApprovals() };
+});
 // 🧪 결재 플로우 체험 — 테스트 결재를 만들고 즉시 폰(텔레그램)으로 푸시. 폰에서 "보내기" 답장 → 실제 실행까지 한 바퀴.
 ipcMain.handle('approvals:test', async () => {
   const c = loadConfig();

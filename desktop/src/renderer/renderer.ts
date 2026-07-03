@@ -917,6 +917,7 @@ function buildOpsLoop(s: any) {
     }
     patchTrainNudge();   // 🎓 분야 두뇌 30개 차면 학습 유도
   }
+  patchOpsApprovals();   // 🛡️ 결재함 — 전 단계 공통 동기화(지속 노드, 가드로 편집 보존)
   renderGrass();
   wireLoop();
 }
@@ -1049,6 +1050,55 @@ function renderFeedback(s: any): string {
     <div class="fb-hint muted small">👍👎 평가는 다음 플랜에 반영돼요 · 👍한 일은 그 분야 두뇌로 쌓여요</div>${items}
     <div id="trainNudge"></div>
     ${activityTimeline()}`;
+}
+
+// 🛡️ 결재함 — 운영 화면 안에서 결재 대기(발송·발행·배포·수정)를 바로 승인/수정/반려. 사장님 = 결재자.
+function kindLabel(k: string): string { return ({ email: '📧 이메일 발송', telegram: '✈️ 메시지 발송', run: '⚡ 명령 실행', github: '📤 콘텐츠 발행', ytmeta: '📺 유튜브 수정', write: '📝 파일' } as any)[k] || '📝 작업'; }
+let _oaSig = '';
+async function patchOpsApprovals() {
+  const el = $('opsApprovals'); if (!el) return;
+  // ① 사장님이 수정 입력 중이면 재렌더 보류 — 타이핑이 지워지지 않게(실행 중 잦은 ops:update 대비)
+  const act = document.activeElement as HTMLElement | null;
+  if (act && act.classList?.contains('oa-input') && el.contains(act)) return;
+  let all: any[] = []; try { all = await connect.approvalsList(); } catch { return; }
+  const pend = (all || []).filter((a: any) => a.status === 'pending' && a.action);   // 실행 가능한 결재만(승인=실제 실행)
+  // ② 결재 세트·초안이 그대로면 DOM 유지(스크롤·열린 편집 보존) — 실행 중 매 tool 이벤트마다 갈아엎지 않는다
+  const sig = pend.map((a: any) => a.id + ':' + String(a.action.payload || '').length).join('|');
+  if (sig === _oaSig && (el.childElementCount > 0) === pend.length > 0) return;
+  _oaSig = sig;
+  if (!pend.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="ops-appr"><div class="oa-h">🛡️ 결재 대기 <b>${pend.length}</b> · 승인하면 실제로 실행돼요</div>${pend.map((a: any) => `
+    <div class="oa-card" data-id="${escAttr(a.id)}">
+      <div class="oa-top"><span class="oa-ic">${a.agentEmoji || '🤖'}</span><span class="oa-title">${escapeHtml(a.title)}</span><span class="oa-kind">${escapeHtml(kindLabel(a.action.kind))}</span></div>
+      ${a.action.payload ? `<div class="oa-body">${escapeHtml(String(a.action.payload).slice(0, 400))}</div>` : (a.summary ? `<div class="oa-body">${escapeHtml(a.summary)}</div>` : '')}
+      <div class="oa-editrow" hidden><input class="oa-input" placeholder="어떻게 고칠까요? (예: 더 짧게 · 정중하게)" maxlength="200"><button class="cyc-btn ghost sm oa-editgo">고쳐줘</button></div>
+      <div class="oa-btns"><button class="cyc-btn primary sm oa-ok">✅ 승인·실행</button><button class="cyc-btn ghost sm oa-mod">✏️ 수정</button><button class="cyc-btn ghost sm oa-no">✕ 반려</button></div>
+    </div>`).join('')}</div>`;
+  el.querySelectorAll('.oa-card').forEach(card => {
+    const id = (card as HTMLElement).dataset.id!;
+    const ap = pend.find((x: any) => x.id === id);
+    card.querySelector('.oa-ok')?.addEventListener('click', async () => {
+      const r = await connect.approvalsApprove?.(id).catch(() => null);
+      track('approve', ap?.title || '결재 승인', catOf(ap?.title || ''), 1, '✅');
+      hint(r?.result ? '승인 + 실행 완료 ⚡' : '승인했어요 ✅'); patchOpsApprovals();
+    });
+    card.querySelector('.oa-no')?.addEventListener('click', async () => { await connect.approvalsReject?.(id).catch(() => {}); hint('반려했어요'); patchOpsApprovals(); });
+    card.querySelector('.oa-mod')?.addEventListener('click', () => {
+      const row = card.querySelector('.oa-editrow') as HTMLElement | null;
+      if (row) { row.hidden = !row.hidden; if (!row.hidden) (row.querySelector('.oa-input') as HTMLInputElement)?.focus(); }
+    });
+    const go = card.querySelector('.oa-editgo') as HTMLButtonElement | null;
+    const runEdit = async () => {
+      const inp = card.querySelector('.oa-input') as HTMLInputElement | null; const how = inp?.value?.trim();
+      if (!how || !go) return;
+      inp?.blur();   // 포커스 해제 — 아래 patchOpsApprovals가 포커스 가드에 막히지 않게(엔터 제출 경로)
+      go.setAttribute('disabled', ''); go.textContent = '고치는 중…';
+      await connect.approvalsEdit?.(id, how).catch(() => {});
+      hint('✏️ 고쳤어요 — 확인하고 승인하세요'); patchOpsApprovals();
+    };
+    go?.addEventListener('click', runEdit);
+    (card.querySelector('.oa-input') as HTMLInputElement | null)?.addEventListener('keydown', (e: any) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); runEdit(); } });
+  });
 }
 
 // 🎓 운영→학습 플라이휠 — 분야 두뇌가 임계점(30개) 차면 "이제 학습시킬 수 있어요" 유도. 운영할수록 내 AI가 똑똑해지는 소유 루프.
