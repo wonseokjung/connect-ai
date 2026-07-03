@@ -10,16 +10,19 @@
 ### 1단계 — 인프라 셋업 (한 번만)
 ```bash
 cd /path/to/connect-ai
-bash scripts/init-ai-company.sh          # 브레인 폴더 + 시드 + VS Code 설정
+bash scripts/init-ai-company.sh          # 브레인 폴더 + 시드 + VS Code 설정 + launchd 등록 (한 번에)
 brew install ollama && brew services start ollama
 ollama pull qwen2.5:14b                   # ~9GB, 수 분 소요 (M1 Max 64GB 기준)
 ```
+> `init-ai-company.sh`는 node 바이너리 경로까지 자동 해석해 launchd plist를 생성·등록합니다 (asdf shim이 아닌 실제 바이너리 사용).
 
-### 2단계 — 자율 사이클 등록 (선택, 24시간 운영)
+### 2단계 — 자율 사이클 확인 (init이 자동 등록)
 ```bash
-# launchd plist (이미 생성됨: scripts/init 시 또는 수동)
-launchctl load ~/Library/LaunchAgents/com.connectai.cycle.plist
+# init 스크립트가 launchctl load 까지 수행. 상태 확인:
+launchctl list | grep connectai
 # → 30분마다 회사가 스스로 한 걸음 실행 (IDE 꺼도 동작)
+# 자율 사이클 실패 시 ~/.connect-ai-brain/cycle.health 에 기록 →
+# 연속 3회 실패하면 cycle.alert 생성, 확장/데스크톱 활성화 시 알림 표시
 ```
 
 ### 3단계 — 신규 오더 내리기
@@ -114,6 +117,46 @@ node scripts/demo-order.mjs "고양이 간식 구독 서비스 랜딩페이지"
 - 총 ~7.5분, 5개 `.md` + `site/index.html` + `site/src/components/*.tsx` + `_report.md` 생성
 
 ---
+
+## 🛡️ 파이프라인 강화 (v2.89.159)
+
+오더 파이프라인의 신뢰성·정확도·가시성을 강화한 작업. 원래 단순 구현에서 발견된 11개 약점을 해소.
+
+### 동시성·안전
+- **orders.json 원자적 쓰기 + lockfile** — `withOrdersLock`(O_EXCL lockfile) + tmp→rename atomic write. 동시 `/order`·자율사이클이 같은 파일에 써도 손실 없음 (50개 병렬 createOrder 테스트로 0손실 검증).
+- **다중 오더 동시 실행 방지** — 이미 active 오더가 있으면 차단. 두 파이프라인이 LLM을 동시에 잡는 메모리 경합 방지.
+- **stop 버튼 abort 보강** — `_runOrderPipeline`이 자급식 AbortController 생성. 중단 시 진행 중 단계를 pending으로 되돌려 재개 가능.
+- **`<create_file>` 닫는태그 폴백** — 모델이 여는 태그만 내고 끝내도(닫는 태그 누락) 파일 생성. 빈 파일 검증 포함.
+
+### 정확도
+- **develop 단계 자기검증 강제 게이트** — 검증 명령(`node --check`/`tsc`) 누락 또는 에러 시 1회 강제 재생성. 모델이 검증을 건너뛰는 걸 시스템이 잡음.
+- **단계 산출물 캡 일관성** — `STAGE_HANDOFF_CAP` 단계별 차등 (design→build 8000자, idea→design 4000자). 설계가 잘려 구현 품질이 떨어지던 문제 해소.
+
+### 인프라·가시성
+- **launchd node 경로 안정화** — init 스크립트가 asdf shim이 아닌 실제 바이너리 경로 해석.
+- **자율 사이클 health** — `cycle.health`/`cycle.alert`로 실패 추적. 연속 3회 실패 시 확장·데스크톱이 알림.
+- **데모 데이터 정리** — `scripts/clean-demo-orders.sh`로 검증용 오더+sessions 정리 (dry-run 기본, 백업 포함).
+
+### UI·테스트
+- **vitest 단위 테스트** — `npm test`로 orders 로직 19케이스 회귀 확인 (동시성·cutoff·상태전이).
+- **파이프라인 진행 도트 바** — 확장 webview 상단에 5단계 진행률 표시 (`pipelineProgress` 이벤트).
+
+## 🧪 단위 테스트
+
+```bash
+npm test                # vitest run — orders.ts 19케이스
+npm run test:watch      # watch 모드
+```
+테스트는 `src/orders.test.ts` + `test/vscode-stub.ts`(vscode 목)로 구성. 동시성(50개 병렬 createOrder 무손실), 90일 cutoff 정리, 상태 전이, lock 직렬화 검증.
+
+## 🧹 데모 데이터 정리
+
+검증용으로 만든 데모 오더·자율사이클 잔재를 정리:
+```bash
+bash scripts/clean-demo-orders.sh              # dry-run (대상만 표시)
+bash scripts/clean-demo-orders.sh --confirm    # 실제 삭제 (백업 포함)
+```
+데모 오더(title 키워드 매칭) + `sessions/auto-*` + `cycle.*` 파일 제거.
 
 ## ❓ 트러블슈팅
 

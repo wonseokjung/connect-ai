@@ -7862,8 +7862,28 @@ function _autoPickInstalledModelIfMissing() {
     })();
 }
 
+
+/* v2.89.159 — 자율 사이클 health 체크. launchd 자율 사이클(cycle.js)이 연속 실패하면
+   ~/.connect-ai-brain/cycle.alert 파일을 남김. 확장 활성화 시 이를 읽어 사용자에게 알림 —
+   Ollama가 죽어 자율 사이클이 멈춰있는 걸 모르고 며칠 방치되는 것 방지. */
+function _checkCycleAlert() {
+    try {
+        const brainDir = _getBrainDir();
+        const alertFile = path.join(brainDir, 'cycle.alert');
+        if (!fs.existsSync(alertFile)) return;
+        const data = JSON.parse(fs.readFileSync(alertFile, 'utf-8') || '{}');
+        const fails = data.consecutiveFailures || 0;
+        const when = data.ts ? new Date(data.ts).toLocaleString('ko-KR') : '알 수 없음';
+        vscode.window.showWarningMessage(
+            '🌙 자율 사이클이 연속 ' + fails + '회 실패했습니다 (마지막: ' + when + '). ' +
+            'Ollama가 실행 중인지 확인하세요. 원인: ' + (data.lastReason || '알 수 없음').slice(0, 100),
+            '확인'
+        );
+    } catch { /* health 파일 읽기 실패는 조용히 무시 — 활성화 막으면 안 됨 */ }
+}
 export function activate(context: vscode.ExtensionContext) {
     vscode.window.showInformationMessage('🔥 Connect AI V2 활성화 완료!');
+    _checkCycleAlert();   /* v2.89.159 — 자율 사이클 연속 실패 시 사용자 알림 */
     console.log('Connect AI extension activated.');
 
     _extCtx = context;

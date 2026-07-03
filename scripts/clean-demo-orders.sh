@@ -61,6 +61,17 @@ for line in "${DEMO_IDS[@]}"; do
 done
 echo ""
 
+# sessions/auto-* + cycle.* 정리 대상 미리 보기 (dry-run / confirm 공통)
+SESSIONS_DIR="$COMPANY_DIR/sessions"
+CLEAN_FILES=("$BRAIN_DIR/cycle.log" "$BRAIN_DIR/cycle.err" "$COMPANY_DIR/cycle.health" "$COMPANY_DIR/cycle.alert")
+AUTO_COUNT=$(find "$SESSIONS_DIR" -maxdepth 1 -type d -name 'auto-*' 2>/dev/null | wc -l | tr -d ' ')
+echo "=== 추가 정리 대상 (자율 사이클 잔재) ==="
+info "sessions/auto-* 폴더: ${AUTO_COUNT}개"
+for f in "${CLEAN_FILES[@]}"; do
+  [ -f "$f" ] && info "$(basename "$f"): 존재"
+done
+echo ""
+
 if [ "$CONFIRM" = false ]; then
   warn "dry-run 모드 — 실제 삭제하려면 --confirm 플래그 사용"
   info "실행: bash scripts/clean-demo-orders.sh --confirm"
@@ -94,6 +105,20 @@ for (const id of demoIds) {
 }
 console.log('orders/ 폴더 제거: ' + removed + '개');
 " "$ORDERS_JSON" "$ORDERS_DIR" "$(printf '%s\n' "${DEMO_IDS[@]}" | cut -d'|' -f1 | paste -sd, -)"
+
+# v0.4.9 — 자율 사이클 검증 잔재 정리: sessions/auto-* (데모 사이클 결과) + cycle.* 파일.
+# 실사용 자율 사이클 결과도 auto-* 이라 데모/실제 구분 불가 — 사용자 확인(--confirm) 후 전체 정리.
+AUTO_REMOVED=0
+if [ -d "$SESSIONS_DIR" ]; then
+  for d in "$SESSIONS_DIR"/auto-*; do
+    [ -d "$d" ] || continue
+    rm -rf "$d" && AUTO_REMOVED=$((AUTO_REMOVED + 1))
+  done
+fi
+ok "sessions/auto-* 제거: ${AUTO_REMOVED}개"
+for f in "${CLEAN_FILES[@]}"; do
+  [ -f "$f" ] && rm -f "$f" && info "$(basename "$f") 제거"
+done
 
 ok "데모 오더 정리 완료"
 info "복구 필요 시: cp $BACKUP $ORDERS_JSON"

@@ -403,6 +403,20 @@ app.whenReady().then(() => {
   loadOpsState();   // 🤖 자율 운영 상태 복원
   try { setMcpConfig(loadConfig().mcpConfig); } catch { /* */ }
   createWindow();
+  // v0.4.9 — 자율 사이클(launchd cycle.js) 연속 실패 알림. brain 의 cycle.alert 읽어 notify.
+  setTimeout(() => {
+    try {
+      const companyDir = path.join(app.getPath('userData'), '_company');
+      const alertFile = path.join(companyDir, 'cycle.alert');
+      if (fs.existsSync(alertFile)) {
+        const data = JSON.parse(fs.readFileSync(alertFile, 'utf-8') || '{}');
+        const fails = data.consecutiveFailures || 0;
+        if (fails >= 3) {
+          notify('🌙 자율 사이클 실패', `연속 ${fails}회 실패. Ollama 실행을 확인하세요.`);
+        }
+      }
+    } catch { /* */ }
+  }, 5000);
   buildTray();
   scheduleBriefing();
   scheduleAuto();
