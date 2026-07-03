@@ -891,7 +891,7 @@ function buildOpsLoop(s: any) {
       <div class="lh-emoji">✨</div>
       <div class="lh-headline">오늘의 투두,<br>AI 팀이 짜드려요</div>
       <button class="cyc-btn primary lh-go" id="loopStart">▶ 오늘 운영 시작</button>
-      <div class="lh-cats">${CATS.map(c => `<span class="lh-cat">${c.ic} ${c.name}</span>`).join('')}</div>
+      <div class="lh-cats">${CATS.map(c => `<button class="lh-cat" data-cat="${c.key}" title="바로가기">${c.ic} ${c.name}</button>`).join('')}</div>
       ${hasHistory ? `<div class="lh-mini">🔥 ${grassStreak()}일 연속 · ${currentRank().ic} ${currentRank().name} · 올해 ${grassTotal()}일</div>` : ''}
     </div>`;
     foot.innerHTML = '';
@@ -929,6 +929,43 @@ function liveFeedHtml(s: any): string {
     return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
   }).join('')}</div>`;
 }
+
+// 🔗 투두 → 내 실제 자산 바로가기 — 제목·담당을 보고 관련된 내 것(서비스·채널·저장소·대시보드·연동)을 칩으로 연결
+function todoLinks(a: any): string {
+  const chips: { ic: string; label: string; url?: string; panel?: string }[] = [];
+  const t = String(a.title || '');
+  for (const s of (cfg.services || []) as any[]) {   // 내 서비스가 언급되면 그 서비스·저장소로
+    if (s.name && t.includes(s.name)) {
+      if (s.url) chips.push({ ic: '🌐', label: s.name, url: s.url });
+      if (s.repo) chips.push({ ic: '💻', label: String(s.repo).split('/').pop() || s.repo, url: `https://github.com/${s.repo}` });
+      break;
+    }
+  }
+  const yt = (cfg.apiConn || {}).youtube || {};
+  if (a.agent === 'youtube' || /유튜브|영상|채널|쇼츠|썸네일/i.test(t)) {
+    if (yt.YOUTUBE_CHANNEL_ID) chips.push({ ic: '📺', label: '내 채널', url: `https://www.youtube.com/channel/${yt.YOUTUBE_CHANNEL_ID}` });
+    if (/업로드|발행|올리/.test(t)) chips.push({ ic: '🎬', label: '스튜디오', url: 'https://studio.youtube.com' });
+  }
+  const gh = (cfg.apiConn || {}).github || {};
+  if ((a.agent === 'developer' || /깃허브|github|커밋|저장소|배포/i.test(t)) && gh.GITHUB_DEFAULT_REPO && !chips.some(c => c.ic === '💻'))
+    chips.push({ ic: '💻', label: gh.GITHUB_DEFAULT_REPO, url: `https://github.com/${gh.GITHUB_DEFAULT_REPO}` });
+  if (/매출|수익|결제|가격|환불/i.test(t)) chips.push({ ic: '💰', label: '매출 대시보드', panel: 'revenue' });
+  if (/허깅페이스|huggingface|파인튜닝|학습|합성|진화/i.test(t)) chips.push({ ic: '🧬', label: '두뇌·학습', panel: 'brain' });
+  if (/연동|계정|api ?키|토큰|연결/i.test(t)) chips.push({ ic: '🗂️', label: '연동 열기', panel: 'integ' });
+  if (!chips.length) return '';
+  return `<div class="tc-links">${chips.slice(0, 3).map(c =>
+    `<button class="tl-chip" ${c.url ? `data-url="${escAttr(c.url)}"` : `data-panel="${c.panel}"`}>${c.ic} ${escapeHtml(String(c.label))}</button>`).join('')}</div>`;
+}
+// 칩 클릭 — 외부 링크는 브라우저로, 패널은 해당 화면으로 (위임: 사이클 패널 전체)
+$('opsCyclePanel')?.addEventListener('click', (e) => {
+  const el = (e.target as HTMLElement)?.closest?.('.tl-chip') as HTMLElement | null;
+  if (!el) return;
+  if (el.dataset.url) { connect.openExternal?.(el.dataset.url); return; }
+  const p = el.dataset.panel;
+  if (p === 'revenue') connect.openRevenue?.();
+  else if (p === 'brain') { openOverlay('brainPanel'); try { selectBtab('short'); } catch { /* */ } }
+  else if (p === 'integ') { openOverlay('managePanel'); try { switchMtab('integ'); loadIntegrations(); } catch { /* */ } }
+});
 
 // ✅ 오늘의 투두 — 퀘스트 로그 레일: 빛나는 선이 위에서부터 차오르고, 지금 할 일 딱 하나만 미션 카드로 떠오른다
 function renderTodo(s: any): string {
@@ -969,10 +1006,10 @@ function renderTodo(s: any): string {
     const controls = running
       ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> ${escapeHtml(an)} 일하는 중</span></div>${liveFeedHtml(s)}`
       : me
-        ? `<div class="ts-doing">
+        ? `<div class="ts-doing">${todoLinks(a)}
            <input id="todoReport" class="ts-input" placeholder="끝나면 한 줄 보고 — AI 팀이 이어받아요" maxlength="200">
            <div class="ts-btns"><button class="cyc-btn primary" id="todoDone">✅ 완료</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToAi" title="AI에게 맡기기">🤖 AI에게</button></div></div>`
-        : `<div class="ts-doing">${failed ? '<div class="ts-guide">⚠️ 결과물 없이 끝났어요</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${failed ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div></div>`;
+        : `<div class="ts-doing">${failed ? '<div class="ts-guide">⚠️ 결과물 없이 끝났어요</div>' : ''}${todoLinks(a)}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${failed ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div></div>`;
     return `<div class="tr-item now${meCls}" data-idx="${i}"><div class="tr-node">${i + 1}</div>
       <div class="tr-card now${me ? ' me' : ''}">
         <div class="tc-status">${status}</div>
@@ -1005,6 +1042,18 @@ function renderFeedback(s: any): string {
 
 function wireLoop() {
   $('loopStart')?.addEventListener('click', () => { closeOverlay('opsCyclePanel'); startOps(); });   // 버튼 없이 바로 전체 루프(분석→투두) 실행
+  // 🗂️ 4기둥 칩 = 진짜 바로가기 — 아이디어→운영, 관리→내 서비스, 분석→매출 대시보드, 마케팅→내 채널
+  document.querySelectorAll('.lh-cat[data-cat]').forEach(b => b.addEventListener('click', () => {
+    const k = (b as HTMLElement).dataset.cat;
+    if (k === 'idea') { closeOverlay('opsCyclePanel'); startOps(); }
+    else if (k === 'manage') { openOverlay('managePanel'); try { switchMtab('dash'); loadServices(); loadIntegrations(); } catch { /* */ } }
+    else if (k === 'analyze') connect.openRevenue?.();
+    else if (k === 'market') {
+      const yt = (cfg.apiConn || {}).youtube || {};
+      if (yt.YOUTUBE_CHANNEL_ID) connect.openExternal?.(`https://www.youtube.com/channel/${yt.YOUTUBE_CHANNEL_ID}`);
+      else { openOverlay('managePanel'); try { switchMtab('integ'); loadIntegrations(); } catch { /* */ } hint('유튜브를 연동하면 내 채널로 바로 가요'); }
+    }
+  }));
   $('ideaGo')?.addEventListener('click', runCycleIdea);
   $('cycEnd')?.addEventListener('click', async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 닫았어요'); });
   // ✅ 투두 한 개씩 — 지금 열린 항목(.tr-item.now)의 버튼만 배선
