@@ -641,6 +641,8 @@ interface OpsFeedback { title: string; good: boolean; cycle: number; ts: number;
 interface OpsHumanReport { title: string; report: string; cycle: number; ts: number; }   // 🙋 사장님이 직접 완료하고 남긴 한 줄 보고 — 다음 사이클 계획의 입력
 interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; humanReports: OpsHumanReport[]; }
 let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [], feedback: [], humanReports: [] };
+// 🔒 실제 실행(executeOne) 진행 중 래치 — busy/executing UI 플래그와 별개. ops:stop이 executing을 먼저 꺼도 이 값은 실행이 진짜 끝날 때(finally)까지 유지돼, 플랜 덮어쓰기·이중 실행 레이스를 막는다.
+let opsInFlight = false;
 const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
 function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
 function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
@@ -756,7 +758,7 @@ function fallbackActions(scan: OpsScan[]): OpsAction[] {
 // ① 스케줄 짜기 — 현황 분석 → '오늘의 작전' 제안(자동 실행 안 함). 사람이 고를 차례(phase=review).
 // 핵심 개선: 에이전트별 특화 + 두뇌 기반 제안 + 파이프라인 사고
 async function runOperation(): Promise<OpsState> {
-  if (opsState.busy) return opsPublic();
+  if (opsState.busy || opsInFlight) return opsPublic();   // 실행 중이면 새 플랜으로 덮어쓰지 않는다(레이스 방지)
   if (!opsState.scan.length) opsState.scan = ['business', 'youtube', 'developer', 'designer', 'secretary'].map(a => ({ agent: a, label: '데이터 읽는 중…', ok: false }));
   opsState.busy = true; opsState.phase = 'planning'; opsEmit();
   try {
@@ -796,6 +798,8 @@ async function runOperation(): Promise<OpsState> {
       } catch { /* */ }
     }
     if (!actions.length) actions = fallbackActions(scan);
+    // 🔑 중복 제목 제거 — 실행·완료표시·파이프라인이 전부 title을 식별자로 쓴다. 같은 제목 둘이면 서로 엉키므로 첫 번째만 남긴다.
+    { const seenTitle = new Set<string>(); actions = actions.filter(a => { const k = (a.title || '').trim(); if (!k || seenTitle.has(k)) return false; seenTitle.add(k); return true; }); }
     if (!summary) summary = scan.filter(s => s.ok).map(s => s.label.split(' — ')[0]).join(' · ') || '연동을 추가하면 더 정밀하게 운영할게요';
     opsState.scan = scan; opsState.actions = actions; opsState.summary = summary;
     opsState.lastRun = Date.now(); opsState.runs += 1;
@@ -898,6 +902,7 @@ async function executeOne(c: Config, a: OpsAction, prior: OpsShip[] = []): Promi
 }
 // 🚀 운영 시작 = 첫 사이클 스케줄 짜기 (실행 안 함)
 ipcMain.handle('ops:start', async () => {
+  if (opsState.busy || opsInFlight) return opsPublic();   // 실행 중 재시작 방지(사이클 번호 튐·플랜 덮어쓰기)
   opsState.running = true; if (!opsState.startedAt) opsState.startedAt = Date.now();
   opsState.cycle = (opsState.cycle || 0) + 1;
   return await runOperation();   // → phase 'review' (사람이 고를 차례)
@@ -969,32 +974,35 @@ ipcMain.handle('cycle:report', async () => {
 });
 // 3️⃣ 마케팅 [🤝 자동 발행] — 유튜브 마케팅 에이전트 실행(채널 분석 → 영상 기획안 → 제목·설명 개선 결재). IG·X·쓰레드는 연결 예정.
 ipcMain.handle('cycle:marketing', async (_e, channel: string = 'youtube') => {
-  if (opsState.executing) return { ...opsPublic(), mktOk: false, busy: true };
+  if (opsState.executing || opsInFlight) return { ...opsPublic(), mktOk: false, busy: true };
   const c = loadConfig();
+  opsInFlight = true;
   opsState.running = true; opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsState.activity = '마케팅 발행'; opsEmit();
   try { openOfficeWindow(); } catch { /* 🏢 일하는 모습이 보이게 */ }
   const action: OpsAction = { title: '유튜브 마케팅 — 채널 분석 → 영상 기획안 → 제목·설명 개선 결재', agent: 'youtube', risk: 'post', assignee: 'agent' };
   let ship: OpsShip | null = null;
   try { ship = await executeOne(c, action, []); }
   catch { /* */ }
-  finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsState.phase = 'review'; saveOpsState(); opsEmit(); }
+  finally { opsInFlight = false; opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsState.phase = 'review'; saveOpsState(); opsEmit(); }
   return { ...opsPublic(), mktOk: !!ship?.ok };
 });
 // ▶ 다음 사이클 — 다시 스케줄을 짠다
 ipcMain.handle('ops:nextCycle', async () => {
+  if (opsState.busy || opsInFlight) return opsPublic();   // 실행 중엔 사이클 번호만 올라가고 플랜은 안 바뀌는 일 방지
   opsState.running = true; opsState.cycle = (opsState.cycle || 0) + 1;
   return await runOperation();
 });
 // ②→③ 사람이 고른 작전 수행 — 🙋 사장님 몫은 태스크 보드 등록, 🤖 에이전트 몫은 파이프라인으로 하나씩
 // (앱 UI와 📱 텔레그램 원격 운영이 같은 함수를 쓴다)
 async function doExecuteSelected(titles: string[], humanTitles: string[] = []): Promise<OpsState> {
-  if (opsState.executing) return opsPublic();
+  if (opsState.executing || opsInFlight) return opsPublic();
   const set = new Set(titles || []);
   const humanSet = new Set(humanTitles || []);
   const chosen = opsState.actions.filter(a => set.has(a.title) && !a.step)   // ✅ 이미 끝난/건너뛴 항목은 재실행 금지
     .map(a => ({ ...a, assignee: humanSet.has(a.title) ? 'human' as const : 'agent' as const }));   // UI 토글이 최종 결정
   if (!chosen.length) { opsState.phase = 'done'; saveOpsState(); opsEmit(); return opsPublic(); }
   const c = loadConfig();
+  opsInFlight = true;
   opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsEmit();
   try { openOfficeWindow(); } catch { /* */ }   // 🏢 일하는 모습이 보이게
   const batch: OpsShip[] = [];   // 이번 사이클 산출물 — 파이프라인으로 다음 에이전트에 전달
@@ -1022,7 +1030,7 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
       const today = new Date().toISOString().slice(0, 10);
       brainAddNote(`[운영 ${today} 사이클#${opsState.cycle}] ${done.map(s => `${AGENTS[s.agent]?.name || s.agent}: ${s.title.slice(0, 60)}${(s.files || []).length ? ` (${(s.files || []).join(', ')})` : ''}`).join(' / ')}`, undefined, { source: 'agent', verified: true });
     }
-  } finally { opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsExecAbort = null; opsState.phase = 'done'; saveOpsState(); opsEmit(); }
+  } finally { opsInFlight = false; opsState.executing = false; opsState.executingTitle = ''; opsState.activity = ''; opsExecAbort = null; opsState.phase = 'done'; saveOpsState(); opsEmit(); }
   return opsPublic();
 }
 ipcMain.handle('ops:executeSelected', (_e, titles: string[], humanTitles: string[] = []) => doExecuteSelected(titles, humanTitles));
@@ -1046,8 +1054,11 @@ function opsAfterStep() {
 // ▶ AI 몫 한 개 실행 — 앞에서 끝난 작전의 산출물을 이어받는다 (투두 순서 = 파이프라인)
 ipcMain.handle('ops:stepRun', async (_e, idx: number) => {
   const a = opsState.actions[idx];
-  if (!a || a.step || opsState.executing) return opsPublic();
+  if (!a || a.step || opsInFlight) return opsPublic();   // 🔒 진짜 실행 중이면(stop 직후 포함) 이중 실행 금지
+  if (a.assignee === 'human' || a.agent === 'human' || !AGENTS[a.agent]) a.agent = 'secretary';   // ▶ = AI에게 시키기 → 유효한 담당으로 (사람 몫이 잘못 들어와도 안전)
+  a.assignee = 'agent';
   const c = loadConfig();
+  opsInFlight = true;
   opsState.running = true; opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsEmit();
   try { openOfficeWindow(); } catch { /* 🏢 일하는 모습이 보이게 */ }
   const prior = opsState.actions.filter(x => x.step === 'done')
@@ -1056,6 +1067,7 @@ ipcMain.handle('ops:stepRun', async (_e, idx: number) => {
   try { ship = await executeOne(c, a, prior); }
   catch { /* */ }
   finally {
+    opsInFlight = false;
     opsState.executing = false; opsState.executingTitle = ''; opsState.activity = '';
     if (!opsState.running) { saveOpsState(); opsEmit(); }             // ⏹ 중단됨 — 항목을 완료로 만들지 않는다
     else if (ship?.ok) { a.step = 'done'; opsAfterStep(); }
