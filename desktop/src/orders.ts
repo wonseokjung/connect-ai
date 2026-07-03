@@ -92,41 +92,97 @@ function _readOrders(companyDir: string): WorkOrder[] {
   } catch { return []; }
 }
 
+/* v0.4.9 — 원자적 쓰기. tmp → rename (반쪽 파일 방지). brain.ts/tasks.ts 패턴.
+   직전 본을 .bak 로 보존. */
 function _writeOrders(companyDir: string, orders: WorkOrder[]): void {
+  const target = ordersPath(companyDir);
   try {
-    const dir = path.join(companyDir, '_shared');
+    const dir = path.dirname(target);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(ordersPath(companyDir), JSON.stringify(orders, null, 2));
+    const tmp = target + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(orders, null, 2));
+    try {
+      const cur = fs.readFileSync(target, 'utf8');
+      JSON.parse(cur);
+      fs.writeFileSync(target + '.bak', cur);
+    } catch { /* 직전 본 없음/손상 → 백업 생략 */ }
+    fs.renameSync(tmp, target);
   } catch (e) {
     console.error('[orders] write 실패:', (e as Error)?.message || e);
   }
 }
 
-export function createOrder(companyDir: string, prompt: string): WorkOrder {
-  const id = _newOrderId();
-  const sessionRoot = orderSessionRoot(companyDir, id);
-  fs.mkdirSync(sessionRoot, { recursive: true });
-  const title = prompt.trim().split('\n')[0].slice(0, 80) || '(제목 없음)';
-  const stages = {} as Record<OrderStage, OrderStageState>;
-  for (const stage of STAGE_ORDER) {
-    stages[stage] = { stage, status: 'pending', agentIds: [...STAGE_AGENTS[stage]], output: '', attempts: 0 };
-  }
-  const order: WorkOrder = {
-    id, title, prompt: prompt.slice(0, 4000),
-    createdAt: new Date().toISOString(), status: 'active',
-    stages, sessionRoot, currentStage: STAGE_ORDER[0],
-  };
-  const orders = _readOrders(companyDir);
-  const cutoff = Date.now() - 90 * 86_400_000;
-  const kept = orders.filter(o => {
-    if (o.status === 'completed' || o.status === 'aborted') {
-      return new Date(o.completedAt || o.createdAt).getTime() >= cutoff;
+/* v0.4.9 — read-modify-write 경합 보호용 lockfile (O_EXCL 원자적 생성).
+   launchd 자율사이클·/order 동시 실행 시 orders.json 덮어쓰기 race 차단. */
+const ORDERS_LOCK_TTL_MS = 10_000;
+const ORDERS_LOCK_RETRY_MS = 100;
+const ORDERS_LOCK_MAX_TRIES = 50;
+
+function _ordersLockPath(companyDir: string): string {
+  return ordersPath(companyDir) + '.lock';
+}
+
+function _acquireOrdersLock(companyDir: string): boolean {
+  const lockPath = _ordersLockPath(companyDir);
+  const now = Date.now();
+  try { fs.mkdirSync(path.dirname(lockPath), { recursive: true }); } catch { /* ignore */ }
+  try {
+    const data = JSON.parse(fs.readFileSync(lockPath, 'utf-8') || '{}');
+    if (typeof data.heartbeat === 'number' && now - data.heartbeat > ORDERS_LOCK_TTL_MS) {
+      try { fs.unlinkSync(lockPath); } catch { /* 경합으로 이미 지워짐 */ }
     }
+  } catch { /* 락 없음 또는 손상 — 무시 */ }
+  try {
+    const fd = fs.openSync(lockPath, 'wx');
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, heartbeat: now }));
+    fs.closeSync(fd);
     return true;
+  } catch { return false; }
+}
+
+function _releaseOrdersLock(companyDir: string): void {
+  try { fs.unlinkSync(_ordersLockPath(companyDir)); } catch { /* 이미 없음 */ }
+}
+
+async function withOrdersLock<T>(companyDir: string, fn: () => Promise<T> | T): Promise<T> {
+  for (let attempt = 0; attempt < ORDERS_LOCK_MAX_TRIES; attempt++) {
+    if (_acquireOrdersLock(companyDir)) {
+      try { return await fn(); }
+      finally { _releaseOrdersLock(companyDir); }
+    }
+    await new Promise(r => setTimeout(r, ORDERS_LOCK_RETRY_MS));
+  }
+  console.warn('[orders] 락 획득 타임아웃 — 락 없이 진행 (race 위험 감수)');
+  return fn();
+}
+
+export async function createOrder(companyDir: string, prompt: string): Promise<WorkOrder> {
+  return withOrdersLock(companyDir, () => {
+    const id = _newOrderId();
+    const sessionRoot = orderSessionRoot(companyDir, id);
+    fs.mkdirSync(sessionRoot, { recursive: true });
+    const title = prompt.trim().split('\n')[0].slice(0, 80) || '(제목 없음)';
+    const stages = {} as Record<OrderStage, OrderStageState>;
+    for (const stage of STAGE_ORDER) {
+      stages[stage] = { stage, status: 'pending', agentIds: [...STAGE_AGENTS[stage]], output: '', attempts: 0 };
+    }
+    const order: WorkOrder = {
+      id, title, prompt: prompt.slice(0, 4000),
+      createdAt: new Date().toISOString(), status: 'active',
+      stages, sessionRoot, currentStage: STAGE_ORDER[0],
+    };
+    const orders = _readOrders(companyDir);
+    const cutoff = Date.now() - 90 * 86_400_000;
+    const kept = orders.filter(o => {
+      if (o.status === 'completed' || o.status === 'aborted') {
+        return new Date(o.completedAt || o.createdAt).getTime() >= cutoff;
+      }
+      return true;
+    });
+    kept.push(order);
+    _writeOrders(companyDir, kept);
+    return order;
   });
-  kept.push(order);
-  _writeOrders(companyDir, kept);
-  return order;
 }
 
 export function getOrder(companyDir: string, id: string): WorkOrder | null {
@@ -141,43 +197,49 @@ export function listActiveOrders(companyDir: string): WorkOrder[] {
   return _readOrders(companyDir).filter(o => o.status === 'active');
 }
 
-export function updateStage(companyDir: string, orderId: string, stage: OrderStage, patch: Partial<OrderStageState>): WorkOrder | null {
-  const orders = _readOrders(companyDir);
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.stages[stage] = { ...order.stages[stage], ...patch };
-  if (patch.status === 'running') order.currentStage = stage;
-  if (patch.status === 'done') {
-    const nextIdx = STAGE_ORDER.indexOf(stage) + 1;
-    order.currentStage = STAGE_ORDER[nextIdx] || stage;
-  }
-  _writeOrders(companyDir, orders);
-  return order;
+export async function updateStage(companyDir: string, orderId: string, stage: OrderStage, patch: Partial<OrderStageState>): Promise<WorkOrder | null> {
+  return withOrdersLock(companyDir, () => {
+    const orders = _readOrders(companyDir);
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.stages[stage] = { ...order.stages[stage], ...patch };
+    if (patch.status === 'running') order.currentStage = stage;
+    if (patch.status === 'done') {
+      const nextIdx = STAGE_ORDER.indexOf(stage) + 1;
+      order.currentStage = STAGE_ORDER[nextIdx] || stage;
+    }
+    _writeOrders(companyDir, orders);
+    return order;
+  });
 }
 
-export function completeOrder(companyDir: string, orderId: string, finalReport: string): WorkOrder | null {
-  const orders = _readOrders(companyDir);
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.status = 'completed';
-  order.completedAt = new Date().toISOString();
-  order.finalReport = finalReport.slice(0, 20_000);
-  _writeOrders(companyDir, orders);
-  return order;
+export async function completeOrder(companyDir: string, orderId: string, finalReport: string): Promise<WorkOrder | null> {
+  return withOrdersLock(companyDir, () => {
+    const orders = _readOrders(companyDir);
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.status = 'completed';
+    order.completedAt = new Date().toISOString();
+    order.finalReport = finalReport.slice(0, 20_000);
+    _writeOrders(companyDir, orders);
+    return order;
+  });
 }
 
-export function abortOrder(companyDir: string, orderId: string, reason?: string): WorkOrder | null {
-  const orders = _readOrders(companyDir);
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.status = 'aborted';
-  order.completedAt = new Date().toISOString();
-  if (reason && order.currentStage) order.stages[order.currentStage].error = reason;
-  _writeOrders(companyDir, orders);
-  return order;
+export async function abortOrder(companyDir: string, orderId: string, reason?: string): Promise<WorkOrder | null> {
+  return withOrdersLock(companyDir, () => {
+    const orders = _readOrders(companyDir);
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.status = 'aborted';
+    order.completedAt = new Date().toISOString();
+    if (reason && order.currentStage) order.stages[order.currentStage].error = reason;
+    _writeOrders(companyDir, orders);
+    return order;
+  });
 }
 
 export function saveStageOutput(orderId: string, stage: OrderStage, output: string, sessionRoot: string): string | null {

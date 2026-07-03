@@ -50,6 +50,18 @@ export function parseTools(text: string): ToolCall[] {
   // 일부 모델은 path 속성 대신 첫 줄에 경로를 쓴다: <write_file>\n경로\n내용...</write_file>
   const reWrite2 = /<write_file>\s*\n?\s*([^\n<]+?)\s*\n([\s\S]*?)<\/write_file>/g;
   while ((m = reWrite2.exec(text))) calls.push({ tool: 'write_file', path: m[1].trim(), content: m[2].replace(/\n$/, '') });
+  // v0.4.9 — 요건#6: 닫는 태그 없는 <write_file> 폴백. 모델이 여는 태그만 내고 끝내면
+  // 메인 정규식이 매칭 못 함 → 다음 태그 시작이나 헤더/끝까지를 내용으로 간주.
+  const seen = new Set(calls.filter(c => c.tool === 'write_file').map(c => c.path));
+  const reWriteUnclosed = /<write_file\s+path="([^"]+)">([\s\S]*?)(?=<write_file\s|<run>|<find>|<list_dir>|<read_file>|<team>|<task>|<mcp\s|\n#\s|\n##\s|$)/g;
+  while ((m = reWriteUnclosed.exec(text))) {
+    const p = m[1].trim();
+    if (seen.has(p)) continue;
+    let content = m[2].replace(/\n$/, '').trim();
+    if (content.startsWith('```')) { const ls = content.split('\n'); if (ls[0].startsWith('```')) ls.shift(); if (ls.length && ls[ls.length-1].startsWith('```')) ls.pop(); content = ls.join('\n').trim(); }
+    calls.push({ tool: 'write_file', path: p, content });
+    seen.add(p);
+  }
   const reRun = /<run>([\s\S]*?)<\/run>/g;
   while ((m = reRun.exec(text))) calls.push({ tool: 'run_command', path: m[1].trim() });
   const reFind = /<find>([\s\S]*?)<\/find>/g;

@@ -128,64 +128,132 @@ function _readOrders(): WorkOrder[] {
   }
 }
 
+/* v2.89.159 — 원자적 쓰기. tmp 파일 작성 후 rename (반쪽 파일 방지).
+   데스크톱 brain.ts/tasks.ts 의 패턴과 동일. 직전 본을 .bak 로 보존. */
 function _writeOrders(orders: WorkOrder[]): void {
+  const target = ordersPath();
   try {
-    const dir = path.join(getCompanyDir(), '_shared');
+    const dir = path.dirname(target);
     fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(ordersPath(), JSON.stringify(orders, null, 2));
+    const tmp = target + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(orders, null, 2));
+    /* 직전 본이 유효한 JSON이면 .bak 로 보존 (손상 시 복구용). */
+    try {
+      const cur = fs.readFileSync(target, 'utf8');
+      JSON.parse(cur);
+      fs.writeFileSync(target + '.bak', cur);
+    } catch { /* 직전 본 없음/손상 → 백업 생략 */ }
+    fs.renameSync(tmp, target);
   } catch (e) {
     /* 오더 저장 실패가 파이프라인 실행을 막으면 안 됨 — 로그만. */
     console.error('[orders] write 실패:', (e as Error)?.message || e);
   }
 }
 
+/* v2.89.159 — orders.json read-modify-write 경합 보호용 lockfile.
+   fs.openSync(path, 'wx') 는 O_EXCL — 파일이 이미 있으면 실패하므로 두 프로세스가
+   동시에 호출해도 한 명만 락 잡음 (extension.ts 의 telegram lock 과 동일 패턴).
+   launchd 자율 사이클(cycle.js 가 decisions.md 건드림)과 /order 동시 실행 시
+   orders.json 이 마지막 쓰기에 의해 덮여쓰여지는 race 를 차단. */
+const ORDERS_LOCK_TTL_MS = 10_000;   /* 살아있는 락의 최대 수명 — 이보다 오래되면 stale 로 간주 */
+const ORDERS_LOCK_RETRY_MS = 100;
+const ORDERS_LOCK_MAX_TRIES = 50;    /* 최대 ~5초 대기 */
+
+function _ordersLockPath(): string {
+  return ordersPath() + '.lock';
+}
+
+function _acquireOrdersLock(): boolean {
+  const lockPath = _ordersLockPath();
+  const now = Date.now();
+  try { fs.mkdirSync(path.dirname(lockPath), { recursive: true }); } catch { /* ignore */ }
+  /* stale 락 정리 — 다른 프로세스가 죽어서 남은 락 */
+  try {
+    const data = JSON.parse(fs.readFileSync(lockPath, 'utf-8') || '{}');
+    if (typeof data.heartbeat === 'number' && now - data.heartbeat > ORDERS_LOCK_TTL_MS) {
+      try { fs.unlinkSync(lockPath); } catch { /* 경합으로 이미 지워짐 */ }
+    }
+  } catch { /* 락 없음 또는 손상 — 무시 */ }
+  /* atomic 생성 시도 */
+  try {
+    const fd = fs.openSync(lockPath, 'wx');
+    fs.writeSync(fd, JSON.stringify({ pid: process.pid, heartbeat: now }));
+    fs.closeSync(fd);
+    return true;
+  } catch {
+    return false;   /* 이미 누가 잡고 있음 */
+  }
+}
+
+function _releaseOrdersLock(): void {
+  try { fs.unlinkSync(_ordersLockPath()); } catch { /* 이미 없음 */ }
+}
+
+/* read-modify-write 를 한 블록으로 감싸는 헬퍼. 락 획득 실패 시 재시도, 최대 시도
+   초과시 락 없이 진행(저장 안 되는 것보다 나음 — 데드락 회피). */
+async function withOrdersLock<T>(fn: () => Promise<T> | T): Promise<T> {
+  for (let attempt = 0; attempt < ORDERS_LOCK_MAX_TRIES; attempt++) {
+    if (_acquireOrdersLock()) {
+      try { return await fn(); }
+      finally { _releaseOrdersLock(); }
+    }
+    await new Promise(r => setTimeout(r, ORDERS_LOCK_RETRY_MS));
+  }
+  /* 락 획득 실패 — 데드락 방지 위해 그냥 진행 (최선 노력). */
+  console.warn('[orders] 락 획득 타임아웃 — 락 없이 진행 (race 위험 감수)');
+  return fn();
+}
+
 // ───────────────────────── Public API ─────────────────────────
 
-/** 사용자 명령으로 새 오더 생성. 5단계 모두 pending 초기화. */
-export function createOrder(prompt: string): WorkOrder {
-  const id = _newOrderId();
-  const sessionRoot = orderSessionRoot(id);
-  fs.mkdirSync(sessionRoot, { recursive: true });
+/** 사용자 명령으로 새 오더 생성. 5단계 모두 pending 초기화.
+ *  v2.89.159 — read-modify-write 를 lockfile 로 보호 (동시 /order·자율사이클 경합). */
+export async function createOrder(prompt: string): Promise<WorkOrder> {
+  return withOrdersLock(() => {
+    const id = _newOrderId();
+    const sessionRoot = orderSessionRoot(id);
+    fs.mkdirSync(sessionRoot, { recursive: true });
 
-  const title = prompt.trim().split('\n')[0].slice(0, 80) || '(제목 없음)';
+    const title = prompt.trim().split('\n')[0].slice(0, 80) || '(제목 없음)';
 
-  const stages = {} as Record<OrderStage, OrderStageState>;
-  for (const stage of STAGE_ORDER) {
-    stages[stage] = {
-      stage,
-      status: 'pending',
-      agentIds: [...STAGE_AGENTS[stage]],
-      output: '',
-      attempts: 0,
-    };
-  }
-
-  const order: WorkOrder = {
-    id,
-    title,
-    prompt: prompt.slice(0, 4000),
-    createdAt: new Date().toISOString(),
-    status: 'active',
-    stages,
-    sessionRoot,
-    currentStage: STAGE_ORDER[0],
-  };
-
-  const orders = _readOrders();
-  /* 완료/중단된 오더 90일 이상 된 것 정리 (tracker의 30일 cutoff 보다 길게 —
-     제품 단위라 더 오래 보관 가치). */
-  const cutoff = Date.now() - 90 * 86_400_000;
-  const kept = orders.filter(o => {
-    if (o.status === 'completed' || o.status === 'aborted') {
-      const at = new Date(o.completedAt || o.createdAt).getTime();
-      return at >= cutoff;
+    const stages = {} as Record<OrderStage, OrderStageState>;
+    for (const stage of STAGE_ORDER) {
+      stages[stage] = {
+        stage,
+        status: 'pending',
+        agentIds: [...STAGE_AGENTS[stage]],
+        output: '',
+        attempts: 0,
+      };
     }
-    return true;
-  });
-  kept.push(order);
-  _writeOrders(kept);
 
-  return order;
+    const order: WorkOrder = {
+      id,
+      title,
+      prompt: prompt.slice(0, 4000),
+      createdAt: new Date().toISOString(),
+      status: 'active',
+      stages,
+      sessionRoot,
+      currentStage: STAGE_ORDER[0],
+    };
+
+    const orders = _readOrders();
+    /* 완료/중단된 오더 90일 이상 된 것 정리 (tracker의 30일 cutoff 보다 길게 —
+       제품 단위라 더 오래 보관 가치). */
+    const cutoff = Date.now() - 90 * 86_400_000;
+    const kept = orders.filter(o => {
+      if (o.status === 'completed' || o.status === 'aborted') {
+        const at = new Date(o.completedAt || o.createdAt).getTime();
+        return at >= cutoff;
+      }
+      return true;
+    });
+    kept.push(order);
+    _writeOrders(kept);
+
+    return order;
+  });
 }
 
 export function getOrder(id: string): WorkOrder | null {
@@ -200,50 +268,56 @@ export function listActiveOrders(): WorkOrder[] {
   return _readOrders().filter(o => o.status === 'active');
 }
 
-/** 단계 상태 갱신. 부분 패치 병합 후 영속. */
-export function updateStage(orderId: string, stage: OrderStage, patch: Partial<OrderStageState>): WorkOrder | null {
-  const orders = _readOrders();
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.stages[stage] = { ...order.stages[stage], ...patch };
-  /* currentStage 동기화 — running/done 단계를 현재로. */
-  if (patch.status === 'running') order.currentStage = stage;
-  if (patch.status === 'done') {
-    const nextIdx = STAGE_ORDER.indexOf(stage) + 1;
-    order.currentStage = STAGE_ORDER[nextIdx] || stage;
-  }
-  _writeOrders(orders);
-  return order;
+/** 단계 상태 갱신. 부분 패치 병합 후 영속. lockfile 보호. */
+export async function updateStage(orderId: string, stage: OrderStage, patch: Partial<OrderStageState>): Promise<WorkOrder | null> {
+  return withOrdersLock(() => {
+    const orders = _readOrders();
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.stages[stage] = { ...order.stages[stage], ...patch };
+    /* currentStage 동기화 — running/done 단계를 현재로. */
+    if (patch.status === 'running') order.currentStage = stage;
+    if (patch.status === 'done') {
+      const nextIdx = STAGE_ORDER.indexOf(stage) + 1;
+      order.currentStage = STAGE_ORDER[nextIdx] || stage;
+    }
+    _writeOrders(orders);
+    return order;
+  });
 }
 
-/** 오더 완료 처리 (5단계 끝). */
-export function completeOrder(orderId: string, finalReport: string): WorkOrder | null {
-  const orders = _readOrders();
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.status = 'completed';
-  order.completedAt = new Date().toISOString();
-  order.finalReport = finalReport.slice(0, 20_000);
-  _writeOrders(orders);
-  return order;
+/** 오더 완료 처리 (5단계 끝). lockfile 보호. */
+export async function completeOrder(orderId: string, finalReport: string): Promise<WorkOrder | null> {
+  return withOrdersLock(() => {
+    const orders = _readOrders();
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.status = 'completed';
+    order.completedAt = new Date().toISOString();
+    order.finalReport = finalReport.slice(0, 20_000);
+    _writeOrders(orders);
+    return order;
+  });
 }
 
-/** 오더 중단 (사용자 요청 또는 치명적 실패). */
-export function abortOrder(orderId: string, reason?: string): WorkOrder | null {
-  const orders = _readOrders();
-  const idx = orders.findIndex(o => o.id === orderId);
-  if (idx < 0) return null;
-  const order = orders[idx];
-  order.status = 'aborted';
-  order.completedAt = new Date().toISOString();
-  if (reason) {
-    const cs = order.currentStage;
-    if (cs) order.stages[cs].error = reason;
-  }
-  _writeOrders(orders);
-  return order;
+/** 오더 중단 (사용자 요청 또는 치명적 실패). lockfile 보호. */
+export async function abortOrder(orderId: string, reason?: string): Promise<WorkOrder | null> {
+  return withOrdersLock(() => {
+    const orders = _readOrders();
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    const order = orders[idx];
+    order.status = 'aborted';
+    order.completedAt = new Date().toISOString();
+    if (reason) {
+      const cs = order.currentStage;
+      if (cs) order.stages[cs].error = reason;
+    }
+    _writeOrders(orders);
+    return order;
+  });
 }
 
 /** 단계 산출물을 파일로 저장 + order.stages[stage].output 에 캐시. */

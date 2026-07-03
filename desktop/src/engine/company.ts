@@ -399,7 +399,7 @@ export async function runOrderPipeline(
   const title = opts.userTitle || '사장님';
   const target = await detectTarget(opts.target);
   if (!target) { noEngine(onEvent); return ''; }
-  const order = createOrder(companyDir, text);
+  const order = await createOrder(companyDir, text);
   const ws = opts.workspace || os.homedir();
 
   onEvent({ kind: 'status', text: `🚀 신규 오더 — ${order.title}` });
@@ -411,10 +411,10 @@ export async function runOrderPipeline(
   const stageResults: { label: string; ok: boolean; file?: string }[] = [];
 
   for (const stage of STAGE_ORDER) {
-    if (aborted(opts)) { abortOrder(companyDir, order.id, '사용자 중단'); onEvent({ kind: 'final', text: '⛔ 오더 중단' }); return ''; }
+    if (aborted(opts)) { await abortOrder(companyDir, order.id, '사용자 중단'); onEvent({ kind: 'final', text: '⛔ 오더 중단' }); return ''; }
     const label = STAGE_LABEL[stage];
     const agentId = STAGE_AGENTS[stage][0];
-    updateStage(companyDir, order.id, stage, { status: 'running', startedAt: new Date().toISOString() });
+    await updateStage(companyDir, order.id, stage, { status: 'running', startedAt: new Date().toISOString() });
     onEvent({ kind: 'agentStart', id: agentId, name: AGENTS[agentId]?.name || agentId, emoji: AGENTS[agentId]?.emoji || '🔧' });
     onEvent({ kind: 'status', text: `${label} 진행 중…` });
 
@@ -441,14 +441,14 @@ export async function runOrderPipeline(
 
     const file = saveStageOutput(order.id, stage, out, order.sessionRoot);
     if (ok) {
-      updateStage(companyDir, order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
+      await updateStage(companyDir, order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
       stageResults.push({ label, ok: true, file: file || undefined });
       prevOutput = out;
       onEvent({ kind: 'agentDone', id: agentId, output: `✅ ${label} 완료` });
     } else {
-      updateStage(companyDir, order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
+      await updateStage(companyDir, order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
       stageResults.push({ label, ok: false });
-      abortOrder(companyDir, order.id, `${label} 실패: ${errMsg}`);
+      await abortOrder(companyDir, order.id, `${label} 실패: ${errMsg}`);
       onEvent({ kind: 'error', text: `❌ ${label} 실패 (${errMsg}) — 오더 중단` });
       return `❌ ${label} 실패: ${errMsg}`;
     }
@@ -458,7 +458,7 @@ export async function runOrderPipeline(
   const summaryLines = stageResults.map(x => `${x.ok ? '✅' : '❌'} ${x.label}${x.file ? ' → ' + x.file.replace(os.homedir(), '~') : ''}`).join('\n');
   const finalReport = `# 🎉 오더 완성 — ${order.title}\n\n오더 ID: \`${order.id}\`\n완성: ${doneCount}/${STAGE_ORDER.length}단계\n\n## 단계별 산출물\n${summaryLines}\n\n## 원본 명령\n> ${text}\n\n## 산출물 위치\n\`${order.sessionRoot.replace(os.homedir(), '~')}/\`\n`;
   try { fsOrder.writeFileSync(pathOrder.join(order.sessionRoot, '_report.md'), finalReport); } catch { /* ignore */ }
-  completeOrder(companyDir, order.id, finalReport);
+  await completeOrder(companyDir, order.id, finalReport);
   onEvent({ kind: 'final', text: `🎉 오더 완성\n${summaryLines}\n📁 ${order.sessionRoot.replace(os.homedir(), '~')}` });
   return finalReport;
 }

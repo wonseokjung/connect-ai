@@ -19536,10 +19536,22 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
      */
     public async _runOrderPipeline(prompt: string, modelName: string): Promise<void> {
         const post = (m: any) => this._broadcastCorporate(m);
+        /* v2.89.159 — 자급식 AbortController. 호출자(_handleCorporatePrompt)가 만든 것에
+           의존하지 않고 직접 생성 → connectAiLab.order.new 명령 등 다른 진입점에서도
+           stop 버튼(stopGeneration)이 이 파이프라인을 중단할 수 있음. 이전 잔재 정리. */
+        this._abortController = new AbortController();
         const isAborted = () => !!this._abortController?.signal.aborted;
         ensureCompanyStructure();
+        /* v2.89.159 — 요건#2: 다중 오더 동시 실행 방지. 이미 active 오더가 있으면
+           차단 — 두 파이프라인이 동시에 LLM을 잡아 메모리·처리량 경합하는 것 방지. */
+        const active = listActiveOrders();
+        if (active.length > 0) {
+            const a = active[0];
+            post({ type: 'response', value: '⏳ 이미 진행 중인 오더가 있습니다: ' + (a.title || a.id).slice(0, 60) + '\\n완료 후 다시 시도하거나 stop 버튼으로 중단하세요.' });
+            return;
+        }
 
-        const order = createOrder(prompt);
+        const order = await createOrder(prompt);
         appendConversationLog({ speaker: '사용자', emoji: '🚀', section: '신규 오더', body: '/order ' + prompt });
 
         post({ type: 'response', value: '🚀 **신규 오더 시작** — ' + order.title + '\n\n' + STAGE_LABEL.idea + ' → ' + STAGE_LABEL.design + ' → ' + STAGE_LABEL.build + ' → ' + STAGE_LABEL.develop + ' → ' + STAGE_LABEL.operate + '\n\n오더 ID: `' + order.id + '`' });
@@ -19550,13 +19562,19 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         for (const stage of STAGE_ORDER) {
             if (isAborted()) {
                 appendConversationLog({ speaker: '시스템', emoji: '⛔', body: '오더 ' + order.id + ' 중단됨 (사용자)' });
-                abortOrder(order.id, '사용자 중단');
-                post({ type: 'response', value: '⛔ 오더가 중단되었습니다.' });
+                /* v2.89.159 — 요건#3: 중단 시 진행 중 단계를 pending 으로 되돌려 재개 가능 표시.
+                   failed 가 아닌 pending 으로 두면 나중에 오더 재개 시 이 단계부터 다시. */
+                const cur = order.stages[stage];
+                if (cur && cur.status === 'running') {
+                    await updateStage(order.id, stage, { status: 'pending' });
+                }
+                await abortOrder(order.id, '사용자 중단');
+                post({ type: 'response', value: '⛔ 오더가 중단되었습니다. (오더 ID: ' + order.id + ' — 단계 ' + stage + ' 부터 재개 가능)' });
                 return;
             }
             const label = STAGE_LABEL[stage];
             const agentIds = STAGE_AGENTS[stage];
-            updateStage(order.id, stage, { status: 'running', startedAt: new Date().toISOString(), agentIds });
+            await updateStage(order.id, stage, { status: 'running', startedAt: new Date().toISOString(), agentIds });
             post({ type: 'agentStart', agent: agentIds[0], task: label + ' (오더 파이프라인)' });
             post({ type: 'response', value: '\n━━━ ' + label + ' 진행 중 ━━━' });
 
@@ -19601,18 +19619,18 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
 
             const file = saveStageOutput(order.id, stage, out);
             if (ok) {
-                updateStage(order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
+                await updateStage(order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
                 stageOutputs.push({ stage, label, ok: true, file });
                 prevOutput = out;   // 다음 단계로 핸드오프
                 appendAgentMemory(agentIds[0], label + ' 완료 → ' + (file ? file.replace(os.homedir(), '~') : '') + ' (오더 ' + order.id + ')');
                 post({ type: 'response', value: '✅ ' + label + ' 완료' + (file ? ' → ' + file.replace(os.homedir(), '~') : '') });
             } else {
-                updateStage(order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
+                await updateStage(order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
                 stageOutputs.push({ stage, label, ok: false });
                 appendConversationLog({ speaker: '시스템', emoji: '❌', body: '오더 ' + order.id + ' ' + label + ' 실패: ' + errMsg });
                 post({ type: 'response', value: '❌ ' + label + ' 실패 (' + errMsg + ') — 오더를 중단합니다.' });
                 post({ type: 'agentEnd', agent: agentIds[0] });
-                abortOrder(order.id, label + ' 실패: ' + errMsg);
+                await abortOrder(order.id, label + ' 실패: ' + errMsg);
                 return;
             }
             post({ type: 'agentEnd', agent: agentIds[0] });
@@ -19624,7 +19642,7 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         const finalReport = '# 🎉 오더 완성 — ' + order.title + '\n\n오더 ID: `' + order.id + '`\n완성: ' + doneCount + '/' + STAGE_ORDER.length + '단계\n\n## 단계별 산출물\n' + summaryLines + '\n\n## 원본 명령\n> ' + prompt + '\n\n## 산출물 위치\n`' + order.sessionRoot.replace(os.homedir(), '~') + '/`\n';
         const reportFile = path.join(order.sessionRoot, '_report.md');
         try { fs.writeFileSync(reportFile, finalReport); } catch { /* ignore */ }
-        completeOrder(order.id, finalReport);
+        await completeOrder(order.id, finalReport);
         appendConversationLog({ speaker: 'CEO', emoji: '🎉', section: '오더 완성', body: finalReport });
 
         post({ type: 'response', value: '\n━━━ 🎉 오더 완성 ━━━\n\n' + summaryLines + '\n\n📁 `' + order.sessionRoot.replace(os.homedir(), '~') + '`\n📄 `' + reportFile.replace(os.homedir(), '~') + '`' });
@@ -21490,6 +21508,51 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         // Open first created file
         if (firstCreatedFile) {
             await vscode.window.showTextDocument(vscode.Uri.file(firstCreatedFile), { preview: false });
+        }
+
+        // v2.89.159 — 요건#6: 닫는 태그 없는 <create_file> 폴백. 메인 createRegex 는
+        // 닫는 </create_file> 이 있어야 매칭되는데, LLM 이 여는 태그만 내고 끝내는 경우
+        // (데모서 실제 발생) 파일이 조용히 누락됨. 다음 태그 시작이나 헤더/끝까지를
+        // 내용으로 간주하는 두 번째 패스로 잡아냄. 메인 루프가 이미 쓴 동일 내용은 스킵.
+        const unclosedRe = /<(?:create_file|write_file|file)\s+(?:path|file|name|경로|파일)=['"]?([^'">]+)['"]?[^>]*>([\s\S]*?)(?=<(?:create_file|write_file|file|edit_file|run_command|command|bash|terminal|read_file|list_files)\s|\n#\s|\n##\s|$)/gi;
+        let unclosedMatch: RegExpExecArray | null;
+        const handledPaths = new Set<string>();
+        while ((unclosedMatch = unclosedRe.exec(aiMessage)) !== null) {
+            const relPath = unclosedMatch[1].trim();
+            if (handledPaths.has(relPath)) continue;
+            let content = unclosedMatch[2].trim();
+            if (content.startsWith('```')) {
+                const ls = content.split('\n');
+                if (ls[0].startsWith('```')) ls.shift();
+                if (ls.length && ls[ls.length - 1].startsWith('```')) ls.pop();
+                content = ls.join('\n').trim();
+            }
+            const resolved2 = _resolveFlexiblePath(relPath, rootPath);
+            if (!resolved2 || resolved2.reason) { continue; }
+            const expanded = resolved2.abs;
+            try {
+                const existing = fs.existsSync(expanded) ? fs.readFileSync(expanded, 'utf-8') : null;
+                if (existing !== null && existing.trim() === content) { handledPaths.add(relPath); continue; }
+            } catch { /* 읽기 실패 — 그냥 진행 */ }
+            try {
+                fs.mkdirSync(path.dirname(expanded), { recursive: true });
+                const existed = fs.existsSync(expanded);
+                fs.writeFileSync(expanded, content, 'utf-8');
+                const tag = existed ? '✏️ 덮어씀(폴백)' : '✅ 생성(폴백)';
+                report.push(tag + ': ' + expanded.replace(os.homedir(), '~'));
+                handledPaths.add(relPath);
+                if (!firstCreatedFile) firstCreatedFile = expanded;
+                this._trackFileAction(opts?.agentId, expanded, existed ? 'edit' : 'create');
+            } catch (e: any) {
+                report.push('❌ 생성 실패(폴백) ' + relPath + ': ' + (e?.message || e));
+            }
+        }
+        // 파일 생성 검증 — 첫 파일이 비어 있으면 경고 (요건#6). 전체 재시도는 요건#4에서.
+        if (firstCreatedFile) {
+            try {
+                const sz = fs.statSync(firstCreatedFile).size;
+                if (sz === 0) report.push('⚠️ 생성된 파일이 비어 있음: ' + firstCreatedFile.replace(os.homedir(), '~') + ' — 모델 출력 확인 필요');
+            } catch { /* ignore */ }
         }
 
         // ACTION 2: Edit files — v2.89.93 fuzzy fallback. 정확 매칭 실패 시

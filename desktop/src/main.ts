@@ -6,7 +6,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY, runOrderPipeline } from './engine/company';
-import { listOrders, orderSummary } from './orders';
+import { listOrders, listActiveOrders, orderSummary } from './orders';
 import { search as brainSearch } from './engine/brain';
 import { quickIntent, planServe } from './engine/intent';
 import { fetchRevenue } from './engine/paypal';
@@ -1382,11 +1382,18 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
   if (/^\/order\b\s*\S/i.test(text)) {
     const orderPrompt = text.replace(/^\/order\s*/i, '').trim();
     if (!orderPrompt) { emitEngine({ kind: 'final', text: '사용법: `/order <만들 것>` — 예) `/order 강아지 용품 쇼핑몰 랜딩페이지`' }); return true; }
+    // v0.4.9 — 요건#2: 다중 오더 동시 실행 방지
+    const companyDir = path.join(app.getPath('userData'), '_company');
+    try { fs.mkdirSync(path.join(companyDir, '_shared'), { recursive: true }); } catch { /* */ }
+    const active = listActiveOrders(companyDir);
+    if (active.length > 0) {
+      const a = active[0];
+      emitEngine({ kind: 'final', text: '⏳ 이미 진행 중인 오더가 있습니다: ' + (a.title || a.id).slice(0, 60) + '\n완료 후 다시 시도하거나 stop 으로 중단하세요.' });
+      return true;
+    }
     history.push({ role: 'user', content: text });
     runAbort?.abort(); runAbort = new AbortController();
     const opts = buildRunOpts(c, runAbort.signal);
-    const companyDir = path.join(app.getPath('userData'), '_company');
-    try { fs.mkdirSync(path.join(companyDir, '_shared'), { recursive: true }); } catch { /* */ }
     const reply = await runOrderPipeline(orderPrompt, opts, (ev) => emitEngine(ev), companyDir);
     history.push({ role: 'assistant', content: reply });
     runAbort = null;
