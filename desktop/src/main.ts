@@ -813,7 +813,7 @@ function buildAgentInstr(agent: string, title: string, context: { notes?: string
     youtube: `${base}너는 유튜브 채널 전문가(레오)야.\n① get_youtube를 먼저 호출해 내 채널 실데이터(구독·조회·최근 영상)를 확인하고\n② web_search로 지금 통하는 주제·트렌드를 1~2번 검색한 뒤\n③ 그 근거로 영상 기획안을 write_file로 만들어라 → ${dir}/youtube_기획안.md (제목 3안, 첫 3초 후크, 구성, 타깃 시청자, 참고한 실데이터 포함).\n④ 기존 영상 제목·설명 개선이 작전이면 youtube_update_video로 실제 수정 결재까지 올려라(승인되면 진짜 반영됨).${context.notes ? `\n\n[내 지식]: ${context.notes}` : ''}`,
     instagram: `${base}너는 인스타그램 콘텐츠 전문가야.\n① web_search로 요즘 릴스 트렌드를 확인하고\n② 릴스 기획·캡션·해시태그·게시 시간을 write_file로 정리해라 → ${dir}/인스타_콘텐츠.md.`,
     designer: `${base}너는 브랜드 디자이너야.\n① 등록된 서비스가 있으면 fetch_url로 사이트 비주얼을 직접 보고\n② 시각 가이드(색상·타이포·썸네일 3안 컨셉)를 write_file로 작성해라 → ${dir}/디자인_가이드.md.`,
-    developer: `${base}너는 시니어 풀스택 개발자(코다리)야. 데모가 아니라 실제로 돌아가는 걸 만든다.\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 프로젝트는 폴더로 구성해라 → ${dir}/프로젝트명/ 안에 여러 파일(코드+README.md). 단일 스크립트면 ${dir}/script.py 또는 .js\n③ 반드시 run_command로 실행·테스트해라. 에러가 나면 read_file로 코드를 다시 보고 고쳐서 재실행 — 통과할 때까지 반복(이게 네 일의 핵심).\n④ 웹앱이면 write_file로 index.html을 만들고 start_server로 띄워 브라우저로 확인까지.\n⑤ 외부 패키지가 필요하면 run_command("pip install …" 또는 "npm init -y && npm install …")를 먼저.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
+    developer: `${base}너는 시니어 풀스택 개발자(코다리)야. 데모가 아니라 실제로 돌아가는 걸 만든다.\n⓪ 작전이 등록된 서비스에 관한 것이면 그 서비스의 [깃헙:owner/repo]가 진짜 코드다 — get_github(repo)로 커밋을 보고, read_repo_file로 현재 코드를 읽고, 수정은 edit_repo_file로 결재를 올려라(승인되면 실제 배포/라이브 반영).\n① get_github로 최근 커밋·개발 흐름을 먼저 확인하고(미연결이면 list_dir로 작업폴더 파악)\n② 프로젝트는 폴더로 구성해라 → ${dir}/프로젝트명/ 안에 여러 파일(코드+README.md). 단일 스크립트면 ${dir}/script.py 또는 .js\n③ 반드시 run_command로 실행·테스트해라. 에러가 나면 read_file로 코드를 다시 보고 고쳐서 재실행 — 통과할 때까지 반복(이게 네 일의 핵심).\n④ 웹앱이면 write_file로 index.html을 만들고 start_server로 띄워 브라우저로 확인까지.\n⑤ 외부 패키지가 필요하면 run_command("pip install …" 또는 "npm init -y && npm install …")를 먼저.${context.notes ? `\n\n[내 지식/선례]: ${context.notes}` : ''}`,
     business: `${base}너는 비즈니스 전략가(현빈)야.\n① get_revenue를 먼저 호출해 실제 매출 데이터를 확인하고\n② web_search로 경쟁사·시장 가격을 1~2번 검색한 뒤\n③ 실제 숫자가 들어간 전략 보고서를 write_file로 만들어라 → ${dir}/사업전략.md (현황 진단, 경쟁사 비교, 추천 액션 3개).${context.services ? `\n\n[내 서비스]: ${context.services}` : ''}`,
     secretary: `${base}너는 비서(영숙)야.\n① get_tasks로 태스크 보드를 먼저 확인하고, 끝난 건 complete_task로 정리해라.\n② check_email로 안 읽은 메일을 확인하고(미연결이면 생략), 중요한 건 요약해라.\n③ 오늘의 현황·우선순위를 write_file로 정리하고 → ${dir}/오늘브리핑.md, 핵심만 send_telegram으로 사장님께 보고해라.\n④ 발송·결제 같은 민감한 일은 request_approval로 결재를 올려라.`,
     editor: `${base}너는 음악·사운드 감독(루나)야.\n① web_search로 요즘 인기 BGM 스타일을 확인하고\n② 영상용 BGM 요구사항·오디오 가이드(BPM·키·무드 구체 명시)를 write_file로 정리해라 → ${dir}/사운드_가이드.md.`,
@@ -1403,13 +1403,14 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
     } catch (e: any) { return `실패: ${e?.message || e}`; }
   };
   const getYoutube = () => realtimeFor('youtube');
-  // 💻 깃허브 실데이터 — 개발자 에이전트가 커밋 현황을 직접 본다
-  const getGithub = async (): Promise<string> => {
+  // 💻 깃허브 실데이터 — 개발자 에이전트가 커밋 현황을 직접 본다 (repo 지정 = 그 서비스 레포, 비우면 기본 레포)
+  const getGithub = async (repo?: string): Promise<string> => {
     const cc = loadConfig(); const g = (cc.apiConn || {}).github || {};
-    if (!g.GITHUB_TOKEN || !g.GITHUB_DEFAULT_REPO) return '(깃허브 미연결 — 🗂️ 연동 → GitHub에 토큰·레포를 넣으면 커밋 현황을 보여드려요)';
-    const r = await listCommits(g.GITHUB_TOKEN, g.GITHUB_DEFAULT_REPO, 15).catch(() => null);
+    const target = (repo || '').trim() || g.GITHUB_DEFAULT_REPO;
+    if (!g.GITHUB_TOKEN || !target) return '(깃허브 미연결 — 🗂️ 연동 → GitHub에 토큰·레포를 넣으면 커밋 현황을 보여드려요)';
+    const r = await listCommits(g.GITHUB_TOKEN, target, 15).catch(() => null);
     if (!r?.ok || !r.commits?.length) return `(커밋을 못 읽었어요: ${(r as any)?.error || '레포 확인 필요'})`;
-    return `[레포 ${g.GITHUB_DEFAULT_REPO} — 최근 커밋 ${r.commits.length}개]\n` + r.commits.map(c => `- ${c.date?.slice(0, 10)} ${c.msg.split('\n')[0].slice(0, 70)} (${c.author})`).join('\n');
+    return `[레포 ${target} — 최근 커밋 ${r.commits.length}개]\n` + r.commits.map(c => `- ${c.date?.slice(0, 10)} ${c.msg.split('\n')[0].slice(0, 70)} (${c.author})`).join('\n');
   };
   // 💻 서비스 레포 파일 읽기 — 에이전트가 코드를 고치기 전 현재 내용 확인 (공개 레포는 토큰 없이도)
   const readRepoFile = async (repo: string, path: string): Promise<string> => {
