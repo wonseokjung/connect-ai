@@ -129,31 +129,32 @@ runCycle().catch((e) => {
     process.exit(1);
 });
 
-/* ─── Scheduling examples ─────────────────────────────────────────────────
-
-# macOS launchd — every 30 minutes
-# Save as ~/Library/LaunchAgents/com.connectai.cycle.plist
-# <?xml version="1.0" encoding="UTF-8"?>
-# <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-# <plist version="1.0">
-# <dict>
-#   <key>Label</key><string>com.connectai.cycle</string>
-#   <key>ProgramArguments</key>
-#   <array>
-#     <string>/usr/local/bin/node</string>
-#     <string>/path/to/cycle.js</string>
-#   </array>
-#   <key>StartInterval</key><integer>1800</integer>
-#   <key>StandardOutPath</key><string>/tmp/connectai.cycle.log</string>
-#   <key>StandardErrorPath</key><string>/tmp/connectai.cycle.err</string>
-# </dict>
-# </plist>
-# Then: launchctl load ~/Library/LaunchAgents/com.connectai.cycle.plist
-
-# Linux/macOS cron — every 30 minutes
-# */30 * * * * /usr/local/bin/node /path/to/cycle.js >> ~/.connect-ai-brain/cycle.log 2>&1
-
-# Windows Task Scheduler — create a task that runs node.exe with this script as arg
-# every 30 min, with working directory set to the brain folder.
-
-──────────────────────────────────────────────────────────────────────────── */
+// ─── Scheduling examples ─────────────────────────────────────────────────
+//
+// # macOS launchd — every 30 minutes
+// # Save as ~/Library/LaunchAgents/com.connectai.cycle.plist
+// # <?xml version="1.0" encoding="UTF-8"?>
+// # <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+// # <plist version="1.0">
+// # <dict>
+// #   <key>Label</key><string>com.connectai.cycle</string>
+// #   <key>ProgramArguments</key>
+// #   <array>
+// #     <string>/usr/local/bin/node</string>
+// #     <string>/path/to/cycle.js</string>
+// #   </array>
+// #   <key>StartInterval</key><integer>1800</integer>
+// #   <key>StandardOutPath</key><string>/tmp/connectai.cycle.log</string>
+// #   <key>StandardErrorPath</key><string>/tmp/connectai.cycle.err</string>
+// # </dict>
+// # </plist>
+// # Then: launchctl load ~/Library/LaunchAgents/com.connectai.cycle.plist
+//
+// # Linux/macOS cron — every 30 minutes
+// # (분 필드: 0,30 — 즉 매 정각과 30분)
+// # 0,30 * * * * /usr/local/bin/node /path/to/cycle.js >> ~/.connect-ai-brain/cycle.log 2>&1
+//
+// # Windows Task Scheduler — create a task that runs node.exe with this script as arg
+// # every 30 min, with working directory set to the brain folder.
+//
+// ────────────────────────────────────────────────────────────────────────

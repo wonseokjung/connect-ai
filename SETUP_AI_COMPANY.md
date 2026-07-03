@@ -1,0 +1,134 @@
+# 🏢 1인 AI 기업 셋업 가이드 (Setup AI Company)
+
+> **자동 1인 AI 기업**을 운영하기 위한 원페이지 셋업 가이드.
+> 사용자가 한 줄 명령으로 **신규 오더**를 내리면, 시스템이 **①아이디어 → ②화면기획 → ③화면구현 → ④개발 → ⑤운영** 5단계를 자동 수행하고, 사용자가 자리 비운 동안 **24시간 자율 사이클**이 회사 가치를 한 걸음씩 진전시킵니다.
+
+---
+
+## ⚡ 빠른 시작 (3단계)
+
+### 1단계 — 인프라 셋업 (한 번만)
+```bash
+cd /path/to/connect-ai
+bash scripts/init-ai-company.sh          # 브레인 폴더 + 시드 + VS Code 설정
+brew install ollama && brew services start ollama
+ollama pull qwen2.5:14b                   # ~9GB, 수 분 소요 (M1 Max 64GB 기준)
+```
+
+### 2단계 — 자율 사이클 등록 (선택, 24시간 운영)
+```bash
+# launchd plist (이미 생성됨: scripts/init 시 또는 수동)
+launchctl load ~/Library/LaunchAgents/com.connectai.cycle.plist
+# → 30분마다 회사가 스스로 한 걸음 실행 (IDE 꺼도 동작)
+```
+
+### 3단계 — 신규 오더 내리기
+VS Code 에서 Connect AI 사이드바 열고:
+```
+/order 강아지 용품 쇼핑몰 랜딩페이지 하나 만들어줘
+```
+또는 명령 팔레트 (`Cmd+Shift+P`):
+- **Connect AI: 🚀 신규 오더 등록** (`connectAiLab.order.new`)
+- **Connect AI: 오더 목록** (`connectAiLab.order.list`)
+
+---
+
+## 🔄 신규 오더 파이프라인 (5단계)
+
+`/order <명령>` 을 내리면 시스템이 하나의 **오더(WorkOrder)** 를 만들고 5단계를 순차 실행합니다.
+각 단계 산출물은 **다음 단계로 명시적으로 전달(핸드오프)** 되며, 상태는 `orders.json` 에 영속됩니다.
+
+| 단계 | 담당 에이전트 | 산출물 |
+|------|--------------|--------|
+| **① 아이디어 도출** | researcher + business | 콘셉트·차별점·수익모델·KPI (`idea.md`) |
+| **② 화면 기획** | designer + writer | 와이어프레임·UX플로우·카피 (`design.md`) |
+| **③ 화면 구현** | developer (코다리) | 실제 UI/화면 파일 (`build.md` + `site/` 폴더) |
+| **④ 개발** | developer | 로직·통합·**자기검증** (tsc/node check) (`develop.md`) |
+| **⑤ 운영** | business + secretary | 배포계획·실행명령·KPI·수익화 (`operate.md`) |
+
+**실패 처리**: 단계 실패 시 1회 재시도 → 그래도 실패면 오더 중단 (상태 `aborted`).
+**산출물 위치**: `~/.connect-ai-brain/_company/orders/<오더ID>/`
+- `idea.md`, `design.md`, `build.md`, `develop.md`, `operate.md`
+- `site/` (③build 에서 생성한 실제 파일)
+- `_report.md` (최종 종합 보고서)
+
+---
+
+## 🌙 24시간 자율 사이클
+
+IDE 가 꺼져 있어도 `scripts/cycle.js` 가 launchd/cron 으로 주기 실행되어:
+1. `goals.md` (회사 목표) · `identity.md` · `decisions.md` 를 읽고
+2. LLM이 "지금 가장 가치 있는 단일 작업 1개" 를 결정·실행
+3. 산출물을 `sessions/auto-<시각>/_report.md` + 대화록에 누적
+
+**주기 변경**: plist 의 `<key>StartInterval</key><integer>1800</integer>` (초 단위, 1800=30분).
+
+---
+
+## 📁 주요 파일 맵
+
+### 신규 오더 파이프라인 (이번에 추가)
+| 파일 | 역할 |
+|------|------|
+| `src/orders.ts` | 오더 데이터 모델 + 저장소 (createOrder/updateStage/...) — VS Code 확장용 |
+| `desktop/src/orders.ts` | 동일 모델 (데스크톱용, vscode 의존 제거) |
+| `src/extension.ts` `_runOrderPipeline()` | 5단계 순차 실행 엔진 (`_callAgentLLM`/`_executeActions` 재사용) |
+| `desktop/src/engine/company.ts` `runOrderPipeline()` | 데스크톱용 실행 엔진 (`runSpecialist` 재사용) |
+| `assets/prompts/pipeline-{idea,design,build,develop,operate}.md` | 단계별 프롬프트 |
+| `desktop/assets/prompts/pipeline-*.md` | 데스크톱용 복사본 |
+| `scripts/init-ai-company.sh` | 인프라 부트스트랩 (idempotent) |
+| `scripts/demo-order.mjs` | 엔드투엔드 데모 검증 스크립트 |
+| `scripts/cycle.js` | IDE 외부 자율 사이클 |
+
+### 기존 인프라
+| 파일 | 역할 |
+|------|------|
+| `src/extension.ts` | VS Code 확장 메인 (21,800+ 줄, CEO 플래너 + 9 에이전트) |
+| `desktop/src/main.ts` | Electron 메인 프로세스 |
+| `desktop/src/preload.ts` | IPC 브릿지 (`order:list` 등) |
+| `~/.connect-ai-brain/_company/_shared/` | identity.md · goals.md · decisions.md · tracker.json · **orders.json** |
+
+---
+
+## 🔧 설정 키 (VS Code settings.json)
+
+| 키 | 기본값 | 설명 |
+|----|--------|------|
+| `connectAiLab.localBrainPath` | `~/.connect-ai-brain` | 브레인/회사 폴더 루트 |
+| `connectAiLab.ollamaUrl` | `http://127.0.0.1:11434` | Ollama 엔진 주소 |
+| `connectAiLab.defaultModel` | `qwen2.5:14b` | 기본 LLM 모델 |
+| `connectAiLab.autoCycleEnabled` | `true` | 24시간 자율 사이클 (확장 내장 15분) |
+
+---
+
+## 🧪 검증 (데모)
+
+데모 오더를 실제 LLM으로 끝까지 돌려보기:
+```bash
+node scripts/demo-order.mjs "고양이 간식 구독 서비스 랜딩페이지"
+# → 5단계 순차 실행, site/ 폴더에 실제 파일 생성, orders.json 영속 확인
+```
+
+**검증된 결과 (2026-07-03, qwen2.5:14b)**:
+- ① 아이디어 (29s) → ② 기획 (76s) → ③ 구현 (136s, **파일 5개 생성**) → ④ 개발 (137s, 자기검증 포함) → ⑤ 운영 (79s)
+- 총 ~7.5분, 5개 `.md` + `site/index.html` + `site/src/components/*.tsx` + `_report.md` 생성
+
+---
+
+## ❓ 트러블슈팅
+
+| 증상 | 해결 |
+|------|------|
+| `No local LLM detected` | `brew services start ollama` 후 `ollama list` 에 모델 있는지 확인 |
+| 오더가 파일을 안 만듦 | ③build 프롬프트의 `<create_file>` 닫는태그 규칙 확인 (`assets/prompts/pipeline-build.md`) |
+| cycle.js `Brain folder not initialized` | `BRAIN_DIR` 를 `~/.connect-ai-brain/_company` 로 지정 (nested 레이아웃) |
+| 느림 | 더 작은 모델 (`qwen2.5:7b`) 또는 `num_predict` 축소. 64GB RAM 에서 14b 권장 |
+
+---
+
+## 📐 아키텍처 노트
+
+- **확장과 데스크톱은 독립 코드베이스** — 동일 로직을 각각 포팅 (`src/orders.ts` ↔ `desktop/src/orders.ts`).
+- **기존 CEO 단발성 분배는 그대로 유지** — `/order` 접두사만 새 파이프라인 경로로 분기 (위험 최소화).
+- **모듈 추출 관용 준수** — `orders.ts` 는 `agents.ts`/`paths.ts` 패턴, 프롬프트는 `assets/prompts/*.md` 외부 파일.
+- **데스크톱 v0.4.8 안정성 보존** — `release/`·코드사인 건드리지 않고 `out/` 만 리빌드.

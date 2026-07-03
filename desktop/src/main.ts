@@ -5,7 +5,8 @@ import axios from 'axios';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
-import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY } from './engine/company';
+import { talkToMyAgent, agentWithTools, ChatTurn, AGENT_CATEGORY, runOrderPipeline } from './engine/company';
+import { listOrders, orderSummary } from './orders';
 import { search as brainSearch } from './engine/brain';
 import { quickIntent, planServe } from './engine/intent';
 import { fetchRevenue } from './engine/paypal';
@@ -1376,6 +1377,21 @@ function buildRunOpts(c: Config, signal: AbortSignal, attachImages: string[] = [
 
 ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string[]; images?: string[] }) => {
   const c = loadConfig();
+  // v0.4.9 — /order <명령> 진입 시 신규 오더 5단계 파이프라인 실행 (①아이디어→②기획→③구현→④개발→⑤운영).
+  // 일반 company:run (단발성) 과 별개 경로 — 한 명령을 끝까지(운영까지) 끝냄.
+  if (/^\/order\b\s*\S/i.test(text)) {
+    const orderPrompt = text.replace(/^\/order\s*/i, '').trim();
+    if (!orderPrompt) { emitEngine({ kind: 'final', text: '사용법: `/order <만들 것>` — 예) `/order 강아지 용품 쇼핑몰 랜딩페이지`' }); return true; }
+    history.push({ role: 'user', content: text });
+    runAbort?.abort(); runAbort = new AbortController();
+    const opts = buildRunOpts(c, runAbort.signal);
+    const companyDir = path.join(app.getPath('userData'), '_company');
+    try { fs.mkdirSync(path.join(companyDir, '_shared'), { recursive: true }); } catch { /* */ }
+    const reply = await runOrderPipeline(orderPrompt, opts, (ev) => emitEngine(ev), companyDir);
+    history.push({ role: 'assistant', content: reply });
+    runAbort = null;
+    return true;
+  }
   // ⚡ 명확한 열기 명령 = 즉시 실행 (모델 경유 X — 컨텍스트에 휘둘리지 않음. 로직은 engine/intent.ts, scripts/simulate.ts가 자동 검증)
   const qi = quickIntent(text, c.workspace || defaultWorkspace());
   if (qi && c.tools !== false) {
@@ -1408,6 +1424,12 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
 });
 ipcMain.handle('company:stop', () => { runAbort?.abort(); return true; });
 ipcMain.handle('company:reset', () => { history = []; return true; });
+// v0.4.9 — 신규 오더 파이프라인 조회 (/order 로 만든 오더 목록·상태)
+ipcMain.handle('order:list', () => {
+  const companyDir = path.join(app.getPath('userData'), '_company');
+  const orders = listOrders(companyDir);
+  return orders.map(o => ({ id: o.id, title: o.title, status: o.status, summary: orderSummary(o), createdAt: o.createdAt, currentStage: o.currentStage, sessionRoot: o.sessionRoot }));
+});
 
 // 🧠 두뇌 (지식 네트워크)
 ipcMain.handle('brain:graph', () => brainGraph());

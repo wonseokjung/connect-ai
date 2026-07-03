@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('connect', {
   onHfProgress: (cb: (p: any) => void) => { const h = (_e: any, p: any) => cb(p); ipcRenderer.on('hf:progress', h); return () => ipcRenderer.removeListener('hf:progress', h); },
   stop: () => ipcRenderer.invoke('company:stop'),                          // 생성 중단
   reset: () => ipcRenderer.invoke('company:reset'),
+  orderList: () => ipcRenderer.invoke('order:list'),                       // v0.4.9 — /order 오더 목록·상태
   listModels: () => ipcRenderer.invoke('models:list'),
   getWorkspace: () => ipcRenderer.invoke('workspace:get'),
   pickWorkspace: () => ipcRenderer.invoke('workspace:pick'),

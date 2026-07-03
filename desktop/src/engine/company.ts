@@ -361,3 +361,104 @@ export async function talkToMyAgent(history: ChatTurn[], userText: string, opts:
   onEvent({ kind: 'final', text: acc });
   return acc;
 }
+
+// ── v0.4.9 — 신규 오더 5단계 순차 파이프라인 ──────────────────────────────
+// 사용자가 "/order <명령>" 을 내리면 createOrder() 로 오더를 만들고
+// ①아이디어 → ②화면기획 → ③화면구현 → ④개발 → ⑤운영 을 순차 실행.
+// 각 단계는 같은 파일의 runSpecialist 를 재사용하고, 산출물은 다음 단계 userMsg 에
+// "선행 단계 핸드오프" 로 명시적 주입. 상태는 orders.json 에 영속 (desktop/src/orders.ts).
+// 확장(src/extension.ts _runOrderPipeline)과 동일한 5단계 매핑.
+import * as fsOrder from 'fs';
+import * as pathOrder from 'path';
+import { createOrder, updateStage, completeOrder, abortOrder, saveStageOutput, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS } from '../orders';
+
+// 파이프라인 프롬프트 로드 (desktop/assets/prompts/pipeline-<stage>.md).
+// 빌드 시 assets/** 가 번들에 포함되므로 app.getAppPath()/assets 기준.
+let _pipePromptCache: Record<string, string> | null = null;
+function _loadPipelinePrompts(): Record<string, string> {
+  if (_pipePromptCache) return _pipePromptCache;
+  const out: Record<string, string> = {};
+  // Electron 런타임: app.getAppPath() / 개발: __dirname/../assets
+  let dir = '';
+  try { const electron = require('electron'); dir = electron.app ? pathOrder.join(electron.app.getAppPath(), 'assets', 'prompts') : ''; } catch { /* */ }
+  if (!dir) dir = pathOrder.join(__dirname, '..', '..', 'assets', 'prompts');
+  for (const s of STAGE_ORDER) {
+    try { out[s] = fsOrder.readFileSync(pathOrder.join(dir, `pipeline-${s}.md`), 'utf-8'); } catch { out[s] = ''; }
+  }
+  _pipePromptCache = out;
+  return out;
+}
+
+export async function runOrderPipeline(
+  text: string,
+  opts: RunOpts,
+  onEvent: (e: EngineEvent) => void,
+  companyDir: string,
+): Promise<string> {
+  const company = opts.company || '1인 기업';
+  const title = opts.userTitle || '사장님';
+  const target = await detectTarget(opts.target);
+  if (!target) { noEngine(onEvent); return ''; }
+  const order = createOrder(companyDir, text);
+  const ws = opts.workspace || os.homedir();
+
+  onEvent({ kind: 'status', text: `🚀 신규 오더 — ${order.title}` });
+  onEvent({ kind: 'dispatch', agents: STAGE_ORDER.flatMap(s => STAGE_AGENTS[s]).map(id => ({ id, name: AGENTS[id]?.name || id, emoji: AGENTS[id]?.emoji || '' })) });
+
+  const prompts = _loadPipelinePrompts();
+  const mcpBlock = await buildMcpBlock();
+  let prevOutput = '';
+  const stageResults: { label: string; ok: boolean; file?: string }[] = [];
+
+  for (const stage of STAGE_ORDER) {
+    if (aborted(opts)) { abortOrder(companyDir, order.id, '사용자 중단'); onEvent({ kind: 'final', text: '⛔ 오더 중단' }); return ''; }
+    const label = STAGE_LABEL[stage];
+    const agentId = STAGE_AGENTS[stage][0];
+    updateStage(companyDir, order.id, stage, { status: 'running', startedAt: new Date().toISOString() });
+    onEvent({ kind: 'agentStart', id: agentId, name: AGENTS[agentId]?.name || agentId, emoji: AGENTS[agentId]?.emoji || '🔧' });
+    onEvent({ kind: 'status', text: `${label} 진행 중…` });
+
+    const tpl = prompts[stage] || '';
+    const sysBase = tpl
+      .replace(/\{\{COMPANY\}\}/g, company)
+      .replace(/\{\{ORDER_PROMPT\}\}/g, text)
+      .replace(/\{\{ORDER_TITLE\}\}/g, order.title)
+      .replace(/\{\{PREV_OUTPUT\}\}/g, prevOutput.slice(0, 6000))
+      .replace(/\{\{SESSION_ROOT\}\}/g, order.sessionRoot);
+    // runSpecialist 는 specialistPrompt(id) 로 자기 프롬프트를 만들므로,
+    // 파이프라인 프롬프트는 brief(사용자 메시지)로 전달 → 단계 지시가 우선.
+    const brief = `${label} 단계 지시:\n${sysBase}\n\n[원본 오더]\n${text}`;
+
+    let out = '';
+    let ok = false;
+    let errMsg = '';
+    for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+      try {
+        out = await runSpecialist(target, agentId, company, brief, '', ws, mcpBlock, onEvent, opts.signal, title);
+        if (out && out.trim().length > 20) ok = true; else errMsg = '빈 산출물';
+      } catch (e: any) { errMsg = e?.message || String(e); onEvent({ kind: 'status', text: `⚠️ ${label} 시도 ${attempt + 1} 실패: ${errMsg}` }); }
+    }
+
+    const file = saveStageOutput(order.id, stage, out, order.sessionRoot);
+    if (ok) {
+      updateStage(companyDir, order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
+      stageResults.push({ label, ok: true, file: file || undefined });
+      prevOutput = out;
+      onEvent({ kind: 'agentDone', id: agentId, output: `✅ ${label} 완료` });
+    } else {
+      updateStage(companyDir, order.id, stage, { status: 'failed', output: out, error: errMsg, attempts: 2 });
+      stageResults.push({ label, ok: false });
+      abortOrder(companyDir, order.id, `${label} 실패: ${errMsg}`);
+      onEvent({ kind: 'error', text: `❌ ${label} 실패 (${errMsg}) — 오더 중단` });
+      return `❌ ${label} 실패: ${errMsg}`;
+    }
+  }
+
+  const doneCount = stageResults.filter(x => x.ok).length;
+  const summaryLines = stageResults.map(x => `${x.ok ? '✅' : '❌'} ${x.label}${x.file ? ' → ' + x.file.replace(os.homedir(), '~') : ''}`).join('\n');
+  const finalReport = `# 🎉 오더 완성 — ${order.title}\n\n오더 ID: \`${order.id}\`\n완성: ${doneCount}/${STAGE_ORDER.length}단계\n\n## 단계별 산출물\n${summaryLines}\n\n## 원본 명령\n> ${text}\n\n## 산출물 위치\n\`${order.sessionRoot.replace(os.homedir(), '~')}/\`\n`;
+  try { fsOrder.writeFileSync(pathOrder.join(order.sessionRoot, '_report.md'), finalReport); } catch { /* ignore */ }
+  completeOrder(companyDir, order.id, finalReport);
+  onEvent({ kind: 'final', text: `🎉 오더 완성\n${summaryLines}\n📁 ${order.sessionRoot.replace(os.homedir(), '~')}` });
+  return finalReport;
+}
