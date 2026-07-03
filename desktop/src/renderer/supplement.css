@@ -290,6 +290,35 @@
 .cyc-who.me { color: #ffd166; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.5); }
 .cyc-task.is-me { background: rgba(255,209,102,.04); border-color: rgba(255,209,102,.25); }
 .cyc-legend { flex-basis: 100%; font-size: 11px; color: var(--text-dim); text-align: center; padding-bottom: 2px; }
+/* ✅ 오늘의 투두리스트 — 위에서부터 하나씩만 열린다 (사람–AI 협업 루프) */
+.todo-prog { display: flex; align-items: center; gap: 12px; padding: 4px 2px; }
+.tp-n { font-size: 12.5px; font-weight: 700; color: #b6ffce; white-space: nowrap; }
+.tp-n b { color: #39ff14; }
+.tp-bar { flex: 1; height: 7px; border-radius: 999px; background: rgba(57,255,20,.1); overflow: hidden; }
+.tp-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #16a34a, #39ff14); transition: width .4s ease; }
+.todo-hint { text-align: center; padding-bottom: 2px; }
+.todo-step { display: flex; align-items: center; gap: 11px; padding: 12px 15px; border-radius: 12px; background: rgba(255,255,255,.02); border: 1px solid var(--border2); flex-wrap: wrap; }
+.todo-step .ts-t { flex: 1; font-size: 14px; font-weight: 600; color: #eaffef; line-height: 1.4; min-width: 0; }
+.ts-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex-shrink: 0; font-size: 12px; font-weight: 800; font-family: ui-monospace, monospace; color: var(--text-dim); border: 1.5px solid var(--border2); }
+.ts-n.now { color: #052; background: linear-gradient(135deg, #39ff14, #16a34a); border-color: #39ff14; }
+.ts-n.ok { color: #052; background: rgba(57,255,20,.85); border-color: #39ff14; }
+.ts-who { flex-shrink: 0; font-size: 11px; font-weight: 800; border-radius: 999px; padding: 4px 11px; white-space: nowrap; color: #74ffb4; background: rgba(57,255,20,.08); border: 1px solid rgba(57,255,20,.3); }
+.ts-who.me { color: #ffd166; background: rgba(255,209,102,.12); border-color: rgba(255,209,102,.5); }
+.todo-step.done { opacity: .82; border-color: rgba(57,255,20,.22); background: rgba(57,255,20,.03); }
+.todo-step.skip { opacity: .4; }
+.todo-step.lock { opacity: .45; }
+.ts-lock { flex-shrink: 0; font-size: 10.5px; font-weight: 700; color: var(--text-dim); white-space: nowrap; }
+.todo-step.now { border-color: rgba(57,255,20,.55); background: rgba(57,255,20,.06); box-shadow: 0 0 18px rgba(57,255,20,.12); }
+.todo-step.now.is-me { border-color: rgba(255,209,102,.55); background: rgba(255,209,102,.05); box-shadow: 0 0 18px rgba(255,209,102,.1); }
+.ts-doing { flex-basis: 100%; display: flex; flex-direction: column; gap: 9px; margin-top: 4px; }
+.ts-guide { font-size: 12.5px; line-height: 1.5; color: #d9c78a; }
+.todo-step.now:not(.is-me) .ts-guide { color: #9fd8b0; }
+.ts-input { width: 100%; box-sizing: border-box; padding: 11px 13px; border-radius: 10px; font-size: 13.5px; color: #eaffef; background: rgba(0,12,5,.55); border: 1px solid rgba(255,209,102,.35); outline: none; }
+.ts-input:focus { border-color: #ffd166; box-shadow: 0 0 10px rgba(255,209,102,.2); }
+.ts-input::placeholder { color: var(--text-dim); }
+.ts-btns { display: flex; gap: 9px; flex-wrap: wrap; }
+.cyc-btn.sm { font-size: 11.5px; padding: 8px 12px; }
+.ts-report { flex-basis: 100%; font-size: 12.5px; line-height: 1.5; color: #ffe9b8; background: rgba(255,209,102,.07); border-left: 2px solid rgba(255,209,102,.5); border-radius: 0 8px 8px 0; padding: 7px 11px; margin-top: 6px; }
 /* 🔴 실시간 작업 로그 — 에이전트가 도구 쓰는 게 그대로 흐른다 */
 .cyc-feed { margin-top: 10px; border: 1px solid rgba(57,255,20,.18); border-radius: 12px; background: rgba(0,12,5,.55); padding: 10px 12px; max-height: 220px; overflow-y: auto; }
 .cyc-feed-h { display: flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 800; letter-spacing: 2px; text-transform: uppercase; color: #74ffb4; margin-bottom: 7px; }

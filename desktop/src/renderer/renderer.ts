@@ -617,7 +617,7 @@ async function startOps() {
   await opsWait(560); if (!opsRunning) return;
   // ④ 분석 완료 → 오늘의 3단계 성장 사이클 홈으로
   const summary = ops?.summary ? `<div class="ops-summary">“${escapeHtml(ops.summary)}”</div>` : '';
-  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>플랜</b>이 준비됐어요 — 🤖 AI 몫과 🙋 내 몫을 확인하고 실행하세요</div><button class="ops-go" id="opsGo">🗺️ 오늘의 플랜 열기 →</button></div>`;
+  stage.innerHTML = `<div class="ops-act ops-plan"><div class="ops-h ops-h-big">✓ 분석 완료</div>${summary}<div class="ops-note">오늘의 <b>투두리스트</b>가 준비됐어요 — 위에서부터 하나씩, 🤖 AI 몫은 시키고 🙋 내 몫은 하고 보고해요</div><button class="ops-go" id="opsGo">✅ 오늘의 투두 열기 →</button></div>`;
   const finish = () => { closeOps(); openCyclePanel(); };
   $('opsGo')?.addEventListener('click', finish);
   opsAutoTimer = window.setTimeout(finish, 4500);   // 요약을 천천히 읽을 시간
@@ -897,22 +897,22 @@ function buildOpsLoop(s: any) {
     </div>`;
     foot.innerHTML = '';
   } else if (phase === 'planning') {
-    body.innerHTML = head + `<div class="cyc-loading"><span class="cyc-spin"></span> 매출·콘텐츠·코드·할일을 살펴 오늘의 플랜을 짜는 중…</div>`;
+    body.innerHTML = head + `<div class="cyc-loading"><span class="cyc-spin"></span> 매출·콘텐츠·코드·할일을 살펴 오늘의 투두리스트를 짜는 중…</div>`;
     foot.innerHTML = '';
-  } else if (phase === 'review') {
-    body.innerHTML = head + renderPlan(s);
-    foot.innerHTML = `<button class="cyc-btn ghost" id="cycReplan">🔄 다시</button><button class="cyc-btn primary" id="cycRun">▶ 실행</button>`;
-    wirePlanToggles();
-  } else if (phase === 'executing') {
-    body.innerHTML = head + renderExec(s);
-    foot.innerHTML = `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`;
+  } else if (phase === 'review' || phase === 'executing') {
+    // ✅ 투두리스트 모드 — 위에서부터 하나씩. review = 다음 항목 열림, executing = AI가 일하는 중
+    body.innerHTML = head + renderTodo(s);
+    const started = (s.actions || []).some((a: any) => a.step);
+    foot.innerHTML = phase === 'executing'
+      ? `<button class="cyc-btn danger" id="cycStop">■ 멈추기</button>`
+      : `${started ? '' : `<button class="cyc-btn ghost" id="cycReplan">🔄 다시 짜기</button>`}<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button>`;
   } else {   // done
     body.innerHTML = head + renderFeedback(s);
     foot.innerHTML = `<button class="cyc-btn ghost" id="cycEnd">■ 운영 종료</button><button class="cyc-btn primary" id="cycNext">▶ 다음 사이클</button>`;
-    const okN = (s.shipped || []).filter((x: any) => x.ok).length;
+    const doneActs = (s.actions || []).filter((a: any) => a.step === 'done');   // 이번 사이클 항목만 (지난 사이클 산출물 중복 집계 방지)
     const cyc = s.cycle || 1;
-    if (okN > 0 && !trackedCycles().includes(cyc)) {   // 사이클당 한 번만 — 산출물별 + 완주 이벤트
-      (s.shipped || []).filter((x: any) => x.ok).forEach((sh: any) => track('done', sh.title, catOf(sh.title), 0, '✅'));
+    if (doneActs.length && !trackedCycles().includes(cyc)) {   // 사이클당 한 번만 — 항목별 + 완주 이벤트
+      doneActs.filter((a: any) => a.assignee !== 'human').forEach((a: any) => track('done', a.title, catOf(a.title), 0, '✅'));
       track('cycle', `운영 사이클 #${cyc} 완주`, 'manage', 2, '🎯');
       markCycleTracked(cyc);
     }
@@ -921,74 +921,96 @@ function buildOpsLoop(s: any) {
   wireLoop();
 }
 
-// 🗺️ 플랜 — AI 몫 / 사람 몫으로 나눠 보여준다 (능력 기반 자동 분담)
-function renderPlan(s: any): string {
-  const acts: any[] = s.actions || [];
-  if (!acts.length) return '<div class="cyc-loading">플랜이 없어요 — 🔄 다시 눌러보세요</div>';
-  const human = acts.filter(a => a.assignee === 'human');
-  const ai = acts.filter(a => a.assignee !== 'human');
-  const card = (a: any) => {
-    const risky = a.risk && a.risk !== 'safe'; const me = a.assignee === 'human';
-    const an = AGENTS[a.agent]?.name || '에이전트'; const ac = AGENTS[a.agent]?.color || '#39ff14';
-    const cm = catMeta(a.cat || catOf(a.title));
-    return `<label class="cyc-task${me ? ' is-me' : ''}"><input type="checkbox" class="cyc-chk" data-title="${escAttr(a.title)}" checked><span class="cyc-box"></span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="cyc-t">${escapeHtml(a.title)}</span><button type="button" class="cyc-who${me ? ' me' : ''}" data-title="${escAttr(a.title)}" data-agent="${escAttr(an)}" style="--ag:${ac}" title="담당 바꾸기">${me ? '🙋 내가' : '🤖 ' + escapeHtml(an)}</button>${risky ? '<span class="cyc-risk">승인</span>' : ''}</label>`;
-  };
-  return `<div class="plan-grp"><div class="plan-h">🤖 AI 에이전트 <span class="plan-c">${ai.length}</span></div>${ai.map(card).join('') || '<div class="muted small">없음</div>'}</div>
-    <div class="plan-grp"><div class="plan-h me">🙋 사장님 <span class="plan-c me">${human.length}</span></div>${human.map(card).join('') || '<div class="muted small">없음</div>'}</div>
-    <div class="cyc-legend">담당 칩을 눌러 바꿀 수 있어요</div>`;
-}
-
-// ⚡ 실행 — 작업 상태 + 실시간 피드
-function renderExec(s: any): string {
-  const tasks = (s.actions || []).map((a: any) => {
-    const ship = shipFor(s, a.title); const running = s.executingTitle === a.title;
-    let st = '<span class="cyc-st wait">대기</span>';
-    if (running) st = '<span class="cyc-st run"><span class="cyc-spin"></span> 실행 중</span>';
-    else if (ship) st = ship.ok ? '<span class="cyc-st ok">✅</span>' : '<span class="cyc-st fail">—</span>';
-    return `<div class="cyc-task exec ${running ? 'on' : ''}"><span class="cyc-t">${escapeHtml(a.title)}</span>${st}${ship ? artsHtml(ship) : ''}</div>`;
-  }).join('');
+// 🔴 실시간 작업 피드 — AI가 지금 뭘 하는지 도구 단위로 흐른다
+function liveFeedHtml(s: any): string {
   const feed = (s.feed || []).slice(0, 9);
-  const feedHtml = feed.length ? `<div class="cyc-feed"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>실시간 작업</div>${feed.map((f: any, i: number) => {
+  if (!feed.length) return '';
+  return `<div class="cyc-feed"><div class="cyc-feed-h"><span class="cyc-live-dot"></span>실시간 작업</div>${feed.map((f: any, i: number) => {
     const ag = AGENTS[f.agent];
     return `<div class="cyc-feed-line${f.ok === false ? ' bad' : ''}${i === 0 ? ' new' : ''}" style="--ag:${ag?.color || '#39ff14'}"><span class="cf-ic">${f.icon || '🔧'}</span><span class="cf-tx">${escapeHtml(f.text || '')}</span><span class="cf-ago">${feedAgo(f.ts)}</span></div>`;
-  }).join('')}</div>` : '';
-  return tasks + feedHtml;
+  }).join('')}</div>`;
 }
 
-// 👍👎 피드백 — 결과 평가(다음 플랜의 보상신호) + 트래킹
-function renderFeedback(s: any): string {
-  const done = (s.actions || []).map((a: any) => shipFor(s, a.title)).filter(Boolean);
-  const okN = done.filter((x: any) => x.ok).length;
-  const fbMap: Record<string, boolean> = {}; (s.feedback || []).forEach((f: any) => { fbMap[f.title] = f.good; });
-  const items = done.map((sh: any) => {
-    const g = fbMap[sh.title];
-    return `<div class="cyc-task exec"><span class="cyc-t">${escapeHtml(sh.title)}</span><span class="cyc-st ${sh.ok ? 'ok' : 'fail'}">${sh.ok ? '✅' : '미완'}</span><span class="fb-btns" data-title="${escAttr(sh.title)}"><button class="fb-up${g === true ? ' on' : ''}" data-g="1">👍</button><button class="fb-dn${g === false ? ' on' : ''}" data-g="0">👎</button></span>${artsHtml(sh)}</div>`;
+// ✅ 오늘의 투두리스트 — 위에서부터 하나씩만 열린다. AI 몫은 시키고, 🙋 내 몫은 하고 나서 한 줄 보고.
+function renderTodo(s: any): string {
+  const acts: any[] = s.actions || [];
+  if (!acts.length) return '<div class="cyc-loading">투두가 없어요 — 🔄 다시 짜기를 눌러보세요</div>';
+  const doneN = acts.filter(a => a.step).length;
+  const curIdx = acts.findIndex(a => !a.step);
+  const rows = acts.map((a, i) => {
+    const me = a.assignee === 'human';
+    const an = AGENTS[a.agent]?.name || '에이전트';
+    const cm = catMeta(catOf(a.title));
+    const ship = shipFor(s, a.title);
+    const who = me ? '<span class="ts-who me">🙋 내가</span>' : `<span class="ts-who">🤖 ${escapeHtml(an)}</span>`;
+    if (a.step === 'done') {
+      return `<div class="todo-step done"><span class="ts-n ok">✓</span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}
+        ${a.report ? `<div class="ts-report">💬 ${escapeHtml(a.report)}</div>` : ''}${ship && !me ? artsHtml(ship) : ''}</div>`;
+    }
+    if (a.step === 'skipped') return `<div class="todo-step skip"><span class="ts-n">⏭</span><span class="cyc-cat">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span><span class="ts-who">건너뜀</span></div>`;
+    if (i !== curIdx) return `<div class="todo-step lock"><span class="ts-n">${i + 1}</span><span class="cyc-cat">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}<span class="ts-lock">앞의 일 먼저</span></div>`;
+    // ▶ 지금 할 차례 — 딱 이 항목만 버튼이 열린다
+    const running = s.executing && s.executingTitle === a.title;
+    const risky = a.risk && a.risk !== 'safe';
+    const controls = running
+      ? `<div class="ts-doing"><span class="cyc-st run"><span class="cyc-spin"></span> ${escapeHtml(an)} 일하는 중… (🏢 사무실에서 실시간으로 보여요)</span></div>${liveFeedHtml(s)}`
+      : me
+        ? `<div class="ts-doing"><div class="ts-guide">🙋 이건 사장님이 직접 하는 일이에요. 끝나면 <b>결과를 한 줄</b>로 알려주세요 — AI 팀이 이어받아요.</div>
+           <input id="todoReport" class="ts-input" placeholder="어떻게 됐어요? 한 줄 보고 (링크도 좋아요)" maxlength="200">
+           <div class="ts-btns"><button class="cyc-btn primary" id="todoDone">✅ 완료했어요</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToAi" title="AI에게 맡기기">🤖 AI에게</button></div></div>`
+        : `<div class="ts-doing">${ship && !ship.ok ? '<div class="ts-guide">⚠️ 아까는 결과물 없이 끝났어요 — 다시 시키거나, 건너뛰거나, 직접 해보세요.</div>' : ''}<div class="ts-btns"><button class="cyc-btn primary" id="todoRun">▶ ${escapeHtml(an)}에게 ${ship && !ship.ok ? '다시 ' : ''}시키기</button><button class="cyc-btn ghost" id="todoSkip">⏭️ 건너뛰기</button><button class="cyc-btn ghost sm" id="todoToMe" title="내가 직접 하기">🙋 내가</button></div>${risky ? '<div class="ts-guide">🛡️ 발송·결제·배포 단계는 실행 전에 결재로 물어봐요</div>' : ''}</div>`;
+    return `<div class="todo-step now${me ? ' is-me' : ''}" data-idx="${i}"><span class="ts-n now">${i + 1}</span><span class="cyc-cat" title="${cm.name}">${cm.ic}</span><span class="ts-t">${escapeHtml(a.title)}</span>${who}${controls}</div>`;
   }).join('');
-  return `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">오늘 운영 완료</div><div class="cyc-complete-s">${done.length}개 수행 · 산출물 ${okN}개</div></div>
+  return `<div class="todo-prog"><span class="tp-n">오늘의 투두 <b>${doneN} / ${acts.length}</b></span><span class="tp-bar"><span class="tp-fill" style="width:${Math.round(doneN / acts.length * 100)}%"></span></span></div>
+    <div class="todo-hint muted small">위에서부터 <b>하나씩</b> 해결해요 — 🙋 내 몫의 보고는 다음 계획에 반영돼요.</div>${rows}`;
+}
+
+// 👍👎 피드백 — 결과 평가(다음 플랜의 보상신호) + 트래킹. 🙋 사장님 완료·보고도 함께 보인다
+function renderFeedback(s: any): string {
+  const acts: any[] = (s.actions || []).filter((a: any) => a.step === 'done' || shipFor(s, a.title));
+  const fbMap: Record<string, boolean> = {}; (s.feedback || []).forEach((f: any) => { fbMap[f.title] = f.good; });
+  let okN = 0;
+  const items = acts.map((a: any) => {
+    const me = a.assignee === 'human';
+    const sh = shipFor(s, a.title);
+    const ok = me ? true : !!sh?.ok; if (ok) okN++;
+    const g = fbMap[a.title];
+    const fb = me ? '' : `<span class="fb-btns" data-title="${escAttr(a.title)}"><button class="fb-up${g === true ? ' on' : ''}" data-g="1">👍</button><button class="fb-dn${g === false ? ' on' : ''}" data-g="0">👎</button></span>`;
+    return `<div class="cyc-task exec"><span class="cyc-t">${me ? '🙋 ' : ''}${escapeHtml(a.title)}</span><span class="cyc-st ${ok ? 'ok' : 'fail'}">${ok ? '✅' : '미완'}</span>${fb}${a.report ? `<div class="ts-report">💬 ${escapeHtml(a.report)}</div>` : ''}${sh && !me ? artsHtml(sh) : ''}</div>`;
+  }).join('');
+  return `<div class="cyc-complete"><div class="cyc-complete-ic">✅</div><div class="cyc-complete-t">오늘 운영 완료</div><div class="cyc-complete-s">${acts.length}개 수행 · 완료 ${okN}개</div></div>
     ${weekStrip()}
-    <div class="fb-hint muted small">👍/👎로 평가하면 <b>다음 플랜이 더 똑똑해져요</b></div>${items}
+    <div class="fb-hint muted small">👍/👎로 평가하면 <b>다음 플랜이 더 똑똑해져요</b> — 내일은 오늘의 결과를 이어받아요</div>${items}
     ${activityTimeline()}`;
 }
 
-function wirePlanToggles() {
-  document.querySelectorAll('.cyc-who').forEach(b => b.addEventListener('click', (e) => {
-    e.preventDefault(); e.stopPropagation();
-    const el = b as HTMLElement; const me = el.classList.toggle('me');
-    el.textContent = me ? '🙋 내가' : '🤖 ' + (el.dataset.agent || '에이전트');
-    el.closest('.cyc-task')?.classList.toggle('is-me', me);
-  }));
-}
-
 function wireLoop() {
-  $('loopStart')?.addEventListener('click', () => { closeOverlay('opsCyclePanel'); startOps(); });   // 버튼 없이 바로 전체 루프(분석→플랜) 실행
+  $('loopStart')?.addEventListener('click', () => { closeOverlay('opsCyclePanel'); startOps(); });   // 버튼 없이 바로 전체 루프(분석→투두) 실행
   $('ideaGo')?.addEventListener('click', runCycleIdea);
   $('cycEnd')?.addEventListener('click', async () => { await connect.opsStop?.(); closeOverlay('opsCyclePanel'); hint('운영을 닫았어요'); });
-  const run = $('cycRun'); if (run) run.onclick = async () => {
-    const titles = Array.from(document.querySelectorAll('.cyc-chk:checked')).map(c => (c as HTMLElement).dataset.title!).filter(Boolean);
-    if (!titles.length) { hint('실행할 걸 하나 이상 골라주세요'); return; }
-    const humanTitles = Array.from(document.querySelectorAll('.cyc-who.me')).map(b => (b as HTMLElement).dataset.title!).filter(t => titles.includes(t));
-    run.setAttribute('disabled', ''); _ops = await connect.opsExecuteSelected?.(titles, humanTitles); renderCycle(_ops);
-  };
+  // ✅ 투두 한 개씩 — 지금 열린 항목(.todo-step.now)의 버튼만 배선
+  const stepEl = document.querySelector('.todo-step.now') as HTMLElement | null;
+  const idx = stepEl ? parseInt(stepEl.dataset.idx || '-1', 10) : -1;
+  if (idx >= 0) {
+    const runB = $('todoRun'); if (runB) runB.onclick = async () => {
+      runB.setAttribute('disabled', ''); runB.innerHTML = '⏳ 시작하는 중…';
+      _ops = await connect.opsStepRun?.(idx).catch(() => _ops); renderCycle(_ops);   // 진행 중 화면은 ops:update로 실시간 갱신
+    };
+    const doneB = $('todoDone'); if (doneB) doneB.onclick = async () => {
+      const report = ($('todoReport') as HTMLInputElement | null)?.value?.trim() || '';
+      doneB.setAttribute('disabled', '');
+      _ops = await connect.opsStepDone?.(idx, report).catch(() => _ops); renderCycle(_ops);
+      const doneTitle = stepEl?.querySelector('.ts-t')?.textContent || '내 몫 완료';
+      track('done', doneTitle, catOf(doneTitle), 1, '🙋');
+      hint(report ? '✅ 보고 저장 — AI 팀이 이어받아요' : '✅ 완료했어요');
+    };
+    // ⏎ 엔터로도 완료 (한글 조합 중 엔터는 무시)
+    const rep = $('todoReport') as HTMLInputElement | null;
+    if (rep) rep.addEventListener('keydown', (e: KeyboardEvent) => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); ($('todoDone') as HTMLButtonElement | null)?.click(); } });
+    const skipB = $('todoSkip'); if (skipB) skipB.onclick = async () => { skipB.setAttribute('disabled', ''); _ops = await connect.opsStepSkip?.(idx).catch(() => _ops); renderCycle(_ops); };
+    const toMe = $('todoToMe'); if (toMe) toMe.onclick = async () => { _ops = await connect.opsStepAssign?.(idx, true).catch(() => _ops); renderCycle(_ops); };
+    const toAi = $('todoToAi'); if (toAi) toAi.onclick = async () => { _ops = await connect.opsStepAssign?.(idx, false).catch(() => _ops); renderCycle(_ops); };
+  }
   const replan = $('cycReplan'); if (replan) replan.onclick = async () => { replan.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
   const next = $('cycNext'); if (next) next.onclick = async () => { next.setAttribute('disabled', ''); _ops = await connect.opsNextCycle?.(); renderCycle(_ops); };
   const stop = $('cycStop'); if (stop) stop.onclick = async () => { _ops = await connect.opsStop?.(); hint('■ 멈췄어요'); renderCycle(_ops); };

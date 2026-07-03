@@ -149,6 +149,10 @@ contextBridge.exposeInMainWorld('connect', {
 
   opsNextCycle: () => ipcRenderer.invoke('ops:nextCycle'),
   opsExecuteSelected: (titles: string[], humanTitles?: string[]) => ipcRenderer.invoke('ops:executeSelected', titles, humanTitles || []),
+  opsStepRun: (idx: number) => ipcRenderer.invoke('ops:stepRun', idx),               // ✅ 투두 한 개 — AI에게 시키기
+  opsStepDone: (idx: number, report: string) => ipcRenderer.invoke('ops:stepDone', idx, report),   // ✅ 사장님 몫 완료 + 한 줄 보고
+  opsStepSkip: (idx: number) => ipcRenderer.invoke('ops:stepSkip', idx),             // ⏭️ 건너뛰기
+  opsStepAssign: (idx: number, human: boolean) => ipcRenderer.invoke('ops:stepAssign', idx, human),   // 🔁 담당 바꾸기 🤖↔🙋
   opsStop: () => ipcRenderer.invoke('ops:stop'),
   opsOpenReview: () => ipcRenderer.invoke('ops:openReview'),       // 🔗 대시보드 → 메인 창 작전 검토
   remoteInfo: () => ipcRenderer.invoke('remote:info'),             // 📱 폰 웹 리모컨 주소

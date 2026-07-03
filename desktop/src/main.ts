@@ -633,13 +633,14 @@ ipcMain.handle('revenue:openSettings', () => { win?.focus(); return true; });
 
 // ───────── 🤖 자율 운영 — 비즈니스 에이전트가 실데이터를 분석해 작전(할 일) 생성, N시간 반복 ─────────
 interface OpsScan { agent: string; label: string; ok: boolean; }
-interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; assignee?: 'agent' | 'human'; }   // assignee: 에이전트가 할 일 vs 사장님만 할 수 있는 일
+interface OpsAction { title: string; agent: string; risk: 'money' | 'post' | 'deploy' | 'safe'; assignee?: 'agent' | 'human'; step?: 'done' | 'skipped'; report?: string; }   // assignee: AI 몫 vs 사장님 몫 · step: 투두리스트 진행 상태 · report: 사장님 완료 보고 한 줄
 interface OpsShip { title: string; agent: string; result: string; artifacts: string[]; ok: boolean; ts: number; files?: string[]; }   // files: 파이프라인용 실제 파일 경로
 type OpsPhase = 'idle' | 'planning' | 'review' | 'executing' | 'done';
 interface OpsFeedItem { icon: string; text: string; agent: string; ok: boolean; ts: number; }
 interface OpsFeedback { title: string; good: boolean; cycle: number; ts: number; }   // 👍/👎 — 다음 사이클 플랜의 보상신호(강화학습 루프)
-interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; }
-let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [], feedback: [] };
+interface OpsHumanReport { title: string; report: string; cycle: number; ts: number; }   // 🙋 사장님이 직접 완료하고 남긴 한 줄 보고 — 다음 사이클 계획의 입력
+interface OpsState { running: boolean; phase: OpsPhase; cycle: number; startedAt: number; lastRun: number; runs: number; busy: boolean; executing: boolean; activity: string; executingTitle: string; summary: string; scan: OpsScan[]; actions: OpsAction[]; shipped: OpsShip[]; feed: OpsFeedItem[]; feedback: OpsFeedback[]; humanReports: OpsHumanReport[]; }
+let opsState: OpsState = { running: false, phase: 'idle', cycle: 0, startedAt: 0, lastRun: 0, runs: 0, busy: false, executing: false, activity: '', executingTitle: '', summary: '', scan: [], actions: [], shipped: [], feed: [], feedback: [], humanReports: [] };
 const opsFile = () => path.join(app.getPath('userData'), 'ops.json');
 function loadOpsState() { try { const s = JSON.parse(fs.readFileSync(opsFile(), 'utf8')); opsState = { ...opsState, ...s, busy: false }; } catch { /* */ } }
 function saveOpsState() { try { fs.writeFileSync(opsFile(), JSON.stringify(opsState)); } catch { /* */ } }
@@ -773,7 +774,10 @@ async function runOperation(): Promise<OpsState> {
       // 🔁 강화학습 루프 — 사장님이 준 피드백(👍/👎)을 다음 플랜의 보상신호로
       const recentFb = (opsState.feedback || []).slice(-10);
       const fbCtx = recentFb.length ? `\n\n[지난 피드백 — 👍는 더 늘리고 👎는 줄여라]\n${recentFb.map(f => `${f.good ? '👍' : '👎'} ${f.title.replace(/\s+/g, ' ').slice(0, 50)}`).join('\n')}` : '';
-      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘. 사람(사장님)과 AI 에이전트가 '협업'하는 1인 기업이다 — 각 일을 누가 더 잘하는지로 나눠라.\n\n핵심:\n- 반드시 이 4개 고정 카테고리 안에서만 제안하라: 💡아이디어(바이브코딩으로 만들 새 서비스)·🗂️관리(고객·일정·정리·운영)·📊자산 분석(매출·지표·경쟁·현황)·📣마케팅(콘텐츠·발행·홍보). 가능하면 네 카테고리를 골고루 다뤄라.\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공/피드백을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 🤖 [에이전트id] = AI가 컴퓨터로 잘하는 일: 리서치·분석·데이터정리·문서·기획초안·콘텐츠 초안·모니터링·관리.\n- 🙋 [사장님] = 사람이 해야 잘되는 일: 코딩/바이브코딩(로컬 AI는 코딩이 약함)·계정 생성·결제수단·연동 입력·촬영·미팅·최종 의사결정·관계.\n- 분담 비율은 일에 따라 자연스럽게(보통 에이전트 2~4 : 사장님 1~2). 코딩이 필요하면 반드시 [사장님] 몫으로.\n- 한 작전의 산출물이 다음 작전의 입력이 되도록 순서를 짜라(파이프라인).\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람이 해야 잘되는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}${fbCtx}`;
+      // 🤝 협업 루프 — 사장님이 직접 완료하고 보고한 결과를 이어받는다 (사람→AI 방향의 핸드오프)
+      const recentHr = (opsState.humanReports || []).slice(-6);
+      const hrCtx = recentHr.length ? `\n\n[사장님이 직접 완료하고 보고한 일 — 이 결과를 이어받아 다음 단계를 제안하라]\n${recentHr.map(h => `🙋 ${h.title.replace(/\s+/g, ' ').slice(0, 50)} → "${h.report.replace(/\s+/g, ' ').slice(0, 80)}"`).join('\n')}` : '';
+      const user = `너는 ${c.company}의 CEO 에이전트야. 아래 데이터를 분석해 오늘의 작전 TODO 리스트(4~6개)를 세워줘. 사람(사장님)과 AI 에이전트가 '협업'하는 1인 기업이다 — 각 일을 누가 더 잘하는지로 나눠라.\n\n핵심:\n- 반드시 이 4개 고정 카테고리 안에서만 제안하라: 💡아이디어(바이브코딩으로 만들 새 서비스)·🗂️관리(고객·일정·정리·운영)·📊자산 분석(매출·지표·경쟁·현황)·📣마케팅(콘텐츠·발행·홍보). 가능하면 네 카테고리를 골고루 다뤄라.\n- 막연한 일반론 금지. 실제 수치·서비스명·지난 성공/피드백을 직접 언급.\n- 각 작전은 한 줄, 바로 실행 가능한 구체적인 행동.\n- 🤖 [에이전트id] = AI가 컴퓨터로 잘하는 일: 리서치·분석·데이터정리·문서·기획초안·콘텐츠 초안·모니터링·관리.\n- 🙋 [사장님] = 사람이 해야 잘되는 일: 코딩/바이브코딩(로컬 AI는 코딩이 약함)·계정 생성·결제수단·연동 입력·촬영·미팅·최종 의사결정·관계.\n- 분담 비율은 일에 따라 자연스럽게(보통 에이전트 2~4 : 사장님 1~2). 코딩이 필요하면 반드시 [사장님] 몫으로.\n- 목록 순서 = 실행 순서다(투두리스트 — 위에서부터 하나씩 해결). 한 작전의 산출물이 다음 작전의 입력이 되도록 짜고, 사장님 몫이 뒤 작전의 전제라면 반드시 앞에 놓아라.\n- 지난 사이클에서 시작한 일(지난 성공·사장님 보고)이 있으면 새 일을 벌이기 전에 그 일을 다음 단계로 전진시키는 작전을 먼저 제안하라 — 매일 리셋 금지, 어제의 결과 위에 쌓아라.\n\n형식:\n요약: <한 줄 현황>\n작전:\n- [에이전트id] 행동\n- [에이전트id] 행동\n- [사장님] 사람이 해야 잘되는 행동\n\n에이전트: youtube(레오)·instagram·designer·developer(코다리)·business(현빈)·secretary(영숙)·editor(루나)·writer·researcher\n\n[실시간 점검]\n${findings}${svcCtx}${brainCtx}${shippedCtx}${fbCtx}${hrCtx}`;
       try {
         const text = await chat(target, agentPrompt(c.agentName, c.company, c.userTitle || '사장님'), user, { temperature: 0.5 });
         const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
@@ -987,7 +991,7 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
   if (opsState.executing) return opsPublic();
   const set = new Set(titles || []);
   const humanSet = new Set(humanTitles || []);
-  const chosen = opsState.actions.filter(a => set.has(a.title))
+  const chosen = opsState.actions.filter(a => set.has(a.title) && !a.step)   // ✅ 이미 끝난/건너뛴 항목은 재실행 금지
     .map(a => ({ ...a, assignee: humanSet.has(a.title) ? 'human' as const : 'agent' as const }));   // UI 토글이 최종 결정
   if (!chosen.length) { opsState.phase = 'done'; saveOpsState(); opsEmit(); return opsPublic(); }
   const c = loadConfig();
@@ -1002,6 +1006,7 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
       const ship: OpsShip = { title: h.title, agent: 'human', artifacts: ['📋 사장님 할 일로 등록'], files: [], ok: true, result: '태스크 보드에 등록했어요 — 사장님이 직접 진행해 주세요', ts: Date.now() };
       opsState.shipped.unshift(ship); batch.push(ship);
       opsState.feed.unshift({ icon: '🙋', text: `사장님 할 일 등록: ${h.title.slice(0, 44)}`, agent: 'secretary', ok: true, ts: Date.now() });
+      const orig = opsState.actions.find(x => x.title === h.title); if (orig) { orig.step = 'done'; orig.assignee = 'human'; }   // ✅ 투두리스트와 상태 일치
     }
     if (humans.length) { opsEmit(); tgSend(`🙋 사장님 몫 할 일 ${humans.length}개가 등록됐어요:\n${humans.map(h => `□ ${h.title}`).join('\n')}`).catch(() => undefined); }
     // 🤖 에이전트 몫 — 앞 작전의 산출물을 이어받으며 하나씩 실행
@@ -1009,6 +1014,7 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
       if (!opsState.running) break;
       const ship = await executeOne(c, a, batch);   // 위험 단계는 에이전트가 알아서 request_approval(→텔레그램)
       batch.push(ship);
+      const orig = opsState.actions.find(x => x.title === a.title); if (orig) orig.step = 'done';   // ✅ 투두리스트와 상태 일치
     }
     // 🧠 사이클 기억 — 완수한 작전을 두뇌에 기록 → 다음 사이클 계획이 이걸 참고한다
     const done = batch.filter(s => s.ok && s.agent !== 'human');
@@ -1020,6 +1026,71 @@ async function doExecuteSelected(titles: string[], humanTitles: string[] = []): 
   return opsPublic();
 }
 ipcMain.handle('ops:executeSelected', (_e, titles: string[], humanTitles: string[] = []) => doExecuteSelected(titles, humanTitles));
+
+// ═══════ ✅ 투두리스트 운영 — 작전을 위에서부터 '하나씩' 해결 (사람–AI 협업 루프) ═══════
+// AI 몫: ▶ 시키면 실행하고 산출물을 남긴다. 사장님 몫: 직접 하고 한 줄 보고 → 두뇌에 저장 → 다음 계획이 이어받는다.
+function opsAfterStep() {
+  const left = opsState.actions.filter(a => !a.step).length;
+  if (!left && opsState.actions.length) {
+    opsState.phase = 'done';
+    // 🧠 사이클 기억 — AI 산출물 + 사장님 보고를 함께 기록 → 다음 사이클 계획의 입력
+    const today = new Date().toISOString().slice(0, 10);
+    const lines = opsState.actions.filter(a => a.step === 'done').map(a => a.assignee === 'human'
+      ? `🙋 ${a.title.slice(0, 60)}${a.report ? ` → "${a.report.slice(0, 80)}"` : ''}`
+      : `🤖 ${AGENTS[a.agent]?.name || a.agent}: ${a.title.slice(0, 60)}`);
+    if (lines.length) brainAddNote(`[운영 ${today} 사이클#${opsState.cycle}] ${lines.join(' / ')}`, undefined, { source: 'me', verified: true });
+    tgSend(`🎯 사이클#${opsState.cycle} 완주 — ${lines.length}개 완료`).catch(() => undefined);
+  } else opsState.phase = 'review';   // 아직 남았으면 투두리스트로 복귀
+  saveOpsState(); opsEmit();
+}
+// ▶ AI 몫 한 개 실행 — 앞에서 끝난 작전의 산출물을 이어받는다 (투두 순서 = 파이프라인)
+ipcMain.handle('ops:stepRun', async (_e, idx: number) => {
+  const a = opsState.actions[idx];
+  if (!a || a.step || opsState.executing) return opsPublic();
+  const c = loadConfig();
+  opsState.running = true; opsState.executing = true; opsState.phase = 'executing'; opsState.feed = []; opsEmit();
+  try { openOfficeWindow(); } catch { /* 🏢 일하는 모습이 보이게 */ }
+  const prior = opsState.actions.filter(x => x.step === 'done')
+    .map(x => opsState.shipped.find(s => s.title === x.title)).filter(Boolean) as OpsShip[];
+  let ship: OpsShip | null = null;
+  try { ship = await executeOne(c, a, prior); }
+  catch { /* */ }
+  finally {
+    opsState.executing = false; opsState.executingTitle = ''; opsState.activity = '';
+    if (!opsState.running) { saveOpsState(); opsEmit(); }             // ⏹ 중단됨 — 항목을 완료로 만들지 않는다
+    else if (ship?.ok) { a.step = 'done'; opsAfterStep(); }
+    else { opsState.phase = 'review'; saveOpsState(); opsEmit(); }    // ⚠️ 결과물 없음 — 항목을 열어둔다(다시 시키기/건너뛰기/내가)
+  }
+  return opsPublic();
+});
+// ✅ 사장님 몫 완료 = 보고 — 한 줄 결과가 두뇌에 저장되고 다음 계획이 참고한다
+ipcMain.handle('ops:stepDone', (_e, idx: number, report: string) => {
+  const a = opsState.actions[idx];
+  if (!a || a.step) return opsPublic();
+  a.step = 'done'; a.assignee = 'human'; a.report = String(report || '').trim().slice(0, 200);
+  opsState.humanReports = [...(opsState.humanReports || []), { title: a.title, report: a.report, cycle: opsState.cycle, ts: Date.now() }].slice(-30);
+  if (a.report) brainAddNote(`[사장님 직접 완료] ${a.title.slice(0, 70)} — 결과: ${a.report}`, undefined, { source: 'me', verified: true });
+  opsState.feed.unshift({ icon: '🙋', text: `사장님 완료: ${a.title.slice(0, 44)}`, agent: 'secretary', ok: true, ts: Date.now() });
+  opsAfterStep();
+  return opsPublic();
+});
+// ⏭️ 건너뛰기 — 오늘 안 할 일은 넘기고 다음 항목이 열린다
+ipcMain.handle('ops:stepSkip', (_e, idx: number) => {
+  const a = opsState.actions[idx];
+  if (!a || a.step) return opsPublic();
+  a.step = 'skipped'; opsAfterStep();
+  return opsPublic();
+});
+// 🔁 담당 바꾸기 — 🤖↔🙋 (시작 전에만)
+ipcMain.handle('ops:stepAssign', (_e, idx: number, human: boolean) => {
+  const a = opsState.actions[idx];
+  if (a && !a.step) {
+    a.assignee = human ? 'human' : 'agent';
+    if (!human && (a.agent === 'human' || !AGENTS[a.agent])) a.agent = 'secretary';   // 사람 몫이던 걸 AI로 → 비서가 받는다
+    saveOpsState(); opsEmit();
+  }
+  return opsPublic();
+});
 ipcMain.handle('ops:status', () => opsPublic());
 // 👍👎 피드백 — 다음 사이클 플랜에 반영되는 보상신호(강화학습 루프)
 ipcMain.handle('ops:feedback', (_e, title: string, good: boolean) => {
