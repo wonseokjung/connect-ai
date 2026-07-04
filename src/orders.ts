@@ -100,6 +100,8 @@ export interface WorkOrder {
   stages: Record<OrderStage, OrderStageState>;
   /** 오더 산출물 루트 디렉토리 (<companyDir>/orders/<id>/). */
   sessionRoot: string;
+  /** v2.89.161 — 배포 성공 시 공개 URL (Vercel/Netlify). 멀티사이트 대시보드의 기반. */
+  liveUrl?: string;
   /** 현재 실행 중인 단계 (없으면 마지막 완료 단계). */
   currentStage?: OrderStage;
   completedAt?: string;

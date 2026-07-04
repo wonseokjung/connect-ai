@@ -425,6 +425,7 @@ app.whenReady().then(() => {
   scheduleBriefing();
   scheduleAuto();
   scheduleAutoCycle();   // 🌙 v0.4.10 — 데스크톱 자율 사이클 (앱 내 30분 타이머, launchd 대체)
+  syncDesktopCredsToBrain();   // 🔐 v0.4.11 — Config PayPal ID → paypal_revenue.json 동기화 (/order 결제 주입용)
   // 🤖 사이클은 사람이 시작/다음을 누르는 수동형 → 재시작 후 자동 실행하지 않음(중간 실행상태만 정리)
   if (opsState.executing || opsState.phase === 'executing') { opsState.executing = false; opsState.phase = opsState.actions.length ? 'review' : 'idle'; }
   setInterval(tgTick, 3000);   // 📲 텔레그램 결재 브리지 폴링(승인 푸시 + 답장 처리)
@@ -1405,6 +1406,7 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
     // v0.4.9 — 요건#2: 다중 오더 동시 실행 방지
     const companyDir = path.join(app.getPath('userData'), '_company');
     try { fs.mkdirSync(path.join(companyDir, '_shared'), { recursive: true }); } catch { /* */ }
+    syncDesktopCredsToBrain();   // 🔐 v0.4.11 — 결제 주입을 위해 Config→brain 동기화
     const active = listActiveOrders(companyDir);
     if (active.length > 0) {
       const a = active[0];
@@ -2224,6 +2226,23 @@ function writeCycleHealth(companyDir: string, ok: boolean, reason?: string) {
     if (consecutiveFailures >= 3) { fs.writeFileSync(alertFile, JSON.stringify({ ts: Date.now(), consecutiveFailures, lastReason: reason })); }
     else if (ok && fs.existsSync(alertFile)) { try { fs.unlinkSync(alertFile); } catch { /* */ } }
   } catch { /* */ }
+}
+// v0.4.11 — 작업 B: 데스크톱 Config.paypalClientId → paypal_revenue.json 동기화.
+//   확장은 _agents/business/tools/paypal_revenue.json 을 쓰지만 데스크톱은 Config 에만 저장.
+//   /order build 의 결제 주입이 확장과 동일 파일을 읽도록 동기화 (idempotent).
+function syncDesktopCredsToBrain() {
+  try {
+    const c = loadConfig();
+    const bizDir = path.join(app.getPath('userData'), '_company', '_agents', 'business', 'tools');
+    try { fs.mkdirSync(bizDir, { recursive: true }); } catch { /* */ }
+    const pp = path.join(bizDir, 'paypal_revenue.json');
+    let cur: any = {};
+    try { cur = JSON.parse(fs.readFileSync(pp, 'utf-8') || '{}'); } catch { /* */ }
+    if (c.paypalClientId && cur.CLIENT_ID !== c.paypalClientId) {
+      cur.CLIENT_ID = c.paypalClientId; cur.MODE = 'live';
+      fs.writeFileSync(pp, JSON.stringify(cur, null, 2));
+    }
+  } catch { /* 동기화 실패해도 동작에는 영향 없음 */ }
 }
 function scheduleAutoCycle() {
   const start = () => {

@@ -32,6 +32,15 @@
 
 **패키지 설치 금지** — 이 단계에서는 `npm install` 실행하지 말 것 (④개발 단계에서 처리). CDN 기반 의존성을 우선 사용 (Tailwind CDN, React CDN 등)하여 즉시 동작하는 결과물 만들 것.
 
+**🔐 결제/키 연동 (중요)** — 결제 버튼이나 AI API 호출이 필요하면 **절대 가짜 키를 하드코딩하지 말고** 플레이스홀더를 그대로 두세요. 시스템이 빌드 후 운영자의 실제 자격증명으로 자동 치환합니다:
+- PayPal 결제 버튼: `__PAYPAL_CLIENT_ID__` (PayPal Smart Buttons SDK의 client-id에 사용)
+- Gemini 이미지/AI 생성: `__GEMINI_API_KEY__`, `__GEMINI_TEXT_MODEL__`, `__GEMINI_IMAGE_MODEL__`
+예: `<script src="https://www.paypal.com/sdk/js?client-id=__PAYPAL_CLIENT_ID__&currency=USD"></script>`
+
+**📦 배포 준비** — 정적 사이트면 `site/` 안에 다음 중 하나를 포함 (나중에 ⑤운영 단계에서 공개 배포 가능):
+- Vercel: `vercel.json` → `{"buildCommand": null, "outputDirectory": "."}`
+- Netlify: `netlify.toml` → `[build]\npublish = "."`
+
 출력 (파일 작성 후 마크다운 요약):
 ```
 # 🔨 화면 구현 — {{ORDER_TITLE}}

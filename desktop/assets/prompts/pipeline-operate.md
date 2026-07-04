@@ -13,15 +13,20 @@
 
 이 단계의 목표: **완성된 제품을 실제로 운영·배포·수익화하기 위한 계획을 세운다.** 코드 작성이 아닌 운영 계획.
 
+**🚀 실제 공개 배포 (선택)** — site/ 폴더를 Vercel/Netlify로 바로 배포할 수 있습니다. deploy_cli 도구가 있으니 다음 중 하나를 실행:
+- Vercel: `<run_command>python {{SESSION_ROOT}}/../../../tool-seeds-경로/deploy_cli.py --provider vercel --dir {{SESSION_ROOT}}/site</run_command>`
+  (또는 단순히: `<run_command>python deploy_cli.py --dir {{SESSION_ROOT}}/site</run_command>`)
+- 배포에는 VERCEL_TOKEN 또는 NETLIFY_AUTH_TOKEN 환경변수가 필요. 토큰이 설정되어 있지 않으면 아래 "로컬 미리보기"로 대체하고 배포는 다음 기회로.
+
 작업:
-1. **배포 계획** — 어디에 어떻게 올릴지 (정적 호스팅: Vercel/Netlify/GitHub Pages; 또는 서버). 구체적 단계.
+1. **배포 계획** — 위 배포 도구로 공개 URL 획득 (또는 토큰 없으면 로컬). 어디에 어떻게 올릴지 구체적 단계.
 2. **런 방법** — 사용자가 지금 당장 로컬에서 결과물을 볼 수 있는 명령 (`cd site && npx serve` 또는 `python3 -m http.server`).
 3. **KPI·모니터링** — ①에서 정의한 성공 기준을 어떻게 측정할지. (트래픽, 전환, 매출)
-4. **수익화 액션** — 결제 연동(PayPal/Toss), 가격 설정, 청구 주기 등 구체적 다음 스텝.
+4. **수익화 액션** — 결제 연동(PayPal/Toss — ③build 단계에서 `__PAYPAL_CLIENT_ID__` 플레이스홀더로 이미 연결됨), 가격 설정, 청구 주기 등.
 5. **리스크** — 운영상 주의점 2~3가지 (법적, 기술적, 시장).
 6. **다음 오더 추천** — 이 제품을 발전시킬 다음 신규 오더 아이디어 1~2개.
 
-출력:
+输出:
 ```
 # 🚀 운영 계획 — {{ORDER_TITLE}}
 

@@ -776,6 +776,51 @@ function friendlyLlmError(e: any): string {
     return (e?.message || String(e)) + (detail ? ' (' + detail.slice(0, 150) + ')' : '');
 }
 
+/* v2.89.161 — 작업 B: /order build 산출물(site/)에 운영자 자격증명 주입.
+   pack_apply.py 의 _inject_credentials 로직을 TS로 포팅. site 안의 HTML 파일에서
+   __PAYPAL_CLIENT_ID__ / __GEMINI_API_KEY__ 등 플레이스홀더를 운영자의 실제 값으로 치환.
+   빈 값이면 치환 안 함 (보안). build 단계가 끝난 site/ 폴더에 대해 1회 실행. */
+function _injectCredsIntoSite(siteDir: string): number {
+    if (!fs.existsSync(siteDir)) return 0;
+    const creds: Record<string, string> = {
+        '__PAYPAL_CLIENT_ID__': '',
+        '__GEMINI_API_KEY__': '',
+        '__GEMINI_TEXT_MODEL__': 'gemini-3.1-flash-lite-preview',
+        '__GEMINI_IMAGE_MODEL__': 'gemini-3.1-flash-image-preview',
+    };
+    const bizDir = path.join(getCompanyDir(), '_agents', 'business', 'tools');
+    try {
+        const pp = path.join(bizDir, 'paypal_revenue.json');
+        if (fs.existsSync(pp)) { const j = JSON.parse(fs.readFileSync(pp, 'utf-8') || '{}'); if (j.CLIENT_ID) creds['__PAYPAL_CLIENT_ID__'] = j.CLIENT_ID; }
+    } catch { /* */ }
+    try {
+        const gm = path.join(bizDir, 'gemini_account.json');
+        if (fs.existsSync(gm)) { const j = JSON.parse(fs.readFileSync(gm, 'utf-8') || '{}'); if (j.API_KEY) creds['__GEMINI_API_KEY__'] = j.API_KEY; if (j.TEXT_MODEL) creds['__GEMINI_TEXT_MODEL__'] = j.TEXT_MODEL; if (j.IMAGE_MODEL) creds['__GEMINI_IMAGE_MODEL__'] = j.IMAGE_MODEL; }
+    } catch { /* */ }
+    /* site/ 안의 HTML 파일 재귀 순회하며 치환 */
+    let injected = 0;
+    const walk = (dir: string) => {
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+            const full = path.join(dir, e.name);
+            if (e.isDirectory()) walk(full);
+            else if (/\.html?$/i.test(e.name)) {
+                try {
+                    let content = fs.readFileSync(full, 'utf-8');
+                    let changed = false;
+                    for (const [ph, val] of Object.entries(creds)) {
+                        if (val && content.includes(ph)) { content = content.split(ph).join(val); changed = true; }
+                    }
+                    if (changed) { fs.writeFileSync(full, content); injected++; }
+                } catch { /* 읽기/쓰기 실패 스킵 */ }
+            }
+        }
+    };
+    walk(siteDir);
+    return injected;
+}
+
 function _loadPrompt(file: string): string {
     let cached = _promptCache.get(file);
     if (cached !== undefined) return cached;
@@ -6624,7 +6669,7 @@ const AGENT_TOOLS_CATALOG: Record<string, { tool: string; desc: string; planned?
         { tool: 'pwa_setup', desc: '웹사이트 → PWA 변환 (manifest·sw·아이콘 자동 생성)' },
         { tool: 'lint_test', desc: '코드 수정 후 자가 검증 — tsc·py_compile·npm scripts 자동 실행 + 결과 리포트' },
         { tool: 'git_committer', desc: '작업 단위 자동 커밋 (의미 단위 + git add -A 금지)', planned: true },
-        { tool: 'deploy_cli', desc: 'Vercel/Netlify/Cloudflare 배포 (deploy --prod는 항상 승인)', planned: true },
+        { tool: 'deploy_cli', desc: 'Vercel/Netlify 공개 배포 — VERCEL_TOKEN/NETLIFY_AUTH_TOKEN 환경변수 필요' },
     ],
     business: [
         { tool: 'paypal_revenue', desc: '내 PayPal 매출 자동 분석 — 일/주/월별 + 통화별 + 환불율' },
@@ -19744,6 +19789,14 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
                                 continue;
                             }
                         }
+                    }
+
+                    /* v2.89.161 — 작업 B: build 단계 산출물에 운영자 자격증명(PayPal/Gemini) 주입. */
+                    if (stage === 'build') {
+                        try {
+                            const injected = _injectCredsIntoSite(path.join(order.sessionRoot, 'site'));
+                            if (injected > 0) post({ type: 'response', value: '🔐 ' + label + ': 운영자 자격증명(' + injected + '개 파일) 주입 완료 — PayPal/Gemini 키 자동 연결' });
+                        } catch { /* 주입 실패해도 빌드는 성공 */ }
                     }
 
                     if (out && out.trim().length > 20) {

@@ -389,6 +389,50 @@ function _loadPipelinePrompts(): Record<string, string> {
   return out;
 }
 
+// v0.4.11 — 작업 B: /order build 산출물(site/)에 운영자 자격증명 주입 (데스크톱).
+//   데스크톱은 PayPal ID가 Config.paypalClientId에 있으므로, 먼저 paypal_revenue.json으로 동기화 후 주입.
+function injectCredsIntoSite(siteDir: string, companyDir: string): number {
+  if (!fsOrder.existsSync(siteDir)) return 0;
+  const bizDir = pathOrder.join(companyDir, '_agents', 'business', 'tools');
+  try { fsOrder.mkdirSync(bizDir, { recursive: true }); } catch { /* */ }
+  // 데스크톱 Config → paypal_revenue.json 동기화 (확장과 동일 파일 경로로 표준화)
+  try {
+    const cfgPath = pathOrder.join((process as any).env.CONNECTAI_CFG ? '' : '', '');
+  } catch { /* */ }
+  const creds: Record<string, string> = {
+    '__PAYPAL_CLIENT_ID__': '', '__GEMINI_API_KEY__': '',
+    '__GEMINI_TEXT_MODEL__': 'gemini-3.1-flash-lite-preview',
+    '__GEMINI_IMAGE_MODEL__': 'gemini-3.1-flash-image-preview',
+  };
+  try {
+    const pp = pathOrder.join(bizDir, 'paypal_revenue.json');
+    if (fsOrder.existsSync(pp)) { const j = JSON.parse(fsOrder.readFileSync(pp, 'utf-8') || '{}'); if (j.CLIENT_ID) creds['__PAYPAL_CLIENT_ID__'] = j.CLIENT_ID; }
+  } catch { /* */ }
+  try {
+    const gm = pathOrder.join(bizDir, 'gemini_account.json');
+    if (fsOrder.existsSync(gm)) { const j = JSON.parse(fsOrder.readFileSync(gm, 'utf-8') || '{}'); if (j.API_KEY) creds['__GEMINI_API_KEY__'] = j.API_KEY; if (j.TEXT_MODEL) creds['__GEMINI_TEXT_MODEL__'] = j.TEXT_MODEL; if (j.IMAGE_MODEL) creds['__GEMINI_IMAGE_MODEL__'] = j.IMAGE_MODEL; }
+  } catch { /* */ }
+  let injected = 0;
+  const walk = (dir: string) => {
+    let entries: fsOrder.Dirent[];
+    try { entries = fsOrder.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      const full = pathOrder.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (/\.html?$/i.test(e.name)) {
+        try {
+          let content = fsOrder.readFileSync(full, 'utf-8');
+          let changed = false;
+          for (const [ph, val] of Object.entries(creds)) { if (val && content.includes(ph)) { content = content.split(ph).join(val); changed = true; } }
+          if (changed) { fsOrder.writeFileSync(full, content); injected++; }
+        } catch { /* */ }
+      }
+    }
+  };
+  walk(siteDir);
+  return injected;
+}
+
 export async function runOrderPipeline(
   text: string,
   opts: RunOpts,
@@ -440,6 +484,13 @@ export async function runOrderPipeline(
     }
 
     const file = saveStageOutput(order.id, stage, out, order.sessionRoot);
+    /* v0.4.11 — 작업 B: build 단계 산출물에 운영자 자격증명(PayPal/Gemini) 주입. */
+    if (ok && stage === 'build') {
+      try {
+        const injected = injectCredsIntoSite(pathOrder.join(order.sessionRoot, 'site'), companyDir);
+        if (injected > 0) onEvent({ kind: 'status', text: `🔐 ${label}: 운영자 자격증명(${injected}개 파일) 주입 완료` });
+      } catch { /* 주입 실패해도 빌드는 성공 */ }
+    }
     if (ok) {
       await updateStage(companyDir, order.id, stage, { status: 'done', output: out, completedAt: new Date().toISOString(), sessionDir: order.sessionRoot });
       stageResults.push({ label, ok: true, file: file || undefined });

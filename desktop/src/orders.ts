@@ -69,6 +69,8 @@ export interface WorkOrder {
   status: OrderStatus;
   stages: Record<OrderStage, OrderStageState>;
   sessionRoot: string;
+  /** v0.4.11 — 배포 성공 시 공개 URL (Vercel/Netlify). 멀티사이트 대시보드의 기반. */
+  liveUrl?: string;
   currentStage?: OrderStage;
   completedAt?: string;
   finalReport?: string;

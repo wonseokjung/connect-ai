@@ -62,15 +62,33 @@ export function parseTools(text: string): ToolCall[] {
     calls.push({ tool: 'write_file', path: p, content });
     seen.add(p);
   }
+  // v0.4.11 — 작업 A: <create_file path="..."> 호환 (확장 build 프롬프트가 create_file 을 씀).
+  //   데스크톱은 write_file 만 알았지만 이제 create_file 도 write_file 로 정규화. 치명 버그 수정
+  //   (이전엔 데스크톱 /order 시 site/ 폴더가 비거나 안 생겼음).
+  const reCreate = /<create_file\s+path="([^"]+)">([\s\S]*?)<\/create_file>/g;
+  while ((m = reCreate.exec(text))) { const p = m[1].trim(); if (!seen.has(p)) { calls.push({ tool: 'write_file', path: p, content: m[2] }); seen.add(p); } }
+  // 닫는태그 없는 create_file 폴백 (write_file unclosed 와 동일 패턴)
+  const reCreateUnclosed = /<create_file\s+path="([^"]+)">([\s\S]*?)(?=<create_file\s|<write_file\s|<run>|<run_command>|<find>|<list_dir>|<read_file>|<team>|<task>|<mcp\s|\n#\s|\n##\s|$)/g;
+  while ((m = reCreateUnclosed.exec(text))) {
+    const p = m[1].trim();
+    if (seen.has(p)) continue;
+    let content = m[2].replace(/\n$/, '').trim();
+    if (content.startsWith('```')) { const ls = content.split('\n'); if (ls[0].startsWith('```')) ls.shift(); if (ls.length && ls[ls.length-1].startsWith('```')) ls.pop(); content = ls.join('\n').trim(); }
+    calls.push({ tool: 'write_file', path: p, content });
+    seen.add(p);
+  }
   const reRun = /<run>([\s\S]*?)<\/run>/g;
   while ((m = reRun.exec(text))) calls.push({ tool: 'run_command', path: m[1].trim() });
+  // v0.4.11 — 작업 A: <run_command> 호환 (확장 프롬프트가 run_command 를 씀). run 과 동일하게 run_command 로 정규화.
+  const reRunCmd = /<run_command>([\s\S]*?)<\/run_command>/g;
+  while ((m = reRunCmd.exec(text))) calls.push({ tool: 'run_command', path: m[1].trim() });
   const reFind = /<find>([\s\S]*?)<\/find>/g;
   while ((m = reFind.exec(text))) calls.push({ tool: 'find', path: m[1].trim() });
   return calls;
 }
 export const stripTools = (text: string) =>
   text.replace(/<list_dir>[\s\S]*?<\/list_dir>/g, '').replace(/<read_file>[\s\S]*?<\/read_file>/g, '')
-      .replace(/<write_file[\s\S]*?<\/write_file>/g, '').replace(/<run>[\s\S]*?<\/run>/g, '').replace(/<find>[\s\S]*?<\/find>/g, '')
+      .replace(/<write_file[\s\S]*?<\/write_file>/g, '').replace(/<create_file[\s\S]*?<\/create_file>/g, '').replace(/<run>[\s\S]*?<\/run>/g, '').replace(/<run_command>[\s\S]*?<\/run_command>/g, '').replace(/<find>[\s\S]*?<\/find>/g, '')
       .replace(/<team>[\s\S]*?<\/team>/g, '').replace(/<task>[\s\S]*?<\/task>/g, '').replace(/<approve[^>]*>[\s\S]*?<\/approve>/g, '')
       .replace(/<web_search>[\s\S]*?<\/web_search>/g, '').replace(/<fetch_url>[\s\S]*?<\/fetch_url>/g, '').replace(/<\/?revenue\s*\/?>/g, '').replace(/<\/?screenshot\s*\/?>/g, '').replace(/<\/?clipboard\s*\/?>/g, '').replace(/<open>[\s\S]*?<\/open>/g, '').replace(/<open_app[^>]*>[\s\S]*?<\/open_app>/g, '').replace(/<serve(?:_server)?>[\s\S]*?<\/serve(?:_server)?>/g, '').replace(/<mcp\s[^>]*>[\s\S]*?<\/mcp>/g, '').replace(/\[END_TOOL_REQUEST\]/g, '').trim();
 
