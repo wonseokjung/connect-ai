@@ -303,6 +303,7 @@
       <div class="manage-tabs">
         <button class="mtab active" data-mtab="dash">📊 대시보드</button>
         <button class="mtab" data-mtab="svc">🗂️ 내 서비스</button>
+        <button class="mtab" data-mtab="orders">🏗️ 만든 사이트</button>
         <button class="mtab" data-mtab="integ">🔌 연동</button>
         <button class="mtab" data-mtab="mcp">🧩 MCP</button>
       </div>
@@ -355,6 +356,11 @@
 }'></textarea>
           <div class="oc-row" style="margin-top:8px"><button id="mcpSaveBtn" class="oc-primary">💾 저장</button><button id="mcpTestBtn" class="oc-primary">🔌 연결 테스트</button><span class="muted" id="mcpStatus"></span></div>
           <div class="mcp-tools" id="mcpTools"></div>
+        </div>
+        <!-- 🏗️ 만든 사이트 — /order 로 만든 사이트 포트폴리오 -->
+        <div class="msec hidden" id="msec-orders">
+          <div class="muted small" style="margin-bottom:10px;line-height:1.6"><b>/order</b> 로 만든 사이트들이 여기에 모입니다. 라이브 URL·상태·헬스체크를 한눈에. 사이드바에서 <code>/order &lt;아이디어&gt;</code> 로 새 사이트를 만드세요.</div>
+          <div id="orderList"><div class="muted small">불러오는 중…</div></div>
         </div>
       </div>
     </div>

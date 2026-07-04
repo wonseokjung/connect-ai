@@ -391,8 +391,9 @@ $('openRevenueBtn').addEventListener('click', () => connect.openRevenue());
 $('svcReviewBtn').addEventListener('click', () => { closeOverlay('managePanel'); ask('내가 등록한 모든 서비스를 점검해줘. 각 서비스의 사이트/채널을 web_search·fetch_url 로 확인하고, 오늘 우선순위로 할 만한 개선·성장 액션을 서비스별로 <task>로 만들어줘.'); });
 function switchMtab(tab: string) {
   document.querySelectorAll('.mtab').forEach(x => x.classList.toggle('active', (x as HTMLElement).dataset.mtab === tab));
-  ['dash', 'svc', 'integ', 'mcp'].forEach(s => $('msec-' + s).classList.toggle('hidden', s !== tab));
+  ['dash', 'svc', 'orders', 'integ', 'mcp'].forEach(s => $('msec-' + s).classList.toggle('hidden', s !== tab));
   if (tab === 'dash') renderDash();
+  if (tab === 'orders') renderOrders();
   if (tab === 'mcp') loadMcp();
 }
 // 🤖 AI 선택 패널
@@ -1484,6 +1485,23 @@ async function loadServices() {
     ? list.map((s: any) => `<div class="svc-item"><div class="si-main"><div class="si-name">${escapeHtml(s.name)}</div>${s.url ? `<a class="si-url" href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a>` : ''}${s.repo ? `<div class="si-repo">💻 ${escapeHtml(s.repo)} <span class="si-repo-tag">코드 편집 가능</span></div>` : ''}${s.desc ? `<div class="si-desc">${escapeHtml(s.desc)}</div>` : ''}</div><button class="bn-x" data-id="${s.id}">✕</button></div>`).join('')
     : '<div class="muted" style="padding:16px;text-align:center">아직 등록한 서비스가 없어요. 위에 추가하세요.</div>';
   $('svcList').querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', async () => { await connect.servicesDelete((b as HTMLElement).dataset.id); loadServices(); }));
+}
+// v0.4.13 — 작업 3: /order 로 만든 사이트 포트폴리오 렌더.
+async function renderOrders() {
+  const el = $('orderList');
+  if (!el) return;
+  el.innerHTML = '<div class="muted small">불러오는 중…</div>';
+  let orders: any[] = [];
+  try { orders = await connect.orderList() || []; } catch { /* */ }
+  if (!orders.length) { el.innerHTML = '<div class="muted" style="padding:20px;text-align:center">아직 만든 사이트가 없습니다.<br>사이드바에서 <code>/order &lt;만들 것&gt;</code> 으로 시작하세요.<br><span class="small">예) /order 강아지 용품 쇼핑몰 랜딩페이지</span></div>'; return; }
+  // 최신순
+  orders.sort((a: any, b: any) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  el.innerHTML = orders.map((o: any) => {
+    const statusEmoji = o.status === 'completed' ? '✅' : o.status === 'aborted' ? '⛔' : '🔄';
+    const live = o.liveUrl ? `<a class="si-url" href="${escapeHtml(o.liveUrl)}" target="_blank">🌐 ${escapeHtml(o.liveUrl)}</a>` : '<span class="muted small">로컬만 (미배포)</span>';
+    return `<div class="svc-item"><div class="si-main"><div class="si-name">${statusEmoji} ${escapeHtml(o.title || o.id)}</div>${live}<div class="si-desc">${escapeHtml(o.summary || '')} · ${new Date(o.createdAt).toLocaleDateString('ko-KR')}</div></div><button class="bn-x" data-path="${escapeHtml(o.sessionRoot)}" title="폴더 열기">📁</button></div>`;
+  }).join('');
+  el.querySelectorAll('.bn-x').forEach(b => b.addEventListener('click', () => { const p = (b as HTMLElement).dataset.path; if (p) connect.openPath?.(p); }));
 }
 $('svcAddBtn').addEventListener('click', async () => {
   const name = ($('svcName') as HTMLInputElement).value.trim(); if (!name) return;

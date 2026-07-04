@@ -821,6 +821,16 @@ function _injectCredsIntoSite(siteDir: string): number {
     return injected;
 }
 
+/* v2.89.163 — liveUrl 헬스체크. 배포된 사이트가 살아있는지 (status 200-399). */
+async function pingUrl(url: string): Promise<{ ok: boolean; status: number; ms: number }> {
+    if (!/^https?:\/\//i.test(url || '')) return { ok: false, status: 0, ms: 0 };
+    const t0 = Date.now();
+    try {
+        const r = await axios.get(url, { timeout: 5000, maxRedirects: 5, validateStatus: () => true });
+        return { ok: r.status >= 200 && r.status < 400, status: r.status, ms: Date.now() - t0 };
+    } catch { return { ok: false, status: 0, ms: Date.now() - t0 }; }
+}
+
 function _loadPrompt(file: string): string {
     let cached = _promptCache.get(file);
     if (cached !== undefined) return cached;
@@ -9059,7 +9069,7 @@ export function activate(context: vscode.ExtensionContext) {
             const items = orders.map(o => ({
                 label: (o.status === 'completed' ? '✅' : o.status === 'aborted' ? '⛔' : '🔄') + ' ' + o.title,
                 description: orderSummary(o),
-                detail: '생성 ' + o.createdAt.slice(0, 16) + ' · ' + o.id,
+                detail: '생성 ' + o.createdAt.slice(0, 16) + ' · ' + o.id + (o.liveUrl ? ' · 🌐 ' + o.liveUrl : ' · 로컬'),
                 order: o,
             }));
             const picked = await vscode.window.showQuickPick(items, { placeHolder: '오더 선택 — 산출물 폴더 열기' });

@@ -37,7 +37,17 @@ export async function siteMeta(url: string): Promise<{ title: string; image: str
   } catch { return { title: '', image: '', favicon, text: '' }; }
 }
 
-// 웹 검색 (google_search) — DuckDuckGo HTML(키 불필요)에서 상위 결과
+// v0.4.13 — liveUrl 헬스체크. 배포된 사이트가 살아있는지 확인 (status 200-399 = ok).
+//   GET 방식 (일부 호스트가 HEAD 차단). 5초 타임아웃. 관대하게 200-399를 정상으로.
+export async function pingUrl(url: string): Promise<{ ok: boolean; status: number; ms: number }> {
+  if (!/^https?:\/\//i.test(url || '')) return { ok: false, status: 0, ms: 0 };
+  const t0 = Date.now();
+  try {
+    const r = await axios.get(url, { timeout: 5000, maxRedirects: 5, headers: { 'User-Agent': UA }, validateStatus: () => true });
+    const ms = Date.now() - t0;
+    return { ok: r.status >= 200 && r.status < 400, status: r.status, ms };
+  } catch { return { ok: false, status: 0, ms: Date.now() - t0 }; }
+}
 export async function webSearch(query: string): Promise<string> {
   if (!query) return '(검색어 없음)';
   try {
