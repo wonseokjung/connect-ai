@@ -581,12 +581,36 @@ function showAgentModelRoutingModal(data){
   } else if (distinctCount >= 2) {
     diagnosticBlock = '<div class="amr-diag ok">' + distinctCount + '개의 distinct 모델로 분산 추론 활성</div>';
   }
+  /* v3.0 — SPEC-04: 슬롯 요약 바. fast/worker/external 각 슬롯의 모델 + 상태. */
+  const ls = data.llmStatus;
+  const sa = data.slotByAgent || {};
+  let slotBar = '';
+  if (ls && ls.slots) {
+    const slotBadge = (slot, icon, label) => {
+      const s = ls.slots[slot];
+      if (!s) return '<div class="amr-slot empty">' + icon + ' ' + label + ': <span class="muted">⚪ 미설정</span></div>';
+      if (slot === 'external') {
+        const limit = ls.externalDailyLimit > 0 ? ls.externalDailyLimit : '∞';
+        return '<div class="amr-slot ext">' + icon + ' ' + label + ': <span class="ok">🔵 외부 · ' + esc(s.model) + ' · 오늘 ' + ls.externalToday + '/' + limit + '</span></div>';
+      }
+      return '<div class="amr-slot">' + icon + ' ' + label + ': <span class="ok">🟢 로컬 · ' + esc(s.model) + '</span></div>';
+    };
+    if (!ls.slots.external) {
+      slotBar = slotBadge('fast','🚀','Fast') + slotBadge('worker','🏗️','Worker') + '<div class="amr-slot empty">🧠 External: <span class="muted">⚪ 미연결 — "Connect AI: 외부 두뇌 연결" 명령으로 연결</span></div>';
+    } else {
+      slotBar = slotBadge('fast','🚀','Fast') + slotBadge('worker','🏗️','Worker') + slotBadge('external','🧠','External');
+    }
+    slotBar = '<div class="amr-slots" style="display:flex;gap:12px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px">' + slotBar + '</div>';
+    /* slottag 인라인 스타일 */
+  }
+  const slotIcon = (aid) => { const sl = sa[aid]; return sl === 'fast' ? '🚀' : sl === 'external' ? '🧠' : '🏗️'; };
   const rows = agents.map(a => {
     const cur = map[a.id] || '';
     return '<div class="amr-row" data-agent="' + esc(a.id) + '">'
       + '<div class="amr-agent">'
       +   '<span class="amr-emoji">' + esc(a.emoji) + '</span>'
       +   '<span class="amr-name">' + esc(a.name) + '</span>'
+      +   '<span class="amr-slottag" title="슬롯: ' + esc(sa[a.id]||'worker') + '">' + slotIcon(a.id) + '</span>'
       +   '<span class="amr-role">' + esc(a.role) + '</span>'
       + '</div>'
       + '<select class="amr-select" data-agent="' + esc(a.id) + '">' + modelOptions(cur) + '</select>'
@@ -618,6 +642,7 @@ function showAgentModelRoutingModal(data){
     +   '</div>'
     +   specsBlock
     +   helpBlock
+    +   slotBar
     +   diagnosticBlock
     +   '<div class="amr-rows">' + rows + '</div>'
     +   '<div class="amr-actions">'

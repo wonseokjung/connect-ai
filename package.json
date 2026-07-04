@@ -166,6 +166,11 @@
         "title": "💰 매출 대시보드 (PayPal 실시간)",
         "category": "Connect AI",
         "icon": "$(graph-line)"
+      },
+      {
+        "command": "connect-ai-lab.connectExternalBrain",
+        "title": "Connect AI: 🧠 외부 두뇌 연결 (코딩 플랜/외부 API)",
+        "category": "Connect AI"
       }
     ],
     "keybindings": [
@@ -318,6 +323,41 @@
           ],
           "default": "off",
           "description": "📱 비서 브릿지 모드 — 비서를 사람과 AI 회사 사이의 단일 통로로 만들지 결정. 차이를 직접 체감하면서 멀티에이전트 라우팅 패턴을 학습할 수 있어요."
+        },
+        "connectAiLab.llm.fastModel": {
+          "type": "string",
+          "default": "",
+          "description": "🚀 Slot A — 빠른 로컬 모델 (CEO 라우팅·분류·요약용, 예: qwen3:4b). 비우면 defaultModel 사용."
+        },
+        "connectAiLab.llm.workerModel": {
+          "type": "string",
+          "default": "",
+          "description": "🏗️ Slot B — 일꾼 로컬 모델 (전문 에이전트 일반 작업, 예: qwen3:14b). 비우면 defaultModel 사용."
+        },
+        "connectAiLab.llm.externalKind": {
+          "type": "string",
+          "enum": [
+            "none",
+            "openai-compat",
+            "anthropic-compat"
+          ],
+          "default": "none",
+          "description": "🧠 Slot C — 외부 두뇌 종류. anthropic-compat = GLM 코딩 플랜 등, openai-compat = Hermes/OpenRouter 등. 'Connect AI: 외부 두뇌 연결' 명령으로 설정 권장."
+        },
+        "connectAiLab.llm.externalBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "외부 두뇌 API Base URL (예: https://api.z.ai/api/anthropic)"
+        },
+        "connectAiLab.llm.externalModel": {
+          "type": "string",
+          "default": "",
+          "description": "외부 두뇌 모델 ID (예: glm-4.7)"
+        },
+        "connectAiLab.llm.externalDailyLimit": {
+          "type": "number",
+          "default": 200,
+          "description": "외부 두뇌 일일 호출 한도. 초과 시 자동으로 로컬 모델 폴백. 0 = 무제한."
         }
       }
     }

@@ -1481,6 +1481,7 @@ function getAgentModel(agentId: string, fallback: string): string {
 }
 /* v2.89.65 — getSystemSpecs + estimateModelMemoryGB + SystemSpecs type 모두 ./system-specs.ts 로 이동. */
 import { SystemSpecs, getSystemSpecs, estimateModelMemoryGB } from './system-specs';
+import { initLLM, routeChat, slotForAgent, getLLMStatus } from './llm';
 
 /* v2.89.27 — 모델 자동 오케스트레이션. 설치된 모델 + 에이전트 역할을 매칭해서
    최적 배정 추천. 사용자는 "✨ 자동 추천" 버튼 한 번으로 완성된 매핑 받음. */
@@ -2126,22 +2127,22 @@ function readToolAutonomyLevel(agentId: string): number {
 }
 
 async function _quickLLMCall(systemPrompt: string, userMsg: string, maxTokens = 64): Promise<string> {
-    const { ollamaBase, defaultModel, timeout } = getConfig();
-    const isLMStudio = _isLMStudioEngine(ollamaBase);
-    const apiUrl = isLMStudio ? `${ollamaBase}/v1/chat/completions` : `${ollamaBase}/api/chat`;
-    const messages = [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMsg }
-    ];
-    const tmo = Math.min(timeout || 60000, 60000);
-    if (isLMStudio) {
-        const body = { model: defaultModel, messages, stream: false, max_tokens: maxTokens, temperature: 0.2 };
-        const r = await axios.post(apiUrl, body, { timeout: tmo });
-        return r.data?.choices?.[0]?.message?.content?.toString().trim() || '';
-    }
-    const body = { model: defaultModel, messages, stream: false, options: { num_predict: maxTokens, temperature: 0.2 } };
-    const r = await axios.post(apiUrl, body, { timeout: tmo });
-    return r.data?.message?.content?.toString().trim() || '';
+    /* v3.0 — fast 슬롯 경유. llm.fastModel 미설정 시 라우터가 기존
+       defaultModel+엔진 감지로 폴백하므로 이전 동작과 동일. */
+    const { timeout } = getConfig();
+    const res = await routeChat({
+        slot: 'fast',
+        messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMsg }
+        ],
+        opts: {
+            maxTokens,
+            temperature: 0.2,
+            timeoutMs: Math.min(timeout || 60000, 60000)
+        }
+    });
+    return res.text.trim();
 }
 
 const CEO_CLASSIFIER_PROMPT = _loadPrompt('ceo-classifier.md');
@@ -8001,6 +8002,8 @@ function _checkCycleAlert() {
     } catch { /* health 파일 읽기 실패는 조용히 무시 — 활성화 막으면 안 됨 */ }
 }
 export function activate(context: vscode.ExtensionContext) {
+    /* v3.0 — LLM 슬롯 라우터 초기화 + '외부 두뇌 연결' 명령 등록 */
+    initLLM(context);
     vscode.window.showInformationMessage('🔥 Connect AI V2 활성화 완료!');
     _checkCycleAlert();   /* v2.89.159 — 자율 사이클 연속 실패 시 사용자 알림 */
     console.log('Connect AI extension activated.');
@@ -11096,6 +11099,9 @@ class CompanyDashboardPanel {
                             defaultModel,
                             agents: AGENT_ORDER.map(id => ({ id, name: AGENTS[id]?.name || id, emoji: AGENTS[id]?.emoji || '🤖', role: AGENTS[id]?.role || '' })),
                             specs,
+                            /* v3.0 — SPEC-04: 슬롯 요약 + 에이전트별 슬롯 매핑 (라우팅 보드 UI용) */
+                            llmStatus: await getLLMStatus().catch(() => null),
+                            slotByAgent: Object.fromEntries(AGENT_ORDER.map((id: string) => [id, slotForAgent(id)])),
                         });
                     } catch (e: any) {
                         this._panel.webview.postMessage({ type: 'agentModelRoutingData', installed: [], map: {}, defaultModel: '', agents: [], error: e?.message || String(e) });
@@ -21191,6 +21197,40 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
            특정 에이전트에 다른 모델 할당했으면 그걸 사용. 없으면 기존 로직대로. */
         const overrideModel = getAgentModel(agentId, '');
         if (overrideModel) modelName = overrideModel;
+        /* v3.0 — 슬롯 라우팅. external 슬롯 에이전트(developer·researcher)는
+           외부 두뇌(코딩 플랜/Hermes 등)가 연결된 경우에만 routeChat 경유.
+           routeChat 내부에서 외부 실패·일일 한도 초과 시 로컬(worker→fast)로
+           자동 폴백. 외부 두뇌 미설정 사용자는 이 블록이 no-op — 아래 기존
+           로컬 경로가 그대로 실행된다. */
+        try {
+            const llmStatus = await getLLMStatus();
+            if (slotForAgent(agentId) === 'external' && llmStatus.slots.external) {
+                let firstExtToken = false;
+                const res = await routeChat({
+                    agentId,
+                    modelOverride: overrideModel || undefined,
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: userMsg }
+                    ],
+                    opts: {
+                        signal: this._abortController?.signal,
+                        temperature: this._temperature,
+                        topP: this._topP,
+                        timeoutMs: timeout,
+                        onToken: (token) => {
+                            if (!firstExtToken) { firstExtToken = true; try { opts?.onFirstToken?.(); } catch { /* ignore */ } }
+                            if (broadcast) this._broadcastCorporate({ type: 'agentChunk', agent: agentId, value: token });
+                        }
+                    }
+                });
+                return res.text;
+            }
+        } catch (e: any) {
+            /* 사용자 취소는 그대로 전파, 그 외엔 기존 로컬 경로로 폴백 */
+            if (this._abortController?.signal?.aborted) throw e;
+            console.warn('[llm:v3] external 라우팅 실패 — 기존 로컬 경로 폴백:', e?.message || e);
+        }
         let isLMStudio = _isLMStudioEngine(ollamaBase);
         let apiUrl = isLMStudio ? `${ollamaBase}/v1/chat/completions` : `${ollamaBase}/api/chat`;
         if (!isLMStudio) {
