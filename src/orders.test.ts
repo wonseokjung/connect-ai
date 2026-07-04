@@ -7,7 +7,7 @@ import * as os from 'os';
 import { setBrainDir } from '../test/vscode-stub';
 import {
   createOrder, getOrder, listOrders, listActiveOrders,
-  updateStage, completeOrder, abortOrder, saveStageOutput,
+  updateStage, completeOrder, abortOrder, saveStageOutput, updateOrderMeta,
   orderSummary, nextPendingStage,
   STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP,
 } from './orders';
@@ -166,6 +166,27 @@ describe('90일 cutoff 정리', () => {
     await createOrder('새 오더');
     const after = listOrders();
     expect(after.find(o => o.id === 'old-1')).toBeUndefined();
+  });
+});
+
+describe('updateOrderMeta (v2.89.162: liveUrl 저장)', () => {
+  it('liveUrl 저장 후 getOrder 로 읽기', async () => {
+    const order = await createOrder('배포 테스트 오더');
+    const r = await updateOrderMeta(order.id, { liveUrl: 'https://my-shop.vercel.app' });
+    expect(r).not.toBeNull();
+    expect(r!.liveUrl).toBe('https://my-shop.vercel.app');
+    expect(getOrder(order.id)!.liveUrl).toBe('https://my-shop.vercel.app');
+  });
+
+  it('존재하지 않는 오더 → null', async () => {
+    const r = await updateOrderMeta('없는id', { liveUrl: 'https://x.vercel.app' });
+    expect(r).toBeNull();
+  });
+
+  it('빈 patch 도 오류 없이 처리', async () => {
+    const order = await createOrder('빈 패치');
+    const r = await updateOrderMeta(order.id, {});
+    expect(r).not.toBeNull();
   });
 });
 

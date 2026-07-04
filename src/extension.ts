@@ -701,7 +701,7 @@ function _isLMStudioEngine(ollamaBase: string): boolean {
    _expandTilde, _resolvePathInput 모두 ./paths.ts 로 이동. 모듈 간 import 일원화. */
 import { _getBrainDir, _isBrainDirExplicitlySet, getCompanyDir, COMPANY_SUBDIR, _expandTilde, _resolvePathInput } from './paths';
 /* v2.89.158 — 신규 오더 파이프라인 추적 모듈 (/order <명령> 진입). */
-import { createOrder, getOrder, listOrders, listActiveOrders, updateStage, completeOrder, abortOrder, saveStageOutput, orderSummary, nextPendingStage, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP } from './orders';
+import { createOrder, getOrder, listOrders, listActiveOrders, updateStage, completeOrder, abortOrder, saveStageOutput, orderSummary, nextPendingStage, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP, updateOrderMeta } from './orders';
 
 
 async function _ensureBrainDir(): Promise<string | null> {
@@ -16269,8 +16269,14 @@ class SidebarChatProvider implements vscode.WebviewViewProvider {
         /* v2.89 — 큐에 자율 사이클 작업 추가. 워커가 알아서 처리하고, 사용자
            명령이 들어오면 그게 우선. 자율 사이클이 진행 중일 때 다음 사이클
            들어오면 큐에 같은 키로 이미 있어서 중복 추가 안 됨(=정상). */
+        /* v2.89.162 — 작업 2: 만든 사이트 인벤토리를 자율 사이클 컨텍스트에 추가 (이전엔 brain 노트만). */
+        let _sitesCtx = '';
+        try {
+            const _orders = listOrders().filter(o => o.status === 'completed' || o.status === 'aborted');
+            if (_orders.length) _sitesCtx = '\n[만든 사이트들]\n' + _orders.map(o => '- ' + o.title + ' [' + o.status + (o.liveUrl ? ', 라이브: ' + o.liveUrl : ', 로컬') + ']').join('\n') + '\n이 사이트들의 가치를 높이는 방향으로 우선 고려.';
+        } catch { /* */ }
         this.enqueueDispatch(
-            `[자율 사이클 — ${today}] 1인 기업 24시간 운영 중. 회사 목표·각 에이전트의 개인 목표(_agents/{id}/goal.md)·최근 의사결정·메모리를 검토해서 지금 가장 가치 있는 단일 작업 1개를 결정하고, 적절한 1~2명 에이전트에게 분배해서 실행하세요. 같은 산출물을 반복하지 마세요 — 메모리에 비슷한 항목이 24시간 내에 있으면 다른 각도로 진전시키세요.`,
+            `[자율 사이클 — ${today}] 1인 기업 24시간 운영 중. 회사 목표·각 에이전트의 개인 목표(_agents/{id}/goal.md)·최근 의사결정·메모리를 검토해서 지금 가장 가치 있는 단일 작업 1개를 결정하고, 적절한 1~2명 에이전트에게 분배해서 실행하세요. 같은 산출물을 반복하지 마세요 — 메모리에 비슷한 항목이 24시간 내에 있으면 다른 각도로 진전시키세요.` + _sitesCtx,
             model,
             'auto',
             false,
@@ -19833,6 +19839,11 @@ ${catalog.map((c, i) => `${i + 1}. agent=${c.agentId} tool=${c.tool} — ${c.des
         // 5단계 전부 성공 — 종합 보고서 작성
         const doneCount = stageOutputs.filter(x => x.ok).length;
         const summaryLines = stageOutputs.map(x => (x.ok ? '✅' : '❌') + ' ' + x.label + (x.file ? ' → ' + x.file.replace(os.homedir(), '~') : '')).join('\n');
+        /* v2.89.162 — 작업 1: operate 산출물(prevOutput)에서 배포 URL 추출 → order.liveUrl 저장. */
+        try {
+            const urlMatch = (prevOutput || '').match(/https:\/\/[\w.-]+\.(?:vercel\.app|netlify\.app)/i);
+            if (urlMatch) { await updateOrderMeta(order.id, { liveUrl: urlMatch[0] }); post({ type: 'response', value: '🌐 배포됨: ' + urlMatch[0] }); }
+        } catch { /* URL 추출 실패해도 완료 처리는 진행 */ }
         const finalReport = '# 🎉 오더 완성 — ' + order.title + '\n\n오더 ID: `' + order.id + '`\n완성: ' + doneCount + '/' + STAGE_ORDER.length + '단계\n\n## 단계별 산출물\n' + summaryLines + '\n\n## 원본 명령\n> ' + prompt + '\n\n## 산출물 위치\n`' + order.sessionRoot.replace(os.homedir(), '~') + '/`\n';
         const reportFile = path.join(order.sessionRoot, '_report.md');
         try { fs.writeFileSync(reportFile, finalReport); } catch { /* ignore */ }

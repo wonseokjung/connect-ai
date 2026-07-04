@@ -236,6 +236,18 @@ export async function completeOrder(companyDir: string, orderId: string, finalRe
   });
 }
 
+/** v0.4.12 — 오더 메타 갱신 (liveUrl 등). lockfile 보호. deploy 출력 URL 저장용. */
+export async function updateOrderMeta(companyDir: string, orderId: string, patch: Partial<Pick<WorkOrder, 'liveUrl'>>): Promise<WorkOrder | null> {
+  return withOrdersLock(companyDir, () => {
+    const orders = _readOrders(companyDir);
+    const idx = orders.findIndex(o => o.id === orderId);
+    if (idx < 0) return null;
+    orders[idx] = { ...orders[idx], ...patch };
+    _writeOrders(companyDir, orders);
+    return orders[idx];
+  });
+}
+
 export async function abortOrder(companyDir: string, orderId: string, reason?: string): Promise<WorkOrder | null> {
   return withOrdersLock(companyDir, () => {
     const orders = _readOrders(companyDir);

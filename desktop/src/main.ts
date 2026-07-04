@@ -2185,6 +2185,7 @@ function scheduleAuto() { setInterval(() => { runAutoSync(); maybeLearnHint(); }
 //   안전장치: LLM 없으면 스킵(cycle.health 실패 기록), active 오더 있으면 스킵.
 let _autoCycleTimer: NodeJS.Timeout | null = null;
 let _autoCycleBusy = false;
+let _lastCycleCtx = '';   // v0.4.12 — 사이클이 참조한 컨텍스트 요약 (로깅/health용)
 async function runAutoCycleOnce() {
   if (_autoCycleBusy) return;
   _autoCycleBusy = true;
@@ -2195,19 +2196,37 @@ async function runAutoCycleOnce() {
     try { if (listActiveOrders(companyDir).length > 0) { writeCycleHealth(companyDir, true); return; } } catch { /* */ }
     const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
     if (!target) { writeCycleHealth(companyDir, false, 'No LLM engine detected'); return; }
-    // 컨텍스트: 회사명 + brain 노트 상위 몇 개
+    // v0.4.12 — 작업 2: 사이트 인벤토리 + 매출을 컨텍스트에 추가 (이전엔 brain 노트만).
     const company = c.company || '1인 기업';
     let notesCtx = '';
     try { const notes = allNotes(); notesCtx = notes.slice(0, 8).map((n: any) => '- ' + (n.text || '').slice(0, 120)).join('\n'); } catch { /* */ }
-    const sys = `당신은 자율적으로 운영되는 ${company}의 CEO입니다. 사용자가 자리에 없는 동안 회사를 가치 있는 방향으로 한 걸음 진전시키는 단일 작업을 결정하고 실행합니다.\n\n[회사 두뇌 노트]\n${notesCtx || '(아직 없음)'}\n\n지금 가장 가치 있는 작업 1개를 선택해서 직접 수행하세요. 한국어 마크다운으로: 선택한 작업(왜) / 실행 결과(실제 산출물) / 다음 추천.`;
+    // 만든 사이트 인벤토리 (완료/중단 오더) — 사이클이 "강아지쇼핑몰은 live, 포트폴리오는 로컬" 을 인지.
+    let sitesCtx = '(아직 만든 사이트 없음)';
+    let sitesCount = 0;
+    try {
+      const orders = listOrders(companyDir).filter((o: any) => o.status === 'completed' || o.status === 'aborted');
+      sitesCount = orders.length;
+      if (orders.length) sitesCtx = orders.map((o: any) => `- ${o.title} [${o.status}${o.liveUrl ? ', 라이브: ' + o.liveUrl : ', 로컬만'}]`).join('\n');
+    } catch { /* */ }
+    // 매출 요약 (PayPal) — 실패 시 스킵, 전체 매출만 (사이트별 분리 안 함).
+    let revCtx = '(매출 연동 안 됨)';
+    let hasRevenue = false;
+    try {
+      if (c.paypalClientId) {
+        const r: any = await fetchRevenue(c.paypalClientId, c.paypalSecret, { days: 30 });
+        if (r && r.data && r.data.totals) { const p = r.data.totals.by_period; const cur = Object.keys(r.data.totals.by_currency)[0] || 'USD'; const cnt = (r.data.transactions || []).length; revCtx = `이번 달 ${(p.month || 0).toFixed(2)} ${cur}, 거래 ${cnt}건`; hasRevenue = true; }
+      }
+    } catch { /* */ }
+    _lastCycleCtx = `사이트 ${sitesCount}개 인지, 매출 ${hasRevenue ? '있음' : '없음'}, 노트 참조`;
+    const sys = `당신은 자율적으로 운영되는 ${company}의 CEO입니다. 사용자가 자리에 없는 동안 회사를 가치 있는 방향으로 한 걸음 진전시키는 단일 작업을 결정하고 실행합니다.\n\n[회사 두뇌 노트]\n${notesCtx || '(아직 없음)'}\n\n[만든 사이트들]\n${sitesCtx}\n\n[매출 현황]\n${revCtx}\n\n이 사이트들의 가치를 높이는 한 걸음을 진행하세요. 라이브 사이트가 있으면 트래픽/전환을 높일 방법, 로컬 사이트가 있으면 배포나 개선, 사이트가 없으면 새 사이트 아이디어. 한국어 마크다운으로: 선택한 작업(왜) / 실행 결과(실제 산출물) / 다음 추천.`;
     const out = await chat(target, sys, `현재 시각: ${new Date().toLocaleString('ko-KR')}. 회사 가치를 높이는 한 걸음을 진행하세요.`, { temperature: 0.6 });
     if (!out || !out.trim()) { writeCycleHealth(companyDir, false, 'Empty LLM response'); return; }
     // 산출물 저장
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
     const sessionDir = path.join(companyDir, 'sessions', `auto-${ts}`);
     try { fs.mkdirSync(sessionDir, { recursive: true }); fs.writeFileSync(path.join(sessionDir, '_report.md'), out); } catch { /* */ }
-    writeCycleHealth(companyDir, true);
-    try { win?.webContents.send('engine:event', { kind: 'status', text: '🌙 자율 사이클 완료 — 산출물 저장됨' }); } catch { /* */ }
+    writeCycleHealth(companyDir, true, undefined, { sitesCount, hasRevenue, ctx: _lastCycleCtx });
+    try { win?.webContents.send('engine:event', { kind: 'status', text: `🌙 자율 사이클 완료 — ${_lastCycleCtx}` }); } catch { /* */ }
   } catch (e: any) {
     writeCycleHealth(companyDir, false, e?.message || String(e));
   } finally {
@@ -2215,13 +2234,16 @@ async function runAutoCycleOnce() {
   }
 }
 // cycle.health/cycle.alert 기록 (cycle.js와 호환 형식)
-function writeCycleHealth(companyDir: string, ok: boolean, reason?: string) {
+function writeCycleHealth(companyDir: string, ok: boolean, reason?: string, meta?: { sitesCount?: number; hasRevenue?: boolean; ctx?: string }) {
   try {
     const healthFile = path.join(companyDir, 'cycle.health');
     let prev: any = { ok: true, consecutiveFailures: 0 };
     try { prev = JSON.parse(fs.readFileSync(healthFile, 'utf-8')); } catch { /* */ }
     const consecutiveFailures = ok ? 0 : (prev.consecutiveFailures || 0) + 1;
-    fs.writeFileSync(healthFile, JSON.stringify({ ok, ts: Date.now(), reason: ok ? undefined : (reason || '').slice(0, 500), consecutiveFailures }, null, 2));
+    /* v0.4.12 — 작업 3: sitesCount/hasRevenue/ctx 를 health 에 기록 (디버깅·가시성). */
+    const entry: any = { ok, ts: Date.now(), reason: ok ? undefined : (reason || '').slice(0, 500), consecutiveFailures };
+    if (meta) { if (meta.sitesCount !== undefined) entry.sitesCount = meta.sitesCount; if (meta.hasRevenue !== undefined) entry.hasRevenue = meta.hasRevenue; if (meta.ctx) entry.ctx = meta.ctx; }
+    fs.writeFileSync(healthFile, JSON.stringify(entry, null, 2));
     const alertFile = path.join(companyDir, 'cycle.alert');
     if (consecutiveFailures >= 3) { fs.writeFileSync(alertFile, JSON.stringify({ ts: Date.now(), consecutiveFailures, lastReason: reason })); }
     else if (ok && fs.existsSync(alertFile)) { try { fs.unlinkSync(alertFile); } catch { /* */ } }

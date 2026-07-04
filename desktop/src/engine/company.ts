@@ -370,7 +370,7 @@ export async function talkToMyAgent(history: ChatTurn[], userText: string, opts:
 // 확장(src/extension.ts _runOrderPipeline)과 동일한 5단계 매핑.
 import * as fsOrder from 'fs';
 import * as pathOrder from 'path';
-import { createOrder, updateStage, completeOrder, abortOrder, saveStageOutput, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP } from '../orders';
+import { createOrder, updateStage, completeOrder, abortOrder, saveStageOutput, STAGE_ORDER, STAGE_LABEL, STAGE_AGENTS, STAGE_HANDOFF_CAP, updateOrderMeta } from '../orders';
 
 // 파이프라인 프롬프트 로드 (desktop/assets/prompts/pipeline-<stage>.md).
 // 빌드 시 assets/** 가 번들에 포함되므로 app.getAppPath()/assets 기준.
@@ -509,6 +509,11 @@ export async function runOrderPipeline(
   const summaryLines = stageResults.map(x => `${x.ok ? '✅' : '❌'} ${x.label}${x.file ? ' → ' + x.file.replace(os.homedir(), '~') : ''}`).join('\n');
   const finalReport = `# 🎉 오더 완성 — ${order.title}\n\n오더 ID: \`${order.id}\`\n완성: ${doneCount}/${STAGE_ORDER.length}단계\n\n## 단계별 산출물\n${summaryLines}\n\n## 원본 명령\n> ${text}\n\n## 산출물 위치\n\`${order.sessionRoot.replace(os.homedir(), '~')}/\`\n`;
   try { fsOrder.writeFileSync(pathOrder.join(order.sessionRoot, '_report.md'), finalReport); } catch { /* ignore */ }
+  /* v0.4.12 — 작업 1: operate 산출물(prevOutput)에서 배포 URL 추출 → order.liveUrl 저장. */
+  try {
+    const urlMatch = (prevOutput || '').match(/https:\/\/[\w.-]+\.(?:vercel\.app|netlify\.app)/i);
+    if (urlMatch) { await updateOrderMeta(companyDir, order.id, { liveUrl: urlMatch[0] }); onEvent({ kind: 'status', text: `🌐 배포됨: ${urlMatch[0]}` }); }
+  } catch { /* URL 추출 실패해도 완료 처리 진행 */ }
   await completeOrder(companyDir, order.id, finalReport);
   onEvent({ kind: 'final', text: `🎉 오더 완성\n${summaryLines}\n📁 ${order.sessionRoot.replace(os.homedir(), '~')}` });
   return finalReport;
