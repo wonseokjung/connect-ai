@@ -45,6 +45,34 @@ function setBody(el: HTMLElement, text: string, asMarkdown = false) {
 }
 function hint(msg: string) { const h = $('inputHint'); const orig = 'Enter 전송 · Shift+Enter 줄바꿈'; h.textContent = msg; setTimeout(() => { h.textContent = orig; }, 2600); }
 
+// v0.4.10 — 첫 /order 1회 튜토리얼. 5단계 파이프라인이 뭔지 안내하는 모달 배너.
+function showOrderTutorial() {
+  const old = document.getElementById('orderTutorialOverlay');
+  if (old) old.remove();
+  const ov = document.createElement('div');
+  ov.id = 'orderTutorialOverlay';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
+  ov.innerHTML = '<div style="background:#15171c;border:1px solid rgba(0,255,65,.3);border-radius:16px;padding:28px 32px;max-width:440px;color:#e0e2e8;box-shadow:0 12px 48px rgba(0,0,0,.6)">' +
+    '<div style="font-size:28px;margin-bottom:8px">🚀</div>' +
+    '<div style="font-size:17px;font-weight:700;margin-bottom:14px;color:#00ff41">신규 오더가 시작됐어요!</div>' +
+    '<div style="font-size:13.5px;line-height:1.6;color:#b8b8c2;margin-bottom:18px">' +
+    '명령 하나가 <b>5단계</b>를 거쳐 완성됩니다:<br>' +
+    '<span style="color:#5DE0E6">① 아이디어 도출</span> → ' +
+    '<span style="color:#A78BFA">② 화면 기획</span> → ' +
+    '<span style="color:#22D3EE">③ 화면 구현</span> → ' +
+    '<span style="color:#22D3EE">④ 개발</span> → ' +
+    '<span style="color:#F5C518">⑤ 운영</span><br><br>' +
+    '각 단계 산출물이 다음 단계로 전달되고, 실제 파일까지 만들어져요. <b>약 5~10분</b> 걸립니다. 진행 중에 사이드바의 🛑 버튼으로 중단할 수 있어요.' +
+    '</div>' +
+    '<button id="orderTutClose" style="background:linear-gradient(135deg,#00ff41,#22D3EE);border:none;color:#000;padding:11px 24px;border-radius:10px;font-weight:700;cursor:pointer;font-size:14px;width:100%">좋아요, 시작!</button>' +
+    '</div>';
+  document.body.appendChild(ov);
+  const close = () => ov.remove();
+  ov.addEventListener('click', (e) => { if (e.target === ov) close(); });
+  const btn = document.getElementById('orderTutClose');
+  if (btn) btn.addEventListener('click', close);
+}
+
 // 🛟 전역 에러 안전망 — 조용히 죽지 말고 "안 돌아간다"고 화면에 띄운다(콘솔에도 남김)
 function reportErr(where: string, err: any) {
   const msg = String(err?.message || err || '알 수 없는 오류');
@@ -314,7 +342,7 @@ async function ask(text: string) {
   // 🪟 사무실은 별도 창 전용 — 팀 작업 시작되면 옆 창 자동으로 띄움(메인 창은 채팅 집중)
   const ensureOffice = () => { if (teamEngaged) return; teamEngaged = true; connect.officeOpen?.(); };
   const off = connect.onEngineEvent((e: any) => {
-    if (e.kind === 'status') { hint(e.text); brainEnergy(0.68); }
+    if (e.kind === 'status') { if (e.text === 'orderTutorial') { showOrderTutorial(); } else { hint(e.text); brainEnergy(0.68); } }
     else if (e.kind === 'dispatch') { ensureOffice(); brainEnergy(0.95); }
     else if (e.kind === 'agentStart') { hint(`${e.emoji} ${e.name} 작업 중…`); ensureOffice(); brainEnergy(0.85); }
     else if (e.kind === 'agentChunk') { brainEnergy(0.85); }
@@ -3597,7 +3625,46 @@ function closeWelcome(done: boolean) {
   cfg.onboarded = true; connect.setConfig?.({ onboarded: true });
   if (done) hint('🎉 준비 완료 — AI 팀이 일을 시작합니다!');
 }
-$('welAiBtn')?.addEventListener('click', () => { openOverlay('aiPanel'); loadAiPanel(); });
+$('welAiBtn')?.addEventListener('click', async () => {
+  // v0.4.10 — RAM 맞춤 모델 1-클릭 다운로드+부트. 이전엔 AI 패널만 열었음(모델 안 받음).
+  // 이미 엔진이 켜져 있거나 받은 모델이 있으면 AI 패널로(수동 선택).
+  if (_localStatus?.running) { openOverlay('aiPanel'); loadAiPanel(); return; }
+  const btn = $('welAiBtn') as HTMLButtonElement;
+  try {
+    btn.textContent = '🔍 모델 찾는 중…'; btn.disabled = true;
+    const recos = await connect.hfRecommended?.();
+    // RAM 맞춤 1개 선택 — repo는 RECOMMENDED 중 safeModelBudget 기반
+    let target = recos && recos.length ? recos[recos.length - 1] : null;   // 기본 가장 큰 것(7B)
+    const ramGB = Math.round(((window as any).__ramGB) || 16);
+    // renderer엔 os API가 없으므로 main에서 추천받기 — hf:recommendedForRam IPC 사용
+    const r: any = await (window as any).connect?.recommendedForRam?.();
+    if (r && r.repo) target = r;
+    if (!target || !target.repo) { openOverlay('aiPanel'); loadAiPanel(); return; }
+    btn.textContent = '📋 파일 고르는 중…';
+    const files: any[] = await connect.hfFiles?.(target.repo) || [];
+    if (!files.length) { hint('⚠️ 모델 파일을 못 찾았어요. 직접 골라주세요.'); openOverlay('aiPanel'); loadAiPanel(); return; }
+    // Q4_K_M 우선, 없으면 가장 작은 것
+    let file = files.find(f => /Q4_K_M/i.test(f.path)) || files.find(f => /Q4_K/i.test(f.path)) || files[0];
+    btn.textContent = '⬇️ 다운로드 중… 0%';
+    const off = connect.onHfProgress?.((p: any) => {
+      if (p.repo === target.repo) btn.textContent = '⬇️ 다운로드 중… ' + (p.percent || 0) + '%';
+    });
+    const dl: any = await connect.hfDownload?.(target.repo, file.path);
+    if (off) off();
+    if (!dl || !dl.ok || !dl.path) { hint('⚠️ 다운로드 실패. 다시 시도하거나 다른 모델로.'); btn.disabled = false; btn.textContent = '모델 받기'; openOverlay('aiPanel'); loadAiPanel(); return; }
+    btn.textContent = '🧠 엔진 켜는 중…';
+    await connect.localStart?.(dl.path);
+    cfg = await connect.setConfig({ llmBase: 'http://127.0.0.1:1235', llmModel: target.label });
+    btn.textContent = '✓ 준비 완료';
+    hint('🤖 ' + target.label + ' 켜졌어요! 이제 회사 이름을 지어주세요.');
+    updateWelcome();
+  } catch (e: any) {
+    hint('⚠️ 모델 준비 실패: ' + (e?.message || e) + ' — 직접 골라주세요.');
+    openOverlay('aiPanel'); loadAiPanel();
+  } finally {
+    btn.disabled = false;
+  }
+});
 $('welCompany')?.addEventListener('change', async () => {
   const v = ($('welCompany') as HTMLInputElement).value.trim();
   if (v) { cfg = await connect.setConfig({ company: v }); applyCfgLabels(); updateWelcome(); }

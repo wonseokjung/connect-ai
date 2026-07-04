@@ -241,6 +241,8 @@ fi
 if launchctl list 2>/dev/null | grep -q com.connectai.cycle; then
   launchctl unload "$PLIST_PATH" 2>/dev/null || true
 fi
+# 참고: 데스크톱 앱(Connect AI Desktop)을 쓰면 앱 안에 자율 사이클이 내장돼 있어
+# launchd 등록이 불필요 (앱 켜두기만 하면 30분마다 자율 실행). 양쪽 다 켜면 이중 실행되니 하나만.
 if launchctl load "$PLIST_PATH" 2>/dev/null; then
   ok "launchd 자율 사이클 등록: $PLIST_PATH (30분 간격)"
 else

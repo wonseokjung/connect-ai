@@ -15,7 +15,7 @@ import { detectTarget, chat, listModels, embed } from './engine/llm';
 import { setBrainFile, allNotes, cosine, graph as brainGraph, addNote as brainAddNote, deleteNote, noteCount, importNotes, categoryStats, classify, CATEGORIES, type Category } from './engine/brain';
 import { startBridge, stopBridge, bridgeStatus } from './engine/bridge';
 import { startLocalEngine, stopLocalEngine, localStatus, LOCAL_BASE, setLocalOptions, getLocalOptions, onEngineStatus } from './engine/localengine';
-import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED } from './engine/hfmodels';
+import { searchGGUF, listGGUF, downloadGGUF, listLocalModels, deleteLocalModel, RECOMMENDED, recommendedForRam } from './engine/hfmodels';
 import { autoUpdater } from 'electron-updater';
 import { pushKnowledge, pullKnowledge, pushFile, importRepoMarkdown, listCommits, getRepoFile } from './engine/github';
 import { encryptPack, decryptPack } from './engine/cryptopack';
@@ -59,6 +59,8 @@ interface Config {
   officeVoice?: boolean;  // 🎭 사무실 에이전트 음성 대화 (자비스처럼 서로 말함)
   monitorOn?: boolean;    // 🛰️ 상시 자산 감시 (구독·매출·커밋·메일 변화 → 폰 보고)
   onboarded?: boolean;    // 🚀 첫 실행 온보딩 완료 여부
+  _orderSeen?: boolean;   // 🚀 첫 /order 튜토리얼 표시 여부 (1회)
+  autoCycleEnabled?: boolean;   // 🌙 데스크톱 자율 사이클 (앱 내 타이머, 기본 true)
   openOfficeOnLaunch?: boolean;   // 🏢 앱 켤 때 가상 사무실 창도 같이 띄우기 (기본 켜짐)
   remotePair?: string;    // 🌍 외부 리모컨 페어링 코드 (RTDB 릴레이 경로)
   qwenVoice: string;      // 🎤 Qwen3-TTS 음성 (Sohee=한국어 등)
@@ -336,6 +338,8 @@ function buildTray() {
     { type: 'separator' },
     { label: '켤 때 사무실 창 같이 열기', type: 'checkbox', checked: loadConfig().openOfficeOnLaunch !== false,
       click: (item) => { saveConfig({ openOfficeOnLaunch: item.checked }); } },
+    { label: '🌙 24시간 자율 사이클', type: 'checkbox', checked: loadConfig().autoCycleEnabled !== false,
+      click: (item) => { saveConfig({ autoCycleEnabled: item.checked }); notify('🌙 자율 사이클', item.checked ? '켜짐 — 30분마다 자율 실행 (앱 켜두기만 하면 됨)' : '꺼짐'); } },
     { type: 'separator' },
     { label: '종료', click: () => { quitting = true; app.quit(); } },
   ]);
@@ -420,6 +424,7 @@ app.whenReady().then(() => {
   buildTray();
   scheduleBriefing();
   scheduleAuto();
+  scheduleAutoCycle();   // 🌙 v0.4.10 — 데스크톱 자율 사이클 (앱 내 30분 타이머, launchd 대체)
   // 🤖 사이클은 사람이 시작/다음을 누르는 수동형 → 재시작 후 자동 실행하지 않음(중간 실행상태만 정리)
   if (opsState.executing || opsState.phase === 'executing') { opsState.executing = false; opsState.phase = opsState.actions.length ? 'review' : 'idle'; }
   setInterval(tgTick, 3000);   // 📲 텔레그램 결재 브리지 폴링(승인 푸시 + 답장 처리)
@@ -502,6 +507,7 @@ ipcMain.handle('local:setOptions', async (_e, o: any) => {
 });
 ipcMain.handle('local:delete', async (_e, p: string) => { if (loadConfig().localModelPath === p) { await stopLocalEngine(); saveConfig({ localModelPath: '' }); sendLocal(localStatus()); } return deleteLocalModel(p); });
 ipcMain.handle('hf:recommended', () => RECOMMENDED);
+ipcMain.handle('hf:recommendedForRam', () => { try { return recommendedForRam(); } catch { return null; } });   // v0.4.10 — RAM 맞춤 1개 (welcome 1-클릭)
 ipcMain.handle('hf:search', async (_e, q: string) => { try { return { ok: true, models: await searchGGUF(q) }; } catch (e: any) { return { ok: false, error: String(e?.message || e) }; } });
 // 🔍 HF 모델 검색 — 수술실에서 합칠 모델(gemma·llama 등) 찾기 (전체 모델, GGUF 아님)
 ipcMain.handle('hf:searchModels', async (_e, q: string) => {
@@ -1405,6 +1411,8 @@ ipcMain.handle('company:run', async (_e, text: string, attach?: { paths?: string
       emitEngine({ kind: 'final', text: '⏳ 이미 진행 중인 오더가 있습니다: ' + (a.title || a.id).slice(0, 60) + '\n완료 후 다시 시도하거나 stop 으로 중단하세요.' });
       return true;
     }
+    // v0.4.10 — 첫 /order 1회 튜토리얼 안내. _orderSeen 플래그로 1회만.
+    if (!c._orderSeen) { c._orderSeen = true; saveConfig({ _orderSeen: true }); emitEngine({ kind: 'status', text: 'orderTutorial' }); }
     history.push({ role: 'user', content: text });
     runAbort?.abort(); runAbort = new AbortController();
     const opts = buildRunOpts(c, runAbort.signal);
@@ -2168,6 +2176,69 @@ function maybeLearnHint() {
   if (n - (c.lastTrainHintCount || 0) >= 20) { saveConfig({ lastTrainHintCount: n }); notify('🧬 장기 학습 추천', `지식이 ${n}개 쌓였어요. 🧠 → 장기 기억에서 학습을 돌릴 때예요.`); }
 }
 function scheduleAuto() { setInterval(() => { runAutoSync(); maybeLearnHint(); }, 10 * 60 * 1000); }
+
+// v0.4.10 — 🌙 데스크톱 자율 사이클 (앱 내 타이머, launchd 대체).
+//   비개발자는 "앱 켜두기만 하면 됨" — tray-resident라 창 닫아도 30분마다 자율 실행.
+//   cycle.js(외부 launchd) 로직을 main.ts 안으로 포팅. brain.json 노트 + 회사명을 컨텍스트로.
+//   안전장치: LLM 없으면 스킵(cycle.health 실패 기록), active 오더 있으면 스킵.
+let _autoCycleTimer: NodeJS.Timeout | null = null;
+let _autoCycleBusy = false;
+async function runAutoCycleOnce() {
+  if (_autoCycleBusy) return;
+  _autoCycleBusy = true;
+  const companyDir = path.join(app.getPath('userData'), '_company');
+  try {
+    const c = loadConfig();
+    // active 오더 있으면 스킵 (오더 파이프라인이 돌고 있으면 방해 금지)
+    try { if (listActiveOrders(companyDir).length > 0) { writeCycleHealth(companyDir, true); return; } } catch { /* */ }
+    const target = await detectTarget({ base: c.llmBase, model: c.llmModel, key: geminiKey() }).catch(() => null);
+    if (!target) { writeCycleHealth(companyDir, false, 'No LLM engine detected'); return; }
+    // 컨텍스트: 회사명 + brain 노트 상위 몇 개
+    const company = c.company || '1인 기업';
+    let notesCtx = '';
+    try { const notes = allNotes(); notesCtx = notes.slice(0, 8).map((n: any) => '- ' + (n.text || '').slice(0, 120)).join('\n'); } catch { /* */ }
+    const sys = `당신은 자율적으로 운영되는 ${company}의 CEO입니다. 사용자가 자리에 없는 동안 회사를 가치 있는 방향으로 한 걸음 진전시키는 단일 작업을 결정하고 실행합니다.\n\n[회사 두뇌 노트]\n${notesCtx || '(아직 없음)'}\n\n지금 가장 가치 있는 작업 1개를 선택해서 직접 수행하세요. 한국어 마크다운으로: 선택한 작업(왜) / 실행 결과(실제 산출물) / 다음 추천.`;
+    const out = await chat(target, sys, `현재 시각: ${new Date().toLocaleString('ko-KR')}. 회사 가치를 높이는 한 걸음을 진행하세요.`, { temperature: 0.6 });
+    if (!out || !out.trim()) { writeCycleHealth(companyDir, false, 'Empty LLM response'); return; }
+    // 산출물 저장
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
+    const sessionDir = path.join(companyDir, 'sessions', `auto-${ts}`);
+    try { fs.mkdirSync(sessionDir, { recursive: true }); fs.writeFileSync(path.join(sessionDir, '_report.md'), out); } catch { /* */ }
+    writeCycleHealth(companyDir, true);
+    try { win?.webContents.send('engine:event', { kind: 'status', text: '🌙 자율 사이클 완료 — 산출물 저장됨' }); } catch { /* */ }
+  } catch (e: any) {
+    writeCycleHealth(companyDir, false, e?.message || String(e));
+  } finally {
+    _autoCycleBusy = false;
+  }
+}
+// cycle.health/cycle.alert 기록 (cycle.js와 호환 형식)
+function writeCycleHealth(companyDir: string, ok: boolean, reason?: string) {
+  try {
+    const healthFile = path.join(companyDir, 'cycle.health');
+    let prev: any = { ok: true, consecutiveFailures: 0 };
+    try { prev = JSON.parse(fs.readFileSync(healthFile, 'utf-8')); } catch { /* */ }
+    const consecutiveFailures = ok ? 0 : (prev.consecutiveFailures || 0) + 1;
+    fs.writeFileSync(healthFile, JSON.stringify({ ok, ts: Date.now(), reason: ok ? undefined : (reason || '').slice(0, 500), consecutiveFailures }, null, 2));
+    const alertFile = path.join(companyDir, 'cycle.alert');
+    if (consecutiveFailures >= 3) { fs.writeFileSync(alertFile, JSON.stringify({ ts: Date.now(), consecutiveFailures, lastReason: reason })); }
+    else if (ok && fs.existsSync(alertFile)) { try { fs.unlinkSync(alertFile); } catch { /* */ } }
+  } catch { /* */ }
+}
+function scheduleAutoCycle() {
+  const start = () => {
+    const c = loadConfig();
+    if (c.autoCycleEnabled === false) return;   // 명시적 OFF 면 안 함 (기본 ON)
+    if (_autoCycleTimer) clearInterval(_autoCycleTimer);
+    _autoCycleTimer = setInterval(() => { runAutoCycleOnce().catch(() => {}); }, 30 * 60 * 1000);   // 30분
+  };
+  start();
+  setInterval(() => {   // 설정 토글 반영 (5분마다 재확인)
+    const c = loadConfig();
+    if (c.autoCycleEnabled === false && _autoCycleTimer) { clearInterval(_autoCycleTimer); _autoCycleTimer = null; }
+    else if (c.autoCycleEnabled !== false && !_autoCycleTimer) start();
+  }, 5 * 60 * 1000);
+}
 
 // 📺 YouTube — Data API(채널·영상) + Analytics(OAuth)
 ipcMain.handle('youtube:get', async () => {

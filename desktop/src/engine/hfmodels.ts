@@ -4,6 +4,7 @@ import axios from 'axios';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { getSystemSpecs } from './system-specs';
 
 export interface HfModel { id: string; downloads: number; likes: number; params: string; updated: string; vision: boolean; }
 
@@ -100,3 +101,22 @@ export const RECOMMENDED: { label: string; repo: string; hint: string }[] = [
   { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형' },
   { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 똑똑함' },
 ];
+
+// v0.4.10 — RAM 기반 추천 모델 1개 반환 (welcome "모델 받기" 1-클릭용).
+// safeModelBudgetGB(전체 RAM의 0.65 또는 0.5) 기준으로 적정 모델 선택 —
+// 기존 RECOMMENDED(수동 3개 표시)와 다르게 이건 자동 1-클릭을 위한 단일 결정.
+// 32GB+ → Qwen2.5-7B(똑똑), 16GB → Llama-3.2-3B(균형), 그 미만 → Qwen2.5-1.5B(가벼움).
+export function recommendedForRam(): { label: string; repo: string; hint: string; totalGB: number; budget: number } {
+  const specs = getSystemSpecs();
+  const budget = specs.safeModelBudgetGB;
+  let pick: { label: string; repo: string; hint: string };
+  if (budget >= 12) {
+    pick = { label: 'Qwen2.5 7B', repo: 'Qwen/Qwen2.5-7B-Instruct-GGUF', hint: '4.5GB · 똑똑함' };
+  } else if (budget >= 5) {
+    pick = { label: 'Llama 3.2 3B', repo: 'bartowski/Llama-3.2-3B-Instruct-GGUF', hint: '2GB · 균형' };
+  } else {
+    pick = { label: 'Qwen2.5 1.5B', repo: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF', hint: '1GB · 가벼움' };
+  }
+  return { ...pick, totalGB: Math.round(specs.totalRamGB), budget };
+}
+

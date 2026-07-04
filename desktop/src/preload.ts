@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('connect', {
   localSetOptions: (o: any) => ipcRenderer.invoke('local:setOptions', o),
   onLocalStatus: (cb: (s: any) => void) => { const h = (_e: any, s: any) => cb(s); ipcRenderer.on('local:status', h); return () => ipcRenderer.removeListener('local:status', h); },
   hfRecommended: () => ipcRenderer.invoke('hf:recommended'),
+  recommendedForRam: () => ipcRenderer.invoke('hf:recommendedForRam'),   // v0.4.10 — RAM 맞춤 1개 (welcome 1-클릭)
   hfSearch: (q: string) => ipcRenderer.invoke('hf:search', q),
   hfFiles: (repo: string) => ipcRenderer.invoke('hf:files', repo),
   hfDownload: (repo: string, file: string) => ipcRenderer.invoke('hf:download', repo, file),
