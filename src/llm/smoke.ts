@@ -48,4 +48,10 @@ async function tryProvider(name: string, p: LLMProvider) {
   } else {
     console.log('[external] SMOKE_EXT_KIND/URL/MODEL 미설정 — 건너뜀');
   }
-})();
+})().then(() => {
+  /* axios keep-alive 소켓이 남아도 스모크 CLI는 결과 출력 후 종료한다. */
+  process.exit(0);
+}).catch((e: any) => {
+  console.error(`[smoke] FAILED: ${e?.message || e}`);
+  process.exit(1);
+});

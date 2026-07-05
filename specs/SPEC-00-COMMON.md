@@ -9,7 +9,8 @@
   (`esbuild src/extension.ts --bundle --platform=node --external:vscode --outfile=out/extension.js`)
 - HTTP 클라이언트: `axios@^1.15.0` (이미 dependencies에 있음. fetch 쓰지 말 것)
 - 소스 구조:
-  - `src/extension.ts` — 21,836줄 모놀리스. **스펙이 지정한 앵커 지점 외 절대 수정 금지**
+  - `src/extension.ts` — 약 22k줄 모놀리스. **스펙이 지정한 앵커 지점 외 절대 수정 금지**
+  - `assets/webview/dashboard.js`, `assets/webview/dashboard.css` — 회사 대시보드 웹뷰 자산. SPEC-04에서만 수정 허용
   - `src/agents.ts` — 에이전트 정의. `AGENTS` 맵, id 목록: `ceo, youtube, instagram, designer, developer, business, secretary, editor, writer, researcher`
   - `src/plaza.ts`, `src/system-specs.ts`, `src/paths.ts` — 수정 금지
 - 기존 LLM 백엔드: Ollama(`{base}/api/chat`) 와 LM Studio(`{base}/v1/chat/completions`, OpenAI 호환).

@@ -12,6 +12,11 @@
    ```bash
    npm run compile        # esbuild 번들 — 에러 0이어야 함
    ```
+   SPEC-01/02의 스모크는 별도 번들이 필요하다:
+   ```bash
+   npx esbuild src/llm/smoke.ts --bundle --platform=node --outfile=out/llm-smoke.js
+   node out/llm-smoke.js
+   ```
 4. SPEC 순서 (의존 관계):
    ```
    SPEC-01 (llm 코어 모듈)          ← 다른 파일 수정 없음. 가장 안전
@@ -34,7 +39,7 @@
 
 ## 완료 판정 (사람이 확인)
 
-- [ ] SPEC-01: `npm run compile` 통과 + `node out/llm-smoke.js` 로 Ollama 응답 수신
+- [ ] SPEC-01: `npm run compile` 통과 + `npx esbuild src/llm/smoke.ts --bundle --platform=node --outfile=out/llm-smoke.js && node out/llm-smoke.js` 로 Ollama 응답 수신
 - [ ] SPEC-02: 설정 UI에 `Connect Ai Lab › Llm` 섹션 표시 + 외부 두뇌 연결 명령 동작
 - [ ] SPEC-03: 기존 채팅·텔레그램·corporate 동작 그대로 (회귀 없음) + 외부 두뇌 미설정 시 100% 로컬
 - [ ] SPEC-04: 라우팅 보드에 슬롯/프로바이더 뱃지 표시

@@ -1,5 +1,4 @@
 /* v3.0 — LLM 모듈 공개 API. extension.ts 는 이 파일만 import 한다. */
-import * as vscode from 'vscode';
 import { getLLMSettings, getExternalApiKey, setLLMContext, registerExternalBrainCommand } from './config';
 import { routeChatWithEnv, RouteRequest, slotForAgent, resolveSlotConfigs, buildProvider } from './router';
 import { readUsage } from './usage';
@@ -8,7 +7,7 @@ import { ChatResult, LLMSlot } from './types';
 export { slotForAgent, buildProvider, resolveSlotConfigs, readUsage };
 export * from './types';
 
-export function initLLM(context: vscode.ExtensionContext) {
+export function initLLM(context: Parameters<typeof setLLMContext>[0]) {
   setLLMContext(context);
   registerExternalBrainCommand(context);
 }

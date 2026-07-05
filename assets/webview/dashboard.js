@@ -588,7 +588,7 @@ function showAgentModelRoutingModal(data){
   if (ls && ls.slots) {
     const slotBadge = (slot, icon, label) => {
       const s = ls.slots[slot];
-      if (!s) return '<div class="amr-slot empty">' + icon + ' ' + label + ': <span class="muted">⚪ 미설정</span></div>';
+      if (!s) return '<div class="amr-slot empty">' + icon + ' ' + label + ': <span class="muted">⚪ 미설정 (defaultModel 폴백)</span></div>';
       if (slot === 'external') {
         const limit = ls.externalDailyLimit > 0 ? ls.externalDailyLimit : '∞';
         return '<div class="amr-slot ext">' + icon + ' ' + label + ': <span class="ok">🔵 외부 · ' + esc(s.model) + ' · 오늘 ' + ls.externalToday + '/' + limit + '</span></div>';
@@ -600,8 +600,7 @@ function showAgentModelRoutingModal(data){
     } else {
       slotBar = slotBadge('fast','🚀','Fast') + slotBadge('worker','🏗️','Worker') + slotBadge('external','🧠','External');
     }
-    slotBar = '<div class="amr-slots" style="display:flex;gap:12px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.08);font-size:12px">' + slotBar + '</div>';
-    /* slottag 인라인 스타일 */
+    slotBar = '<div class="amr-slots">' + slotBar + '</div>';
   }
   const slotIcon = (aid) => { const sl = sa[aid]; return sl === 'fast' ? '🚀' : sl === 'external' ? '🧠' : '🏗️'; };
   const rows = agents.map(a => {

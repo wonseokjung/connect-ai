@@ -143,7 +143,8 @@ async function _quickLLMCall(systemPrompt: string, userMsg: string, maxTokens = 
    - 명령 팔레트 → `Connect AI: 🧠 외부 두뇌 연결` → 프리셋 선택·키 입력 → "연결 완료" 알림
    - 개발자 에이전트(코다리)에게 코드 작업 지시 → 응답 생성 (외부 모델 사용)
    - 네트워크를 끊고 같은 지시 → 로컬 모델로 자동 폴백해 응답 (콘솔에 `[llm:router] external... 실패 → 다음 폴백 시도` 로그)
-4. `grep -c "routeChat" src/extension.ts` → 정확히 2 (수정 3, 수정 4 각 1회)
+4. `LC_ALL=C rg --text -c "routeChat\\(\\{" src/extension.ts` → 정확히 2 (수정 3, 수정 4 각 1회)
+   - `src/extension.ts`에는 NUL 문자를 포함한 기존 정규식 리터럴이 있어 일반 `rg`가 binary로 오인할 수 있으므로 `--text`를 붙인다.
 
 ## 완료 기준
 - [ ] extension.ts 수정은 위 4곳뿐 (`git diff --stat`으로 확인: extension.ts 1개 파일, +약 60줄 / -약 15줄)

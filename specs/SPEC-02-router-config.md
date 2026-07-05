@@ -342,7 +342,6 @@ export async function routeChatWithEnv(env: RouterEnv, req: RouteRequest): Promi
 
 ```ts
 /* v3.0 — LLM 모듈 공개 API. extension.ts 는 이 파일만 import 한다. */
-import * as vscode from 'vscode';
 import { getLLMSettings, getExternalApiKey, setLLMContext, registerExternalBrainCommand } from './config';
 import { routeChatWithEnv, RouteRequest, slotForAgent, resolveSlotConfigs, buildProvider } from './router';
 import { readUsage } from './usage';
@@ -351,7 +350,7 @@ import { ChatResult, LLMSlot } from './types';
 export { slotForAgent, buildProvider, resolveSlotConfigs, readUsage };
 export * from './types';
 
-export function initLLM(context: vscode.ExtensionContext) {
+export function initLLM(context: Parameters<typeof setLLMContext>[0]) {
   setLLMContext(context);
   registerExternalBrainCommand(context);
 }
@@ -438,7 +437,7 @@ export async function getLLMStatus() {
 ## 검증 절차
 1. `npm run compile` → 에러 0
 2. `node -e "JSON.parse(require('fs').readFileSync('package.json','utf8')); console.log('json ok')"` → `json ok`
-3. `grep -n "from 'vscode'" src/llm/*.ts` → **config.ts 와 index.ts 두 파일에서만** 나와야 함
+3. `grep -n "from 'vscode'" src/llm/*.ts` → **config.ts 에서만** 나와야 함
 4. `npx esbuild src/llm/smoke.ts --bundle --platform=node --outfile=out/llm-smoke.js && node out/llm-smoke.js` → SPEC-01과 동일하게 통과 (라우터 추가로 깨지지 않았는지)
 
 ## 완료 기준
