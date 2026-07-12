@@ -7,3 +7,8 @@ preview.html
 releases/
 .env
 *.bak.*
+
+# Researcher tool seeds — user-specific config (contains API keys)
+assets/tool-seeds/researcher/web_search.json
+assets/tool-seeds/researcher/web_search_report.md
+assets/tool-seeds/researcher/__pycache__/

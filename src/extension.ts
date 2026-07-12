@@ -6584,7 +6584,7 @@ const AGENT_TOOLS_CATALOG: Record<string, { tool: string; desc: string; planned?
         { tool: 'hook_library', desc: '후크·CTA 라이브러리 운영', planned: true }
     ],
     researcher: [
-        { tool: 'web_search', desc: 'Brave/DuckDuckGo 검색 (Connected)', planned: true },
+        { tool: 'web_search', desc: 'You.com Search API — 실시간 웹 검색 (트렌드·경쟁사·사실 확인)' },
         { tool: 'page_fetcher', desc: '본문 추출 + 출처 인용', planned: true },
         { tool: 'monitor_daily', desc: '매일 내 분야 뉴스 → CEO 브리핑', planned: true }
     ]
