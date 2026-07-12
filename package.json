@@ -304,6 +304,11 @@
           "default": "09:00",
           "description": "📋 매일 자동 데일리 브리핑 발사 시각 (HH:MM, 24시간 형식). 비워두거나 'off'로 설정하면 자동 발사 안 함. 텔레그램으로 오늘 일정·할 일·어제 회사 활동 카드가 전송됩니다."
         },
+        "connectAiLab.youComApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "🔍 You.com Search API 키 — researcher 에이전트의 웹 검색 기능에 사용. https://api.you.com/apiKey 에서 무료로 발급."
+        },
         "connectAiLab.secretaryBridgeMode": {
           "type": "string",
           "enum": ["off", "output_only", "full"],
