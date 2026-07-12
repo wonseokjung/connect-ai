@@ -38,7 +38,7 @@ export async function youComSearch(
     throw new Error('You.com API key not configured. Set connectAiLab.youComApiKey in VS Code settings.');
   }
 
-  const url = `https://api.you.com/web?query=${encodeURIComponent(query)}`;
+  const url = `https://api.you.com/v1/search?query=${encodeURIComponent(query)}`;
 
   const response = await fetch(url, {
     headers: {
@@ -57,11 +57,23 @@ export async function youComSearch(
 
   const data = await response.json() as any;
 
-  // Parse You.com's response format
-  // The API returns results in different shapes depending on version
+  // Parse You.com /v1/search response format: { results: { web: [], news: [] } }
   const results: YouComSearchResult[] = [];
 
-  if (Array.isArray(data)) {
+  if (data.results) {
+    // /v1/search format: results.web and results.news
+    const webResults = data.results.web || [];
+    const newsResults = data.results.news || [];
+    const combined = [...webResults, ...newsResults];
+    for (const item of combined.slice(0, 10)) {
+      results.push({
+        title: item.title || 'Untitled',
+        url: item.url || '',
+        description: item.description || '',
+        snippet: Array.isArray(item.snippets) ? item.snippets[0] : (item.snippet || ''),
+      });
+    }
+  } else if (Array.isArray(data)) {
     // Direct array of results
     for (const item of data.slice(0, 10)) {
       results.push({
@@ -78,16 +90,6 @@ export async function youComSearch(
         title: item.title || item.name || 'Untitled',
         url: item.url || item.link || item.href || item.objectID || '',
         description: item.description || item.snippet || item.content || '',
-        snippet: item.snippet || '',
-      });
-    }
-  } else if (data.results && Array.isArray(data.results)) {
-    // Explicit results field
-    for (const item of data.results.slice(0, 10)) {
-      results.push({
-        title: item.title || 'Untitled',
-        url: item.url || '',
-        description: item.description || '',
         snippet: item.snippet || '',
       });
     }

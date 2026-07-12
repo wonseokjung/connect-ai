@@ -27,10 +27,11 @@ def _load(p):
 
 def _youcom_search(query, api_key, max_results=10):
     """Call You.com Search API and return list of result dicts."""
-    url = f"https://api.you.com/web?query={urllib.parse.quote(query)}"
+    url = f"https://api.you.com/v1/search?query={urllib.parse.quote(query)}"
     req = urllib.request.Request(url, headers={
         "X-API-Key": api_key,
         "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (compatible; ConnectAI/1.0)",
     })
     try:
         with urllib.request.urlopen(req, timeout=15) as resp:
@@ -46,14 +47,20 @@ def _youcom_search(query, api_key, max_results=10):
         sys.exit(1)
 
     results = []
-    raw = data if isinstance(data, list) else data.get("results", data.get("hits", []))
-    for item in raw[:max_results]:
+    # /v1/search returns { results: { web: [], news: [] } }
+    raw_results = data.get("results", {}) if isinstance(data, dict) else {}
+    web_results = raw_results.get("web", []) if isinstance(raw_results, dict) else []
+    news_results = raw_results.get("news", []) if isinstance(raw_results, dict) else []
+    combined = (web_results + news_results)[:max_results]
+    for item in combined:
         if isinstance(item, dict):
+            snippets = item.get("snippets", [])
+            snippet = snippets[0] if isinstance(snippets, list) and snippets else item.get("snippet", "")
             results.append({
                 "title": item.get("title", "Untitled"),
-                "url": item.get("url", item.get("link", "")),
-                "description": item.get("description", item.get("snippet", "")),
-                "snippet": item.get("snippet", ""),
+                "url": item.get("url", ""),
+                "description": item.get("description", ""),
+                "snippet": snippet,
             })
     return results
 
